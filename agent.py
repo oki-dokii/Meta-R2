@@ -28,7 +28,7 @@ class LifeStackAgent:
                 base_url='https://api.groq.com/openai/v1',
                 api_key=self.api_key
             )
-        self.model = 'llama-3.3-70b-versatile'
+        self.model = 'llama-3.1-8b-instant'  # 500k TPD on free tier (vs 100k for 70b)
         self.memory = [] # Will store last 10 decisions
 
     def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson) -> str:
@@ -97,12 +97,29 @@ SCHEMA:
         prompt = self.build_prompt(metrics, budget, conflict, person)
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=600
-            )
+            for attempt in range(3):  # Up to 3 retries on rate limit
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                        max_tokens=350
+                    )
+                    break  # Success
+                except Exception as e:
+                    err = str(e)
+                    if "429" in err and attempt < 2:
+                        import re, time
+                        wait_match = re.search(r'try again in (\d+)m([\d.]+)s', err)
+                        if wait_match:
+                            wait_secs = int(wait_match.group(1)) * 60 + float(wait_match.group(2))
+                        else:
+                            wait_secs = 30
+                        wait_secs = min(wait_secs, 120)  # Cap at 2 min
+                        print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.0f}s before retry {attempt+2}/3...")
+                        time.sleep(wait_secs)
+                    else:
+                        raise  # Re-raise if not 429 or out of retries
             
             content = response.choices[0].message.content.strip()
             
