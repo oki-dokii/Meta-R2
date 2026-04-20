@@ -15,6 +15,8 @@ matplotlib.use("Agg")  # Non-interactive backend — safe for headless runs
 import matplotlib.pyplot as plt
 
 from run_episode import run_episode
+from memory import LifeStackMemory
+from agent import LifeStackAgent
 
 
 # ---------------------------------------------------------------------------
@@ -64,11 +66,18 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     print(f"  LIFESTACK TRAINING — {n_episodes} EPISODES")
     print(f"{'═' * 50}\n")
 
+    # Initialize shared instances once — avoids reloading model weights each episode
+    print("  Initializing shared agent and memory (one-time load)...")
+    shared_memory = LifeStackMemory()
+    shared_agent  = LifeStackAgent()
+    print("  ✅ Ready.\n")
+
     for ep in range(1, n_episodes + 1):
         difficulty = _difficulty_for_episode(ep)
 
-        # Run episode silently
-        result = run_episode(difficulty=difficulty, verbose=False)
+        # Run episode with shared memory + agent
+        result = run_episode(difficulty=difficulty, verbose=False,
+                             memory=shared_memory, agent=shared_agent)
 
         total_reward = result["total_reward"]
         rewards.append(total_reward)

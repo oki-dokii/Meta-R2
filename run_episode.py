@@ -20,9 +20,20 @@ from reward import compute_reward
 import copy
 
 
-def run_episode(difficulty: int = None, verbose: bool = True) -> dict:
+def run_episode(
+    difficulty: int = None,
+    verbose: bool = True,
+    memory: "LifeStackMemory" = None,
+    agent: "LifeStackAgent" = None,
+) -> dict:
     """
     Runs one full LifeStack episode.
+
+    Args:
+        memory: Optional shared LifeStackMemory instance (avoids re-loading the
+                sentence-transformer model on every episode).
+        agent:  Optional shared LifeStackAgent instance (avoids re-creating the
+                Groq client on every episode).
 
     Returns:
         summary dict with total_reward, steps, final_metrics, conflicts_seen
@@ -31,8 +42,10 @@ def run_episode(difficulty: int = None, verbose: bool = True) -> dict:
     # 1. SETUP
     # --------------------------------------------------
     env = LifeStackEnv()
-    agent = LifeStackAgent()
-    memory = LifeStackMemory()
+    if agent is None:
+        agent = LifeStackAgent()
+    if memory is None:
+        memory = LifeStackMemory()
 
     # Pick a SimPerson from a diverse pool
     person_pool = [
