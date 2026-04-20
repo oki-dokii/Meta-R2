@@ -1,0 +1,42 @@
+[
+    {
+        "name": "Alex (High-Stress Executive)",
+        "openness": 0.4,
+        "conscientiousness": 0.9,
+        "extraversion": 0.7,
+        "agreeableness": 0.25,
+        "neuroticism": 0.8
+    },
+    {
+        "name": "Chloe (Laid-Back Creative)",
+        "openness": 0.9,
+        "conscientiousness": 0.2,
+        "extraversion": 0.5,
+        "agreeableness": 0.7,
+        "neuroticism": 0.15
+    },
+    {
+        "name": "Sam (Anxious Introvert)",
+        "openness": 0.5,
+        "conscientiousness": 0.6,
+        "extraversion": 0.1,
+        "agreeableness": 0.65,
+        "neuroticism": 0.9
+    },
+    {
+        "name": "Maya (Balanced Family Person)",
+        "openness": 0.5,
+        "conscientiousness": 0.7,
+        "extraversion": 0.5,
+        "agreeableness": 0.95,
+        "neuroticism": 0.3
+    },
+    {
+        "name": "Leo (Ambitious Student)",
+        "openness": 0.85,
+        "conscientiousness": 0.8,
+        "extraversion": 0.4,
+        "agreeableness": 0.4,
+        "neuroticism": 0.55
+    }
+]

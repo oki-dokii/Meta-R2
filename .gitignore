@@ -1,0 +1,4 @@
+.env
+__pycache__/
+lifestack_memory/
+*.pyc

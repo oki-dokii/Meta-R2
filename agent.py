@@ -1,0 +1,196 @@
+import os
+import json
+import copy
+from openai import OpenAI
+from life_state import LifeMetrics, ResourceBudget
+from conflict_generator import ConflictEvent, generate_conflict
+from action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
+from simperson import SimPerson
+
+class LifeStackAgent:
+    def __init__(self):
+        self.api_key = os.getenv('GROQ_API_KEY')
+        
+        # Fallback to .env file if env var is missing
+        if not self.api_key and os.path.exists('.env'):
+            try:
+                with open('.env') as f:
+                    for line in f:
+                        if line.startswith('GROQ_API_KEY='):
+                            self.api_key = line.split('=', 1)[1].strip()
+                            break
+            except Exception:
+                pass
+
+        self.client = None
+        if self.api_key:
+            self.client = OpenAI(
+                base_url='https://api.groq.com/openai/v1',
+                api_key=self.api_key
+            )
+        self.model = 'llama-3.3-70b-versatile'
+        self.memory = [] # Will store last 10 decisions
+
+    def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson) -> str:
+        # 1. Build Status Board
+        flat = metrics.flatten()
+        status_board = ""
+        domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
+        
+        for dom in domains:
+            status_board += f"\n{dom.upper()}:\n"
+            submetrics = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
+            for k, v in submetrics.items():
+                name = k.split('.')[1]
+                icon = "🟢" if v > 70 else ("🟡" if v >= 40 else "🔴")
+                status_board += f"  {icon} {name:20}: {v:.1f}\n"
+
+        # 2. Build Memory Section
+        memory_str = ""
+        if self.memory:
+            recent = self.memory[-2:]
+            memory_str = "\n--- RECENT HISTORY ---\n"
+            for mem in recent:
+                memory_str += f"Past decision that worked: [{mem['action']}] → reward [{mem['reward']}]\n"
+
+        prompt = f"""
+ROLE: You are the LifeStack AI Agent. Your goal is to help the user navigate a life crisis.
+PERSONALITY CONTEXT: {person.get_personality_hint()}
+
+CURRENT CONFLICT:
+Title: {conflict.title}
+Story: {conflict.story}
+
+--- LIFE STATUS BOARD ---
+{status_board}
+
+--- RESOURCES REMAINING ---
+Time: {budget.time_hours:.1f} hours
+Money: ${budget.money_dollars:.1f}
+Energy: {budget.energy_units:.1f} units
+{memory_str}
+
+TASK:
+Choose the best action to address the conflict. Consider the person's personality and resource constraints.
+Respond ONLY with valid JSON following the schema below. No markdown fences, no extra text.
+
+SCHEMA:
+{{
+  "action_type": "communicate|rest|delegate|negotiate|spend|reschedule|deprioritize",
+  "target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time",
+  "metric_changes": {{"domain.submetric": "delta_value"}},
+  "resource_cost": {{"time": 0.0, "money": 0.0, "energy": 0.0}},
+  "description": "one sentence what you are doing",
+  "recipient": "boss|partner|family|friend|colleague|none",
+  "message_type": "apologize|negotiate|inform|request|reassure|none",
+  "tone": "formal|warm|urgent|calm|assertive|none",
+  "message_content": "actual message text or empty string",
+  "reasoning": "why this action helps most given the personality and resources"
+}}
+"""
+        return prompt
+
+    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson) -> AgentAction:
+        if not self.api_key:
+            return self._fallback_action("Error: GROQ_API_KEY not set.")
+
+        prompt = self.build_prompt(metrics, budget, conflict, person)
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=600
+            )
+            
+            content = response.choices[0].message.content.strip()
+            
+            # Clean possible markdown fences
+            if content.startswith("```json"):
+                content = content[7:-3].strip()
+            elif content.startswith("```"):
+                content = content[3:-3].strip()
+                
+            data = json.loads(content)
+            
+            # Build structures
+            primary = PrimaryAction(
+                action_type=data.get("action_type", "rest"),
+                target_domain=data.get("target_domain", "mental_wellbeing"),
+                metric_changes=data.get("metric_changes", {}),
+                resource_cost=data.get("resource_cost", {}),
+                description=data.get("description", "Taking a moment to breathe.")
+            )
+            
+            comm = None
+            if data.get("recipient") and data.get("recipient") != "none":
+                comm = CommunicationAction(
+                    recipient=data["recipient"],
+                    message_type=data.get("message_type", "inform"),
+                    tone=data.get("tone", "calm"),
+                    content=data.get("message_content", "")
+                )
+                
+            return AgentAction(
+                primary=primary,
+                communication=comm,
+                reasoning=data.get("reasoning", "Decided to rest due to high pressure.")
+            )
+            
+        except Exception as e:
+            print(f"Error calling LLM or parsing response: {e}")
+            return self._fallback_action(f"Exception: {str(e)}")
+
+    def _fallback_action(self, error_msg: str) -> AgentAction:
+        return AgentAction(
+            primary=PrimaryAction(
+                action_type="rest", target_domain="mental_wellbeing",
+                metric_changes={"mental_wellbeing.stress_level": -5.0},
+                resource_cost={},
+                description="Short breather to regain composure."
+            ),
+            reasoning=f"FALLBACK: {error_msg}"
+        )
+
+    def store_decision(self, action: AgentAction, reward: float):
+        self.memory.append({
+            'action': action.primary.description,
+            'reward': round(reward, 3)
+        })
+        if len(self.memory) > 10:
+            self.memory.pop(0)
+
+def main():
+    if not os.getenv('GROQ_API_KEY'):
+        print("CRITICAL ERROR: GROQ_API_KEY environment variable is not set.")
+        return
+
+    # Initialize components
+    agent = LifeStackAgent()
+    person = SimPerson(name="Sam (Introvert)", openness=0.5, conscientiousness=0.6, extraversion=0.1, agreeableness=0.65, neuroticism=0.9)
+    conflict = generate_conflict(difficulty=3)
+    metrics = LifeMetrics()
+    budget = ResourceBudget()
+    
+    print(f"--- GENERATING ACTION FOR: {conflict.title} ---")
+    print(f"Context: {conflict.story}")
+    print(f"Human: {person.get_personality_hint()}")
+    
+    # Get Decision
+    action = agent.get_action(metrics, budget, conflict, person)
+    
+    print("\n--- AGENT DECISION ---")
+    print(f"Type:      {action.primary.action_type}")
+    print(f"Domain:    {action.primary.target_domain}")
+    print(f"Description: {action.primary.description}")
+    print(f"Cost:      {action.primary.resource_cost}")
+    print(f"Changes:   {action.primary.metric_changes}")
+    
+    if action.communication:
+        print(f"Message:   [{action.communication.recipient}] ({action.communication.tone}) {action.communication.content}")
+        
+    print(f"\nReasoning: {action.reasoning}")
+
+if __name__ == "__main__":
+    main()
