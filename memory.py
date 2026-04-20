@@ -8,11 +8,13 @@ from collections import defaultdict
 
 
 class LifeStackMemory:
-    def __init__(self):
+    def __init__(self, silent: bool = False):
         self.client = chromadb.PersistentClient(path='./lifestack_memory')
         self.collection = self.client.get_or_create_collection(name='decisions')
         self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
-        print("Memory system initialized")
+        self.silent = silent
+        if not self.silent:
+            print("Memory system initialized")
 
     def store_decision(
         self,
@@ -25,7 +27,8 @@ class LifeStackMemory:
     ) -> None:
         """Only stores high-reward decisions (reward >= 0.5) for good example learning."""
         if reward < 0.5:
-            print(f"Skipped (low reward {reward:.2f}): {action_type} → {target_domain}")
+            if not self.silent:
+                print(f"Skipped (low reward {reward:.2f}): {action_type} → {target_domain}")
             return
 
         text = f"{conflict_title} {action_type} {target_domain} {reasoning[:100]}"
@@ -45,7 +48,8 @@ class LifeStackMemory:
                 "timestamp": datetime.now().isoformat()
             }]
         )
-        print(f"Stored decision: {action_type} → {target_domain} (reward: {reward:.2f})")
+        if not self.silent:
+            print(f"Stored decision: {action_type} → {target_domain} (reward: {reward:.2f})")
 
     def retrieve_similar(self, conflict_title: str, current_metrics: dict, n: int = 3) -> list[dict]:
         """Retrieves the n most similar past high-reward decisions using semantic search."""

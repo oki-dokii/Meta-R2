@@ -68,7 +68,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
 
     # Initialize shared instances once — avoids reloading model weights each episode
     print("  Initializing shared agent and memory (one-time load)...")
-    shared_memory = LifeStackMemory()
+    shared_memory = LifeStackMemory(silent=True)  # suppress per-decision spam
     shared_agent  = LifeStackAgent()
     print("  ✅ Ready.\n")
 
@@ -92,15 +92,14 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
         }
         episode_log.append(record)
 
-        # Progress print every 5 episodes
-        if ep % 5 == 0 or ep == 1:
-            mem_count = result["memory_stats"]["total_memories"]
-            print(
-                f"  Episode {ep:>3}/{n_episodes} | "
-                f"Reward: {total_reward:.3f} | "
-                f"Difficulty: {difficulty} | "
-                f"Memories: {mem_count}"
-            )
+        # Progress: print every episode
+        mem_count = result["memory_stats"]["total_memories"]
+        print(
+            f"  Episode {ep:>3}/{n_episodes} | "
+            f"Reward: {total_reward:.3f} | "
+            f"Difficulty: {difficulty} | "
+            f"Memories: {mem_count}"
+        )
 
     # ------------------------------------------------------------------
     # Phase averages

@@ -129,7 +129,7 @@ SCHEMA:
                         _t.sleep(wait_secs)
                     else:
                         raise  # Re-raise if not 429 or out of retries
-            _t.sleep(3)  # Pace requests to stay under 6000 TPM (~1100 tokens × 20 calls/min = OK)
+            _t.sleep(1)  # Light throttle — retry logic handles actual TPM limits
             content = response.choices[0].message.content.strip()
             
             # Clean possible markdown fences
