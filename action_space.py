@@ -67,8 +67,11 @@ def apply_action(action: AgentAction, metrics: LifeMetrics, budget: ResourceBudg
         current = getattr(domain, sub_name)
         
         # Scale the benefit/cost by the person's receptiveness
-        scaled_delta = delta * uptake_score
-        setattr(domain, sub_name, max(0.0, min(100.0, current + scaled_delta)))
+        try:
+            scaled_delta = float(delta) * uptake_score
+            setattr(domain, sub_name, max(0.0, min(100.0, current + scaled_delta)))
+        except ValueError:
+            print(f"  ⚠️  Skipping metric change due to invalid delta value: '{delta}'")
         
     # 4. Deduct resources (Fixed cost, doesn't scale with uptake)
     new_budget = copy.deepcopy(budget)

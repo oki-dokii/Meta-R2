@@ -114,12 +114,27 @@ SCHEMA:
                 
             data = json.loads(content)
             
+            # Cast values to float in case the LLM returned strings
+            metric_changes = data.get("metric_changes", {})
+            for k, v in list(metric_changes.items()):
+                try:
+                    metric_changes[k] = float(v)
+                except ValueError:
+                    del metric_changes[k]
+                    
+            resource_cost = data.get("resource_cost", {})
+            for k, v in list(resource_cost.items()):
+                try:
+                    resource_cost[k] = float(v)
+                except ValueError:
+                    resource_cost[k] = 0.0
+            
             # Build structures
             primary = PrimaryAction(
                 action_type=data.get("action_type", "rest"),
                 target_domain=data.get("target_domain", "mental_wellbeing"),
-                metric_changes=data.get("metric_changes", {}),
-                resource_cost=data.get("resource_cost", {}),
+                metric_changes=metric_changes,
+                resource_cost=resource_cost,
                 description=data.get("description", "Taking a moment to breathe.")
             )
             
