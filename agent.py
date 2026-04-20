@@ -111,17 +111,25 @@ SCHEMA:
                     err = str(e)
                     if "429" in err and attempt < 2:
                         import re
-                        wait_match = re.search(r'try again in (\d+)m([\d.]+)s', err)
-                        if wait_match:
-                            wait_secs = int(wait_match.group(1)) * 60 + float(wait_match.group(2))
+                        # Handle formats: "2m10.5s", "10.5s", "240ms"
+                        wait_secs = 30  # default
+                        m = re.search(r'try again in (\d+)m([\d.]+)s', err)
+                        if m:
+                            wait_secs = int(m.group(1)) * 60 + float(m.group(2))
                         else:
-                            wait_secs = 30
-                        wait_secs = min(wait_secs, 120)  # Cap at 2 min
-                        print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.0f}s before retry {attempt+2}/3...")
+                            m = re.search(r'try again in ([\d.]+)s', err)
+                            if m:
+                                wait_secs = float(m.group(1))
+                            else:
+                                m = re.search(r'try again in ([\d.]+)ms', err)
+                                if m:
+                                    wait_secs = float(m.group(1)) / 1000.0
+                        wait_secs = max(0.5, min(wait_secs + 0.5, 120))  # add 0.5s buffer, cap at 2min
+                        print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.1f}s before retry {attempt+2}/3...")
                         _t.sleep(wait_secs)
                     else:
                         raise  # Re-raise if not 429 or out of retries
-            _t.sleep(2)  # Pace requests to stay under 6000 TPM
+            _t.sleep(3)  # Pace requests to stay under 6000 TPM (~1100 tokens × 20 calls/min = OK)
             content = response.choices[0].message.content.strip()
             
             # Clean possible markdown fences
