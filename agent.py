@@ -125,6 +125,9 @@ SCHEMA:
                                 if m:
                                     wait_secs = float(m.group(1)) / 1000.0
                         wait_secs = max(0.5, min(wait_secs + 0.5, 120))  # add 0.5s buffer, cap at 2min
+                        if wait_secs > 5.0:
+                            print(f"  ⏳ Rate limit wait too long ({wait_secs:.1f}s). Executing fallback...")
+                            return self._fallback_action(f"Rate limited (wait: {wait_secs:.1f}s)")
                         print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.1f}s before retry {attempt+2}/3...")
                         _t.sleep(wait_secs)
                     else:

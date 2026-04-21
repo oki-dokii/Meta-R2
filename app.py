@@ -20,12 +20,14 @@ from conflict_generator import ConflictEvent, generate_conflict, TEMPLATES
 from action_space import apply_action, validate_action
 from memory import LifeStackMemory
 from reward import compute_reward
+from intake import LifeIntake
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
 
 AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
+INTAKE = LifeIntake()
 
 # Friday 6PM is always the default demo conflict
 DEMO_CONFLICT = next(t for t in TEMPLATES if t.id == "d5_friday")
@@ -43,7 +45,10 @@ PERSONS = {
         SimPerson(openness=0.85, conscientiousness=0.8, extraversion=0.4, agreeableness=0.4,  neuroticism=0.55, name="Leo (Student)"),
 }
 
-CONFLICT_CHOICES = {f"[Diff {t.difficulty}] {t.title}": t for t in TEMPLATES}
+CONFLICT_CHOICES      = {f"[Diff {t.difficulty}] {t.title}": t for t in TEMPLATES}
+PERSON_CHOICES        = list(PERSONS.keys())
+CONFLICT_CHOICES_LIST = list(CONFLICT_CHOICES.keys())
+DEFAULT_CONFLICT      = next(k for k in CONFLICT_CHOICES_LIST if "Friday 6PM" in k)
 
 print("✅ LifeStack ready.")
 
@@ -52,12 +57,6 @@ DOMAIN_EMOJI = {
     "career": "💼", "finances": "💰", "relationships": "❤️",
     "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅",
 }
-
-def _bar(value: float, width: int = 22) -> str:
-    filled = int(round(value / 100 * width))
-    bar    = "█" * filled + "░" * (width - filled)
-    icon   = "🟢" if value > 70 else ("🟡" if value >= 40 else "🔴")
-    return f"{icon} {bar} {value:5.1f}"
 
 def metrics_html(flat: dict, title: str = "", before: dict = None) -> str:
     """Render metrics as coloured progress bars.
@@ -76,13 +75,12 @@ def metrics_html(flat: dict, title: str = "", before: dict = None) -> str:
             color = "#4ade80" if val > 70 else ("#facc15" if val >= 40 else "#f87171")
             pct   = min(val, 100)
 
-            # Delta annotation
             delta_str = ""
             if before is not None and key in before:
                 delta = val - before[key]
                 if abs(delta) > 1.0:
-                    arrow  = "↑" if delta > 0 else "↓"
-                    dc     = "#4ade80" if delta > 0 else "#f87171"
+                    arrow = "↑" if delta > 0 else "↓"
+                    dc    = "#4ade80" if delta > 0 else "#f87171"
                     delta_str = (
                         f"<span style='font-size:10px;color:{dc};margin-left:4px;font-weight:700'>"
                         f"{arrow} ({delta:+.1f})</span>"
@@ -112,19 +110,15 @@ def run_demo(person_label: str, conflict_label: str):
     conflict = CONFLICT_CHOICES[conflict_label]
     person   = PERSONS[person_label]
 
-    # Fresh metrics & budget (post-conflict disruption applied)
-    env         = _init_env(conflict)
+    env            = _init_env(conflict)
     before_metrics = copy.deepcopy(env.state)
     before_budget  = copy.deepcopy(env.budget)
     before_flat    = before_metrics.flatten()
     before_html    = metrics_html(before_flat, "BEFORE")
 
-    # Agent decides
     action = AGENT.get_action(before_metrics, before_budget, conflict, person)
 
-    # ── Fix malformed keys from LLM ──────────────────────────────────────────
-    # LLM sometimes returns "workload" instead of "career.workload".
-    # apply_action() skips keys without a "." so we must normalise first.
+    # Normalise metric keys
     fixed_changes = {}
     for path, delta in action.primary.metric_changes.items():
         if "." not in str(path):
@@ -135,20 +129,21 @@ def run_demo(person_label: str, conflict_label: str):
             pass
     action.primary.metric_changes = fixed_changes
 
-    # Apply action via apply_action() — returns updated metrics + budget
+    is_valid, _ = validate_action(action, before_budget)
+    if not is_valid:
+        action.primary.metric_changes = {"mental_wellbeing.stress_level": -5.0}
+        action.primary.resource_cost  = {}
+
     updated_metrics, updated_budget, uptake = apply_action(
         action, before_metrics, before_budget, person
     )
 
-    after_flat  = updated_metrics.flatten()
-    # Pass before_flat so AFTER column highlights what changed
-    after_html  = metrics_html(after_flat, "AFTER", before=before_flat)
+    after_flat = updated_metrics.flatten()
+    after_html = metrics_html(after_flat, "AFTER", before=before_flat)
 
-    # Compute reward from updated state
     reward_tuple = compute_reward(before_metrics, updated_metrics, action.primary.resource_cost, 1)
     reward = reward_tuple[0] if isinstance(reward_tuple, tuple) else reward_tuple
 
-    # Build decision card
     comm_block = ""
     if action.communication:
         comm_block = (
@@ -158,7 +153,7 @@ def run_demo(person_label: str, conflict_label: str):
         )
 
     cost = action.primary.resource_cost
-    cost_str = f"⏱ {cost.get('time',0):.1f}h · 💵 ${cost.get('money',0):.0f} · ⚡ {cost.get('energy',0):.0f}"
+    cost_str    = f"⏱ {cost.get('time',0):.1f}h · 💵 ${cost.get('money',0):.0f} · ⚡ {cost.get('energy',0):.0f}"
     reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
 
     decision_html = f"""
@@ -181,62 +176,90 @@ def run_demo(person_label: str, conflict_label: str):
     return before_html, after_html, decision_html
 
 
-# ─── Tab 2 — Try Your Situation ───────────────────────────────────────────────
-def run_custom(situation: str, work_stress: int, money_stress: int, relationship_q: int, energy: int, person_label: str):
-    # Map sliders → metric disruption
-    disruption = {
-        "career.workload":                  work_stress * 3.0,
-        "mental_wellbeing.stress_level":    work_stress * 2.5,
-        "finances.liquidity":              -money_stress * 4.0,
-        "relationships.romantic":          (relationship_q - 5) * 4.0,
-        "physical_health.energy":           energy * 5.0 - 50,
-    }
-
-    conflict = ConflictEvent(
-        id="custom",
-        title="Your Situation",
-        story=situation or "Feeling overwhelmed and unsure what to do.",
-        primary_disruption=disruption,
-        decisions_required=["Take action", "Seek help", "Rest"],
-        resource_budget={"time": 10.0, "money": 200.0, "energy": 50.0},
-        difficulty=3,
+# ─── Tab 2 — Try Your Situation (intake-powered) ─────────────────────────────
+def run_custom(situation: str, work_stress: int, money_stress: int,
+               relationship_q: int, energy: int, time_pressure: int):
+    """Uses LifeIntake to extract structured conflict + personality from NL + sliders."""
+    metrics, budget, conflict, personality = INTAKE.full_intake(
+        situation, work_stress, money_stress, relationship_q, energy, time_pressure
     )
 
-    person = PERSONS[person_label]
-    env    = _init_env(conflict)
-    life_html = metrics_html(env.state.flatten(), "YOUR LIFE RIGHT NOW")
+    person = SimPerson(
+        name=personality.get("name", "You"),
+        openness=personality.get("openness", 0.5),
+        conscientiousness=personality.get("conscientiousness", 0.5),
+        extraversion=personality.get("extraversion", 0.5),
+        agreeableness=personality.get("agreeableness", 0.5),
+        neuroticism=personality.get("neuroticism", 0.5),
+    )
 
-    action = AGENT.get_action(env.state, env.budget, conflict, person)
+    life_html = (
+        "<div style='font-family:sans-serif;font-size:13px;color:#a78bfa;"
+        "padding:8px 8px 4px;font-style:italic'>"
+        "Based on what you described, here is how your life looks right now:"
+        "</div>"
+        + metrics_html(metrics.flatten(), "YOUR LIFE RIGHT NOW")
+    )
 
-    is_valid, _ = validate_action(action, env.budget)
+    action = AGENT.get_action(metrics, budget, conflict, person)
+
+    fixed = {}
+    for path, delta in action.primary.metric_changes.items():
+        if "." not in str(path):
+            path = f"{action.primary.target_domain}.{path}"
+        try:
+            fixed[path] = float(delta)
+        except (ValueError, TypeError):
+            pass
+    action.primary.metric_changes = fixed
+
+    is_valid, _ = validate_action(action, budget)
     if not is_valid:
         action.primary.metric_changes = {"mental_wellbeing.stress_level": -5.0}
         action.primary.resource_cost  = {}
 
-    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, env.state.mental_wellbeing.stress_level)
-    scaled = {}
-    for path, delta in action.primary.metric_changes.items():
-        if "." not in path:
-            path = f"{action.primary.target_domain}.{path}"
-        try:
-            scaled[path] = float(delta) * uptake
-        except (ValueError, TypeError):
-            pass
+    uptake = person.respond_to_action(
+        action.primary.action_type, action.primary.resource_cost,
+        metrics.mental_wellbeing.stress_level
+    )
 
-    env_action = {"metric_changes": scaled, "resource_cost": action.primary.resource_cost, "actions_taken": 1}
-    obs = env.step(env_action)
-    reward = obs["reward"]
+    updated_metrics, _, _ = apply_action(action, metrics, budget, person)
+    after_flat  = updated_metrics.flatten()
+    before_flat = metrics.flatten()
+    after_html  = metrics_html(after_flat, "AFTER ACTION", before=before_flat)
+
+    reward_tuple = compute_reward(metrics, updated_metrics, action.primary.resource_cost, 1)
+    reward       = reward_tuple[0] if isinstance(reward_tuple, tuple) else reward_tuple
     reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
 
-    steps = []
-    steps.append(f"<b>Step 1:</b> {action.primary.description}")
+    trait_bar = lambda v: "█" * int(v * 10) + "░" * (10 - int(v * 10))
+    personality_html = f"""
+<div style='background:#12122a;border:1px solid #2a2a4a;border-radius:8px;padding:12px;
+            margin-bottom:12px;font-family:monospace;font-size:11px;color:#ccc'>
+  <div style='font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:8px'>🧠 Inferred Personality: {person.name}</div>
+  <div>Openness&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {trait_bar(personality.get('openness',0.5))} {personality.get('openness',0.5):.2f}</div>
+  <div>Conscientiousness {trait_bar(personality.get('conscientiousness',0.5))} {personality.get('conscientiousness',0.5):.2f}</div>
+  <div>Extraversion&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {trait_bar(personality.get('extraversion',0.5))} {personality.get('extraversion',0.5):.2f}</div>
+  <div>Agreeableness&nbsp;&nbsp;&nbsp;&nbsp; {trait_bar(personality.get('agreeableness',0.5))} {personality.get('agreeableness',0.5):.2f}</div>
+  <div>Neuroticism&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {trait_bar(personality.get('neuroticism',0.5))} {personality.get('neuroticism',0.5):.2f}</div>
+</div>"""
+
+    steps = [f"<b>Step 1:</b> {action.primary.description}"]
     if action.communication:
-        steps.append(f"<b>Message to {action.communication.recipient}</b> ({action.communication.tone}): <em>{action.communication.content}</em>")
-    cost = action.primary.resource_cost
-    cost_str = f"⏱ {cost.get('time', 0):.1f}h · 💵 ${cost.get('money', 0):.0f} · ⚡ {cost.get('energy', 0):.0f} energy"
+        steps.append(
+            f"<b>Message to {action.communication.recipient}</b> "
+            f"({action.communication.tone}): <em>{action.communication.content}</em>"
+        )
+    cost     = action.primary.resource_cost
+    cost_str = f"⏱ {cost.get('time', 0):.1f}h · 💵 ${cost.get('money', 0):.0f} · ⚡ {cost.get('energy', 0):.0f}"
 
     plan_html = f"""
+{personality_html}
 <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:16px;font-family:sans-serif;color:#eee'>
+  <div style='font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:4px'>
+    📋 {conflict.title} (Difficulty {conflict.difficulty}/5)
+  </div>
+  <div style='font-size:12px;color:#aaa;margin-bottom:10px'>{conflict.story}</div>
   <div style='font-size:16px;font-weight:700;margin-bottom:10px'>🎯 Resolution Plan for {person.name}</div>
   <div style='margin-bottom:8px'>{"<br>".join(steps)}</div>
   <div style='margin:10px 0;padding:8px;background:#0d1b2a;border-radius:6px;font-size:12px;color:#aaa'>
@@ -249,14 +272,13 @@ def run_custom(situation: str, work_stress: int, money_stress: int, relationship
   </div>
 </div>"""
 
-    return life_html, plan_html
+    return life_html, after_html, plan_html
 
 
 # ─── Tab 3 — Training Results ─────────────────────────────────────────────────
 def load_training_tab():
     html_parts = []
 
-    # Memory stats
     try:
         stats = MEMORY.get_stats()
         html_parts.append(f"""
@@ -277,7 +299,6 @@ def load_training_tab():
     except Exception as e:
         html_parts.append(f"<p style='color:#f87171'>Memory error: {e}</p>")
 
-    # Training log stats
     log_path = os.path.join(os.path.dirname(__file__), "training_log.json")
     if os.path.exists(log_path):
         try:
@@ -337,15 +358,8 @@ def load_training_tab():
 
 
 # ─── Gradio App ───────────────────────────────────────────────────────────────
-PERSON_CHOICES   = list(PERSONS.keys())
-CONFLICT_CHOICES_LIST = list(CONFLICT_CHOICES.keys())
-DEFAULT_CONFLICT = next(k for k in CONFLICT_CHOICES_LIST if "Friday 6PM" in k)
-
 with gr.Blocks(
-    theme=gr.themes.Base(
-        primary_hue="violet",
-        neutral_hue="slate",
-    ),
+    theme=gr.themes.Base(primary_hue="violet", neutral_hue="slate"),
     title="LifeStack — AI Life Coach",
     css="""
     body { background:#0d0d1a; }
@@ -414,33 +428,35 @@ with gr.Blocks(
 
         # ── Tab 2: Try Your Situation ────────────────────────────────────────
         with gr.Tab("💭 Try Your Situation"):
+            gr.Markdown(
+                "Describe your situation in plain English. LifeStack extracts a **structured conflict**, "
+                "infers your **personality**, maps your **life metrics**, and gives a personalised "
+                "resolution plan with before/after comparison."
+            )
             with gr.Row():
                 with gr.Column(scale=1):
                     situation_input = gr.Textbox(
                         label="What's stressing you out right now?",
-                        placeholder="e.g. My boss moved the deadline to tomorrow and I have no energy left…",
-                        lines=2,
+                        placeholder="e.g. My boss keeps piling on work, I haven't slept in weeks, and my partner says I'm distant…",
+                        lines=3,
                     )
-                    person_dd2 = gr.Dropdown(
-                        choices=PERSON_CHOICES,
-                        value=PERSON_CHOICES[2],
-                        label="👤 Who are you most like?",
-                    )
-                    gr.Markdown("**Rate your current state:**")
-                    work_sl  = gr.Slider(0, 10, value=7, step=1, label="💼 Work Stress")
-                    money_sl = gr.Slider(0, 10, value=5, step=1, label="💰 Money Stress")
-                    rel_sl   = gr.Slider(0, 10, value=6, step=1, label="❤️ Relationship Quality")
-                    energy_sl= gr.Slider(0, 10, value=4, step=1, label="⚡ Energy Level")
-                    submit_btn = gr.Button("✨ Get My Resolution Plan", variant="primary")
+                    gr.Markdown("**Rate your current state (0 = none / low · 10 = extreme / high):**")
+                    work_sl   = gr.Slider(0, 10, value=7, step=1, label="💼 Work Stress")
+                    money_sl  = gr.Slider(0, 10, value=5, step=1, label="💰 Money Stress")
+                    rel_sl    = gr.Slider(0, 10, value=6, step=1, label="❤️ Relationship Quality")
+                    energy_sl = gr.Slider(0, 10, value=4, step=1, label="⚡ Energy Level")
+                    time_sl   = gr.Slider(0, 10, value=7, step=1, label="📅 Time Pressure")
+                    submit_btn = gr.Button("✨ Analyse & Get My Plan", variant="primary", size="lg")
 
                 with gr.Column(scale=1):
-                    life_graph_out = gr.HTML(label="Your Life Graph")
-                    plan_out       = gr.HTML(label="Resolution Plan")
+                    life_graph_out  = gr.HTML(label="Your Life Right Now")
+                    after_graph_out = gr.HTML(label="After Action")
+                    plan_out        = gr.HTML(label="Resolution Plan")
 
             submit_btn.click(
                 fn=run_custom,
-                inputs=[situation_input, work_sl, money_sl, rel_sl, energy_sl, person_dd2],
-                outputs=[life_graph_out, plan_out],
+                inputs=[situation_input, work_sl, money_sl, rel_sl, energy_sl, time_sl],
+                outputs=[life_graph_out, after_graph_out, plan_out],
             )
 
         # ── Tab 3: Training Results ──────────────────────────────────────────

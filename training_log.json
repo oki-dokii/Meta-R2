@@ -1,0 +1,526 @@
+[
+  {
+    "episode": 1,
+    "reward": 1.6325,
+    "difficulty": 1,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Forgotten Invoice"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 2,
+    "reward": 1.7879,
+    "difficulty": 2,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "The Surge",
+      "ESCALATED: The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 3,
+    "reward": 2.5763,
+    "difficulty": 1,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "Heated Group Chat",
+      "ESCALATED: Heated Group Chat"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 4,
+    "reward": 2.5755,
+    "difficulty": 1,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Heated Group Chat"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 5,
+    "reward": 2.5754,
+    "difficulty": 1,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Heated Group Chat"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 6,
+    "reward": 2.5402,
+    "difficulty": 2,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Cold Dinner",
+      "ESCALATED: Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 7,
+    "reward": 2.5793,
+    "difficulty": 1,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "The Slump"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 8,
+    "reward": 2.5574,
+    "difficulty": 2,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "Cold Dinner",
+      "ESCALATED: Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 9,
+    "reward": 2.5277,
+    "difficulty": 2,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 10,
+    "reward": 2.4812,
+    "difficulty": 2,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Check Engine Light",
+      "ESCALATED: Check Engine Light"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 11,
+    "reward": 2.4932,
+    "difficulty": 2,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Check Engine Light"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 12,
+    "reward": 2.5473,
+    "difficulty": 2,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "The Surge",
+      "ESCALATED: The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 13,
+    "reward": 2.5707,
+    "difficulty": 1,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "The Slump",
+      "ESCALATED: The Slump"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 14,
+    "reward": 2.5507,
+    "difficulty": 1,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "Forgotten Invoice",
+      "ESCALATED: Forgotten Invoice"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 15,
+    "reward": 2.572,
+    "difficulty": 1,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Heated Group Chat"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 16,
+    "reward": 2.5534,
+    "difficulty": 3,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "The Opportunity"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 17,
+    "reward": 2.5396,
+    "difficulty": 3,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Family SOS"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 18,
+    "reward": 2.5572,
+    "difficulty": 2,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Cold Dinner",
+      "ESCALATED: Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 19,
+    "reward": 2.5503,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Warning Sign",
+      "ESCALATED: The Warning Sign"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 20,
+    "reward": 2.5437,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Warning Sign",
+      "ESCALATED: The Warning Sign"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 21,
+    "reward": 2.5045,
+    "difficulty": 2,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Check Engine Light"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 22,
+    "reward": 2.5447,
+    "difficulty": 2,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "Cold Dinner",
+      "ESCALATED: Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 23,
+    "reward": 2.5427,
+    "difficulty": 3,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Family SOS"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 24,
+    "reward": 2.534,
+    "difficulty": 2,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "The Surge",
+      "ESCALATED: The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 25,
+    "reward": 2.5273,
+    "difficulty": 2,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 26,
+    "reward": 2.5436,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Warning Sign"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 27,
+    "reward": 2.5452,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Opportunity",
+      "ESCALATED: The Opportunity"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 28,
+    "reward": 2.5287,
+    "difficulty": 2,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "The Surge",
+      "ESCALATED: The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 29,
+    "reward": 2.4947,
+    "difficulty": 2,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Check Engine Light",
+      "ESCALATED: Check Engine Light"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 30,
+    "reward": 2.5534,
+    "difficulty": 2,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 31,
+    "reward": 2.5459,
+    "difficulty": 2,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 32,
+    "reward": 2.4748,
+    "difficulty": 2,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "The Surge"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 33,
+    "reward": 2.5597,
+    "difficulty": 2,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "Cold Dinner",
+      "ESCALATED: Cold Dinner"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 34,
+    "reward": 2.4873,
+    "difficulty": 2,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "Check Engine Light",
+      "ESCALATED: Check Engine Light"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 35,
+    "reward": 2.5366,
+    "difficulty": 3,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Family SOS"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 36,
+    "reward": 2.5337,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Opportunity"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 37,
+    "reward": 2.5552,
+    "difficulty": 4,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "The Big Relocation",
+      "ESCALATED: The Big Relocation"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 38,
+    "reward": 2.4982,
+    "difficulty": 3,
+    "person": "Chloe (Creative)",
+    "conflicts_seen": [
+      "Family SOS",
+      "ESCALATED: Family SOS"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 39,
+    "reward": 2.4741,
+    "difficulty": 4,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "Judgment Day",
+      "ESCALATED: Judgment Day"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 40,
+    "reward": 2.5425,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Opportunity"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 41,
+    "reward": 2.5203,
+    "difficulty": 3,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Family SOS",
+      "ESCALATED: Family SOS"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 42,
+    "reward": 2.5183,
+    "difficulty": 3,
+    "person": "Alex (Executive)",
+    "conflicts_seen": [
+      "Family SOS"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 43,
+    "reward": 2.54,
+    "difficulty": 3,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "The Warning Sign"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 44,
+    "reward": 2.5525,
+    "difficulty": 3,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "The Warning Sign",
+      "ESCALATED: The Warning Sign"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 45,
+    "reward": 1.2349,
+    "difficulty": 4,
+    "person": "Leo (Student)",
+    "conflicts_seen": [
+      "Tax Audit"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 46,
+    "reward": 2.497,
+    "difficulty": 4,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "The Big Relocation"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 47,
+    "reward": 2.5601,
+    "difficulty": 4,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Big Relocation"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 48,
+    "reward": 2.5492,
+    "difficulty": 4,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "Judgment Day",
+      "ESCALATED: Judgment Day"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 49,
+    "reward": 2.5086,
+    "difficulty": 4,
+    "person": "Sam (Introvert)",
+    "conflicts_seen": [
+      "Judgment Day"
+    ],
+    "steps": 5
+  },
+  {
+    "episode": 50,
+    "reward": 2.5578,
+    "difficulty": 3,
+    "person": "Maya (Family)",
+    "conflicts_seen": [
+      "The Warning Sign"
+    ],
+    "steps": 5
+  }
+]

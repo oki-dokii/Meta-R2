@@ -1,9 +1,11 @@
 import copy
 from life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from reward import compute_reward
+from openenv.env import Env
 
-class LifeStackEnv:
+class LifeStackEnv(Env):
     def __init__(self):
+        super().__init__(name="LifeStackEnv", episode_max_length=5)
         self.graph = DependencyGraph()
         self.max_steps = 5
         self.state = None
