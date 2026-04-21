@@ -11,13 +11,28 @@ LifeStack is the first OpenEnv-compatible environment that trains agents to reso
 ## Quick Start
 
 ```bash
-git clone [repo]
-cd lifestack
+git clone https://github.com/oki-dokii/Meta-R2
+cd Meta-R2
 pip install -r requirements.txt
-export GROQ_API_KEY=your_key
-python3 app.py          # Launch demo
-python3 train.py        # Run training
+export GROQ_API_KEY=your_key_here
+python3 app.py          # Launch Gradio demo  →  http://127.0.0.1:7860
+python3 train.py        # Run 50-episode curriculum training
 ```
+
+---
+
+## Environment
+
+| Item | Detail |
+|---|---|
+| **Python** | 3.9+ |
+| **RL Environment** | `openenv >= 0.1.13` — `LifeStackEnv` inherits from `openenv.env.Env` |
+| **LLM Backend** | Groq Cloud API (`llama-3.1-8b-instant`) via OpenAI-compatible client |
+| **Vector Memory** | ChromaDB + `sentence-transformers/all-MiniLM-L6-v2` |
+| **Demo UI** | Gradio 4.x — 3-tab interface |
+| **Training Notebook** | Google Colab T4 GPU (`LifeStack_Training.ipynb`) |
+
+> **API Key:** Store your `GROQ_API_KEY` as an env variable or in a `.env` file in the project root. The agent reads it automatically on startup.
 
 ---
 

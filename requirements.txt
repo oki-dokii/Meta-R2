@@ -1,0 +1,22 @@
+# LifeStack — Requirements
+# Python 3.9+
+
+# Core LLM client (Groq uses OpenAI-compatible API)
+openai>=1.30.0
+
+# OpenEnv — mandatory hackathon requirement
+openenv>=0.1.13
+
+# RAG Memory
+chromadb>=0.5.0
+sentence-transformers>=2.7.0
+
+# Gradio demo UI
+gradio>=4.36.0
+
+# Plotting
+matplotlib>=3.8.0
+numpy>=1.26.0
+
+# Utilities (stdlib — listed for clarity)
+# json, os, copy, random, math, uuid, shutil, datetime — no install needed
