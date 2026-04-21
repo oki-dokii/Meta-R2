@@ -115,16 +115,243 @@ def _init_env(conflict: ConflictEvent) -> LifeStackEnv:
     return env
 
 
-# ─── Tab 1 — Live Demo ────────────────────────────────────────────────────────
+# ─── Cascade Animation Engine ────────────────────────────────────────────────
+
+def animate_cascade(primary_disruption: dict, metrics: LifeMetrics) -> list[dict]:
+    """Replay the cascade step-by-step and capture intermediate frames.
+
+    Returns a list of frames. Each frame is:
+      { 'flat': {metric: value}, 'status': {metric: 'primary'|'first'|'second'|'unchanged'} }
+    """
+    import copy as _cp
+    from life_state import DependencyGraph, CASCADE_DAMPENING_DEFAULT
+
+    graph = DependencyGraph()
+    dampening = CASCADE_DAMPENING_DEFAULT
+    frames = []
+
+    # Frame 0 — initial stable state
+    base = _cp.deepcopy(metrics)
+    base_flat = base.flatten()
+    frames.append({
+        'flat': dict(base_flat),
+        'status': {k: 'unchanged' for k in base_flat},
+    })
+
+    # Frame 1 — primary disruption only (no cascade)
+    f1 = _cp.deepcopy(metrics)
+    primary_keys = set()
+    for path, amount in primary_disruption.items():
+        if '.' not in path:
+            continue
+        primary_keys.add(path)
+        dom_name, sub_name = path.split('.', 1)
+        dom = getattr(f1, dom_name, None)
+        if dom and hasattr(dom, sub_name):
+            cur = getattr(dom, sub_name)
+            setattr(dom, sub_name, max(0.0, min(100.0, cur + amount)))
+    f1_flat = f1.flatten()
+    f1_status = {}
+    for k in f1_flat:
+        f1_status[k] = 'primary' if k in primary_keys else 'unchanged'
+    frames.append({'flat': dict(f1_flat), 'status': f1_status})
+
+    # Frame 2 — first-order cascade effects
+    f2 = _cp.deepcopy(f1)
+    first_order_keys = set()
+    queue_next = []
+    for path, amount in primary_disruption.items():
+        if '.' not in path:
+            continue
+        if path in graph.edges:
+            for target, weight in graph.edges[path]:
+                impact = amount * weight * dampening
+                if abs(impact) >= 0.05:
+                    first_order_keys.add(target)
+                    dom_name, sub_name = target.split('.', 1)
+                    dom = getattr(f2, dom_name, None)
+                    if dom and hasattr(dom, sub_name):
+                        cur = getattr(dom, sub_name)
+                        setattr(dom, sub_name, max(0.0, min(100.0, cur + impact)))
+                    queue_next.append((target, impact))
+    f2_flat = f2.flatten()
+    f2_status = {}
+    for k in f2_flat:
+        if k in primary_keys:
+            f2_status[k] = 'primary'
+        elif k in first_order_keys:
+            f2_status[k] = 'first'
+        else:
+            f2_status[k] = 'unchanged'
+    frames.append({'flat': dict(f2_flat), 'status': f2_status})
+
+    # Frame 3 — second-order cascade effects
+    f3 = copy.deepcopy(f2)
+    second_order_keys = set()
+    for src_path, src_mag in queue_next:
+        if src_path in graph.edges:
+            for target, weight in graph.edges[src_path]:
+                impact = src_mag * weight * dampening
+                if abs(impact) >= 0.05:
+                    second_order_keys.add(target)
+                    dom_name, sub_name = target.split('.', 1)
+                    dom = getattr(f3, dom_name, None)
+                    if dom and hasattr(dom, sub_name):
+                        cur = getattr(dom, sub_name)
+                        setattr(dom, sub_name, max(0.0, min(100.0, cur + impact)))
+    f3_flat = f3.flatten()
+    f3_status = {}
+    for k in f3_flat:
+        if k in primary_keys:
+            f3_status[k] = 'primary'
+        elif k in first_order_keys:
+            f3_status[k] = 'first'
+        elif k in second_order_keys:
+            f3_status[k] = 'second'
+        else:
+            f3_status[k] = 'unchanged'
+    frames.append({'flat': dict(f3_flat), 'status': f3_status})
+
+    return frames
+
+
+# Cascade-aware CSS colours
+CASCADE_COLORS = {
+    'primary':   '#ef4444',   # 🔴 red
+    'first':     '#f97316',   # 🟠 orange
+    'second':    '#eab308',   # 🟡 yellow
+    'improved':  '#22c55e',   # 🟢 green
+    'unchanged': '#6b7280',   # ⚪ grey
+}
+
+CASCADE_EMOJI = {
+    'primary':   '🔴', 'first': '🟠', 'second': '🟡',
+    'improved':  '🟢', 'unchanged': '⚪',
+}
+
+
+def cascade_metrics_html(flat: dict, status: dict, title: str = "",
+                         before: dict = None) -> str:
+    """Render metrics with cascade propagation colours."""
+    domains = ["career", "finances", "relationships",
+               "physical_health", "mental_wellbeing", "time"]
+    rows = []
+    if title:
+        rows.append(f"<h3 style='margin:0 0 8px;font-size:14px;color:#aaa'>{title}</h3>")
+    for dom in domains:
+        emoji = DOMAIN_EMOJI[dom]
+        rows.append(f"<div style='margin:6px 0 2px;font-size:12px;"
+                     f"font-weight:700;color:#ccc'>{emoji} {dom.upper()}</div>")
+        sub = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
+        for key, val in sub.items():
+            name = key.split(".")[1].replace("_", " ")
+            st   = status.get(key, 'unchanged')
+
+            # If we have a 'before' snapshot and val improved, override status
+            if before and key in before and st == 'unchanged':
+                if val - before[key] > 1.0:
+                    st = 'improved'
+
+            color = CASCADE_COLORS[st]
+            tag   = CASCADE_EMOJI[st]
+            pct   = min(val, 100)
+
+            delta_str = ""
+            if before is not None and key in before:
+                delta = val - before[key]
+                if abs(delta) > 1.0:
+                    arrow = "↑" if delta > 0 else "↓"
+                    dc = "#22c55e" if delta > 0 else "#ef4444"
+                    delta_str = (
+                        f"<span style='font-size:10px;color:{dc};"
+                        f"margin-left:4px;font-weight:700'>"
+                        f"{arrow} ({delta:+.1f})</span>"
+                    )
+
+            rows.append(
+                f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
+                f"  <span style='font-size:10px'>{tag}</span>"
+                f"  <span style='width:130px;font-size:11px;color:#bbb'>{name}</span>"
+                f"  <div style='flex:1;background:#333;border-radius:4px;height:10px'>"
+                f"    <div style='width:{pct}%;background:{color};border-radius:4px;"
+                f"height:10px;transition:width 0.4s ease'></div>"
+                f"  </div>"
+                f"  <span style='width:38px;font-size:11px;color:#ccc;"
+                f"text-align:right'>{val:.1f}</span>"
+                f"  {delta_str}"
+                f"</div>"
+            )
+    return "<div style='font-family:monospace;padding:8px'>" + "\n".join(rows) + "</div>"
+
+
+NARRATIVE = [
+    "Your life graph — stable state",
+    "💥 Crisis hits: {title}",
+    "🌊 Stress cascades to sleep and free time…",
+    "⚡ Relationships and motivation begin degrading…",
+    "🤖 Agent intervenes: {action_desc}",
+]
+
+
+# ─── Tab 1 — Live Demo (animated) ────────────────────────────────────────────
 def run_demo(person_label: str, conflict_label: str):
+    """Generator that yields (before_html, after_html, decision_html) at each animation frame."""
+    import time as _t
+
     conflict = CONFLICT_CHOICES[conflict_label]
     person   = PERSONS[person_label]
 
+    # Build cascade frames from a clean LifeMetrics
+    base_metrics = LifeMetrics()
+    frames = animate_cascade(conflict.primary_disruption, base_metrics)
+
+    # ── Frame 0 — stable state ────────────────────────────────────────────
+    f0 = frames[0]
+    narr = f"<div style='padding:8px;color:#9ca3af;font-style:italic'>{NARRATIVE[0]}</div>"
+    yield (
+        cascade_metrics_html(f0['flat'], f0['status'], "BEFORE"),
+        narr,
+        "",
+    )
+    _t.sleep(0.5)
+
+    # ── Frame 1 — primary hit ─────────────────────────────────────────────
+    f1 = frames[1]
+    narr = (f"<div style='padding:8px;color:#ef4444;font-weight:700'>"
+            f"{NARRATIVE[1].format(title=conflict.title)}</div>")
+    yield (
+        cascade_metrics_html(f1['flat'], f1['status'], "DISRUPTION", before=f0['flat']),
+        narr,
+        "",
+    )
+    _t.sleep(0.5)
+
+    # ── Frame 2 — first-order cascade ─────────────────────────────────────
+    f2 = frames[2]
+    narr = (f"<div style='padding:8px;color:#f97316;font-weight:700'>"
+            f"{NARRATIVE[2]}</div>")
+    yield (
+        cascade_metrics_html(f2['flat'], f2['status'], "CASCADE — 1st ORDER", before=f0['flat']),
+        narr,
+        "",
+    )
+    _t.sleep(0.5)
+
+    # ── Frame 3 — second-order cascade ────────────────────────────────────
+    f3 = frames[3]
+    narr = (f"<div style='padding:8px;color:#eab308;font-weight:700'>"
+            f"{NARRATIVE[3]}</div>")
+    yield (
+        cascade_metrics_html(f3['flat'], f3['status'], "CASCADE — 2nd ORDER", before=f0['flat']),
+        narr,
+        "",
+    )
+    _t.sleep(0.5)
+
+    # ── Frame 4 — agent intervention (final) ──────────────────────────────
     env            = _init_env(conflict)
     before_metrics = copy.deepcopy(env.state)
     before_budget  = copy.deepcopy(env.budget)
-    before_flat    = before_metrics.flatten()
-    before_html    = metrics_html(before_flat, "BEFORE")
 
     action = AGENT.get_action(before_metrics, before_budget, conflict, person)
 
@@ -149,7 +376,17 @@ def run_demo(person_label: str, conflict_label: str):
     )
 
     after_flat = updated_metrics.flatten()
-    after_html = metrics_html(after_flat, "AFTER", before=before_flat)
+    before_flat = f0['flat']
+    # Build status: mark improved metrics green, rest from f3
+    final_status = {}
+    for k in after_flat:
+        if after_flat[k] - f3['flat'].get(k, after_flat[k]) > 1.0:
+            final_status[k] = 'improved'
+        else:
+            final_status[k] = f3['status'].get(k, 'unchanged')
+
+    after_html = cascade_metrics_html(after_flat, final_status, "AFTER AGENT ACTION",
+                                       before=before_flat)
 
     reward_tuple = compute_reward(before_metrics, updated_metrics, action.primary.resource_cost, 1)
     reward = reward_tuple[0] if isinstance(reward_tuple, tuple) else reward_tuple
@@ -157,14 +394,28 @@ def run_demo(person_label: str, conflict_label: str):
     comm_block = ""
     if action.communication:
         comm_block = (
-            f"<div style='margin-top:8px;padding:8px;background:#1e3a5f;border-radius:6px;font-size:12px'>"
-            f"💬 <b>Message to {action.communication.recipient}</b> ({action.communication.tone}): "
+            f"<div style='margin-top:8px;padding:8px;background:#1e3a5f;"
+            f"border-radius:6px;font-size:12px'>"
+            f"💬 <b>Message to {action.communication.recipient}</b> "
+            f"({action.communication.tone}): "
             f"<em>{action.communication.content}</em></div>"
         )
 
     cost = action.primary.resource_cost
-    cost_str    = f"⏱ {cost.get('time',0):.1f}h · 💵 ${cost.get('money',0):.0f} · ⚡ {cost.get('energy',0):.0f}"
+    cost_str     = (f"⏱ {cost.get('time',0):.1f}h · "
+                    f"💵 ${cost.get('money',0):.0f} · "
+                    f"⚡ {cost.get('energy',0):.0f}")
     reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
+
+    narr = (f"<div style='padding:8px;color:#22c55e;font-weight:700'>"
+            f"{NARRATIVE[4].format(action_desc=action.primary.description)}</div>")
+
+    legend = (
+        "<div style='margin-top:6px;padding:6px;font-size:11px;color:#aaa;"
+        "border-top:1px solid #333;display:flex;gap:12px;flex-wrap:wrap'>"
+        "🔴 Primary hit · 🟠 1st-order cascade · 🟡 2nd-order cascade · "
+        "🟢 Agent improved · ⚪ Unchanged</div>"
+    )
 
     decision_html = f"""
 <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:16px;font-family:sans-serif'>
@@ -181,9 +432,10 @@ def run_demo(person_label: str, conflict_label: str):
     <span>🎯 Personality uptake: {uptake:.0%}</span>
     <span style='color:{reward_color};font-weight:700'>★ Reward: {reward:.3f}</span>
   </div>
+  {legend}
 </div>"""
 
-    return before_html, after_html, decision_html
+    yield (after_html, narr, decision_html)
 
 
 # ─── Tab 2 — Try Your Situation (intake-powered) ─────────────────────────────
@@ -424,16 +676,16 @@ with gr.Blocks(
 
             run_btn = gr.Button("▶  Run Agent", variant="primary", size="lg")
 
-            with gr.Row():
-                before_out = gr.HTML(label="Life State BEFORE")
-                after_out  = gr.HTML(label="Life State AFTER")
+            cascade_narrative = gr.HTML(label="Cascade Narrative")
 
-            decision_out = gr.HTML(label="Agent Decision")
+            with gr.Row():
+                before_out = gr.HTML(label="Life State")
+                after_out  = gr.HTML(label="Agent Decision")
 
             run_btn.click(
                 fn=run_demo,
                 inputs=[person_dd, conflict_dd],
-                outputs=[before_out, after_out, decision_out],
+                outputs=[before_out, cascade_narrative, after_out],
             )
 
         # ── Tab 2: Try Your Situation ────────────────────────────────────────
