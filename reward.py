@@ -46,7 +46,8 @@ def compute_reward(state_before: LifeMetrics, state_after: LifeMetrics, resource
             
     # 2. CASCADE CONTAINMENT SCORE
     worsened_count = sum(1 for k in before_flat.keys() if after_flat[k] < before_flat[k])
-    cascade_containment_score = 1.0 - (worsened_count / 23.0)
+    total_metrics = len(before_flat)
+    cascade_containment_score = 1.0 - (worsened_count / total_metrics)
     
     # 3. RESOURCE EFFICIENCY SCORE
     # Available: time 20, money 500, energy 100

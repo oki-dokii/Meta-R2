@@ -13,7 +13,7 @@ from life_state import LifeMetrics, ResourceBudget
 from lifestack_env import LifeStackEnv
 from agent import LifeStackAgent
 from simperson import SimPerson
-from conflict_generator import generate_conflict, escalate_conflict
+from conflict_generator import generate_conflict, escalate_conflict, adaptive_escalate
 from action_space import apply_action, validate_action
 from memory import LifeStackMemory
 from reward import compute_reward
@@ -25,6 +25,7 @@ def run_episode(
     verbose: bool = True,
     memory: "LifeStackMemory" = None,
     agent: "LifeStackAgent" = None,
+    agent_history: list = None,
 ) -> dict:
     """
     Runs one full LifeStack episode.
@@ -34,6 +35,8 @@ def run_episode(
                 sentence-transformer model on every episode).
         agent:  Optional shared LifeStackAgent instance (avoids re-creating the
                 Groq client on every episode).
+        agent_history: Optional list of (conflict_id, reward) tuples from prior
+                       episodes. Used by adaptive_escalate to decide difficulty.
 
     Returns:
         summary dict with total_reward, steps, final_metrics, conflicts_seen
@@ -46,6 +49,8 @@ def run_episode(
         agent = LifeStackAgent()
     if memory is None:
         memory = LifeStackMemory()
+    if agent_history is None:
+        agent_history = []
 
     # Pick a SimPerson from a diverse pool
     person_pool = [
@@ -61,7 +66,8 @@ def run_episode(
     conflict = generate_conflict(difficulty)
 
     # Apply initial disruption to env
-    obs = env.reset(conflict=conflict.primary_disruption)
+    obs, _ = env.reset(conflict=conflict.primary_disruption)
+    done = obs.get("done", False)
 
     # --------------------------------------------------
     # 2. EPISODE LOOP
@@ -79,7 +85,7 @@ def run_episode(
         print("◆" * 60)
         env.render()
 
-    while not obs["done"]:
+    while not done:
         step = obs["step"]
 
         # Personality drift every 5 steps
@@ -95,12 +101,15 @@ def run_episode(
                 current = getattr(getattr(env.state, dom), sub)
                 setattr(getattr(env.state, dom), sub, max(0.0, min(100.0, current + delta)))
 
-        # Randomly escalate on step 3 if difficulty < 5
-        if step == 2 and conflict.difficulty < 5 and random.random() < 0.4:
-            conflict = escalate_conflict(conflict)
-            conflicts_seen.append(conflict.title)
-            if verbose:
-                print(f"\n🔥 ESCALATION! New conflict: {conflict.title}")
+        # Adaptive escalation on step 3 using agent history
+        if step == 2 and conflict.difficulty < 5:
+            new_conflict, reason = adaptive_escalate(conflict, agent_history)
+            if new_conflict.id != conflict.id:
+                conflict = new_conflict
+                conflicts_seen.append(conflict.title)
+                if verbose:
+                    print(f"\n🔥 ADAPTIVE ESCALATION: {reason}")
+                    print(f"   New conflict: {conflict.title}")
 
         # Inject few-shot context into agent memory
         few_shot = memory.build_few_shot_prompt(conflict.title, env.state.flatten())
@@ -143,8 +152,8 @@ def run_episode(
             "resource_cost": action.primary.resource_cost,
             "actions_taken": 1  # any deliberate action counts
         }
-        obs = env.step(env_action)
-        step_reward = obs["reward"]
+        obs, step_reward, terminated, truncated, env_info = env.step(env_action)
+        done = terminated or truncated
         total_reward += step_reward
 
         # Store high-quality decisions in memory
@@ -165,7 +174,7 @@ def run_episode(
             "domain": action.primary.target_domain,
             "description": action.primary.description,
             "reward": round(step_reward, 3),
-            "penalties": obs["breakdown"]["penalties_fired"]
+            "penalties": env_info["breakdown"]["penalties_fired"]
         })
 
         if verbose:
@@ -174,7 +183,7 @@ def run_episode(
             print(f"  \"{action.primary.description}\"")
             if action.communication:
                 print(f"  💬 [{action.communication.recipient}] ({action.communication.tone}): {action.communication.content}")
-            print(f"  Reward: {step_reward:.3f} | Penalties: {obs['breakdown']['penalties_fired'] or 'none'}")
+            print(f"  Reward: {step_reward:.3f} | Penalties: {env_info['breakdown']['penalties_fired'] or 'none'}")
             env.render()
 
     # --------------------------------------------------

@@ -24,13 +24,15 @@ from agent import LifeStackAgent
 # ---------------------------------------------------------------------------
 
 def _difficulty_for_episode(episode: int) -> int:
-    """Curriculum schedule: easy → medium → hard."""
-    if episode <= 15:
+    """Curriculum schedule: easy → medium → hard → extreme."""
+    if episode <= 25:
         return random.randint(1, 2)
-    elif episode <= 35:
+    elif episode <= 50:
         return random.randint(2, 3)
-    else:
+    elif episode <= 75:
         return random.randint(3, 4)
+    else:
+        return random.randint(4, 5)
 
 
 def _rolling_avg(values: list, window: int = 5) -> list:
@@ -104,10 +106,10 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     # ------------------------------------------------------------------
     # Phase averages
     # ------------------------------------------------------------------
-    early_avg = _phase_avg(rewards, 1, 15)
-    mid_avg   = _phase_avg(rewards, 16, 35)
-    late_end  = min(n_episodes, 50)
-    late_avg  = _phase_avg(rewards, 36, late_end)
+    early_avg = _phase_avg(rewards, 1, 25)
+    mid_avg   = _phase_avg(rewards, 26, 50)
+    late_avg  = _phase_avg(rewards, 51, 75)
+    final_avg = _phase_avg(rewards, 76, n_episodes)
     overall   = round(sum(rewards) / len(rewards), 3)
 
     print(f"\n{'═' * 42}")
@@ -115,9 +117,10 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     print(f"{'═' * 42}")
     print(f"  {'Phase':<10} {'Episodes':<12} {'Avg Reward'}")
     print(f"  {'-'*38}")
-    print(f"  {'Early':<10} {'1-15':<12} {early_avg:.3f}")
-    print(f"  {'Mid':<10} {'16-35':<12} {mid_avg:.3f}")
-    print(f"  {'Late':<10} {'36-' + str(late_end):<12} {late_avg:.3f}")
+    print(f"  {'Early':<10} {'1-25':<12} {early_avg:.3f}")
+    print(f"  {'Mid':<10} {'26-50':<12} {mid_avg:.3f}")
+    print(f"  {'Late':<10} {'51-75':<12} {late_avg:.3f}")
+    print(f"  {'Final':<10} {'76-' + str(n_episodes):<12} {final_avg:.3f}")
     print(f"  {'Overall':<10} {'1-' + str(n_episodes):<12} {overall:.3f}")
     print(f"{'═' * 42}\n")
 
@@ -143,9 +146,10 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
         ax.axhline(y=0, color="gray", linewidth=0.8, linestyle="--", alpha=0.7)
 
         # Phase boundary shading
-        ax.axvspan(1,  15, alpha=0.04, color="green",  label="Easy (diff 1-2)")
-        ax.axvspan(16, 35, alpha=0.04, color="orange", label="Mid (diff 2-3)")
-        ax.axvspan(36, n_episodes, alpha=0.04, color="red", label="Hard (diff 3-4)")
+        ax.axvspan(1,  25, alpha=0.04, color="green",  label="Easy (diff 1-2)")
+        ax.axvspan(26, 50, alpha=0.04, color="orange", label="Mid (diff 2-3)")
+        ax.axvspan(51, 75, alpha=0.04, color="red",    label="Hard (diff 3-4)")
+        ax.axvspan(76, n_episodes, alpha=0.04, color="purple", label="Extreme (diff 4-5)")
 
         ax.set_title("LifeStack Agent Learning Curve", fontsize=14, fontweight="bold")
         ax.set_xlabel("Episode", fontsize=11)
@@ -160,45 +164,133 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
         print(f"  📊 Learning curve saved → {plot_path}")
 
     # ------------------------------------------------------------------
-    # BEFORE / AFTER MEMORY COMPARISON
+    # BEHAVIORAL COMPARISON — Friday 6PM (5 runs each)
     # ------------------------------------------------------------------
-    print(f"\n{'═' * 42}")
-    print(f"  BEFORE vs AFTER MEMORY COMPARISON")
-    print(f"  (Using Friday 6PM — difficulty 5)")
-    print(f"{'═' * 42}")
+    N_COMPARE = 5
+    print(f"\n{'═' * 58}")
+    print(f"  BEHAVIORAL COMPARISON — Friday 6PM Crisis ({N_COMPARE} runs each)")
+    print(f"{'═' * 58}")
 
-    memory_dir = os.path.join(os.path.dirname(__file__), "lifestack_memory")
+    memory_dir    = os.path.join(os.path.dirname(__file__), "lifestack_memory")
     memory_backup = memory_dir + "_backup"
 
-    # --- Without memory: temporarily hide the ChromaDB folder ---
+    # --- WITHOUT memory: temporarily hide the ChromaDB folder ---
     had_memory = os.path.exists(memory_dir)
     if had_memory:
         shutil.move(memory_dir, memory_backup)
 
+    no_mem_results = []
     try:
-        result_no_mem = run_episode(difficulty=5, verbose=False)
-        reward_no_mem = result_no_mem["total_reward"]
+        for i in range(N_COMPARE):
+            result = run_episode(difficulty=5, verbose=False)
+            first_step = result["step_log"][0] if result["step_log"] else {}
+            has_comm = any(
+                s.get("action") == "communicate" for s in result["step_log"]
+            )
+            no_mem_results.append({
+                "run": i + 1,
+                "total_reward": result["total_reward"],
+                "first_action": first_step.get("action", "unknown"),
+                "first_domain": first_step.get("domain", "unknown"),
+                "has_communication": has_comm,
+                "steps": result["steps"],
+            })
     finally:
         # Restore memory
         if had_memory and os.path.exists(memory_backup):
-            # Remove the fresh blank DB created during no-memory run
             if os.path.exists(memory_dir):
                 shutil.rmtree(memory_dir)
             shutil.move(memory_backup, memory_dir)
 
-    # --- With memory ---
-    result_with_mem = run_episode(difficulty=5, verbose=False)
-    reward_with_mem = result_with_mem["total_reward"]
+    # --- WITH memory ---
+    with_mem_results = []
+    for i in range(N_COMPARE):
+        result = run_episode(difficulty=5, verbose=False)
+        first_step = result["step_log"][0] if result["step_log"] else {}
+        has_comm = any(
+            s.get("action") == "communicate" for s in result["step_log"]
+        )
+        with_mem_results.append({
+            "run": i + 1,
+            "total_reward": result["total_reward"],
+            "first_action": first_step.get("action", "unknown"),
+            "first_domain": first_step.get("domain", "unknown"),
+            "has_communication": has_comm,
+            "steps": result["steps"],
+        })
 
-    improvement = round(reward_with_mem - reward_no_mem, 3)
+    # --- Compute stats ---
+    avg_no  = sum(r["total_reward"] for r in no_mem_results)   / N_COMPARE
+    avg_yes = sum(r["total_reward"] for r in with_mem_results) / N_COMPARE
+    improvement = avg_yes - avg_no
+    pct = (improvement / abs(avg_no) * 100) if avg_no != 0 else 0
+
+    # Most common first action
+    from collections import Counter
+    no_actions  = Counter(r["first_action"] for r in no_mem_results)
+    yes_actions = Counter(r["first_action"] for r in with_mem_results)
+    no_domains  = Counter(r["first_domain"] for r in no_mem_results)
+    yes_domains = Counter(r["first_domain"] for r in with_mem_results)
+    no_comm_pct  = sum(1 for r in no_mem_results  if r["has_communication"]) / N_COMPARE * 100
+    yes_comm_pct = sum(1 for r in with_mem_results if r["has_communication"]) / N_COMPARE * 100
+
+    # --- Print table ---
+    print(f"\n  {'WITHOUT MEMORY':<28} {'WITH MEMORY':<28}")
+    for i in range(N_COMPARE):
+        nr = no_mem_results[i]
+        wr = with_mem_results[i]
+        print(f"  Run {nr['run']}: {nr['total_reward']:.3f} "
+              f"({nr['first_action']:<14})"
+              f"  Run {wr['run']}: {wr['total_reward']:.3f} "
+              f"({wr['first_action']:<14})")
+    print(f"  {'─' * 54}")
+    print(f"  Avg:   {avg_no:.3f}                    Avg:   {avg_yes:.3f}")
     sign = "+" if improvement >= 0 else ""
+    print(f"  Improvement: {sign}{improvement:.3f} ({sign}{pct:.1f}%)")
 
-    print(f"\n{'═' * 42}")
-    print(f"  BEFORE vs AFTER MEMORY")
-    print(f"  Without memory | Reward: {reward_no_mem:.3f}")
-    print(f"  With memory    | Reward: {reward_with_mem:.3f}")
-    print(f"  Improvement    : {sign}{improvement:.3f}")
-    print(f"{'═' * 42}\n")
+    print(f"\n  {'─' * 54}")
+    print(f"  Most common 1st action WITHOUT memory: {no_actions.most_common(1)[0][0]}")
+    print(f"  Most common 1st action WITH memory:    {yes_actions.most_common(1)[0][0]}")
+    print(f"  Most common 1st domain WITHOUT memory: {no_domains.most_common(1)[0][0]}")
+    print(f"  Most common 1st domain WITH memory:    {yes_domains.most_common(1)[0][0]}")
+    print(f"  Communication used WITHOUT memory:     {no_comm_pct:.0f}% of runs")
+    print(f"  Communication used WITH memory:        {yes_comm_pct:.0f}% of runs")
+
+    # --- Behavioral insight ---
+    if yes_actions.most_common(1)[0][0] != no_actions.most_common(1)[0][0]:
+        print(f"\n  💡 Memory changed the agent's primary strategy from "
+              f"'{no_actions.most_common(1)[0][0]}' to '{yes_actions.most_common(1)[0][0]}'")
+    if yes_comm_pct > no_comm_pct:
+        print(f"  💡 Memory taught the agent to include communication actions more often")
+    print(f"{'═' * 58}\n")
+
+    # --- Save comparison ---
+    comparison = {
+        "scenario": "Friday 6PM (difficulty 5)",
+        "runs_per_condition": N_COMPARE,
+        "without_memory": {
+            "results": no_mem_results,
+            "avg_reward": round(avg_no, 3),
+            "most_common_first_action": no_actions.most_common(1)[0][0],
+            "most_common_first_domain": no_domains.most_common(1)[0][0],
+            "communication_rate": round(no_comm_pct, 1),
+        },
+        "with_memory": {
+            "results": with_mem_results,
+            "avg_reward": round(avg_yes, 3),
+            "most_common_first_action": yes_actions.most_common(1)[0][0],
+            "most_common_first_domain": yes_domains.most_common(1)[0][0],
+            "communication_rate": round(yes_comm_pct, 1),
+        },
+        "improvement": {
+            "absolute": round(improvement, 3),
+            "percentage": round(pct, 1),
+        },
+    }
+    comp_path = os.path.join(os.path.dirname(__file__), "before_after_comparison.json")
+    with open(comp_path, "w") as f:
+        json.dump(comparison, f, indent=2)
+    print(f"  📄 Behavioral comparison saved → {comp_path}")
 
     return {
         "episode_log": episode_log,
@@ -206,11 +298,10 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
             "early": early_avg,
             "mid": mid_avg,
             "late": late_avg,
+            "final": final_avg,
             "overall": overall,
         },
-        "before_memory_reward": reward_no_mem,
-        "after_memory_reward": reward_with_mem,
-        "improvement": improvement,
+        "comparison": comparison,
     }
 
 
@@ -219,7 +310,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
 # ---------------------------------------------------------------------------
 
 def main():
-    run_training(n_episodes=50)
+    run_training(n_episodes=100)
 
 
 if __name__ == "__main__":

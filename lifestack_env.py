@@ -6,6 +6,26 @@ from openenv.env import Env
 class LifeStackEnv(Env):
     def __init__(self):
         super().__init__(name="LifeStackEnv", episode_max_length=5)
+        
+        self.observation_space = {
+            'metrics': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (24,)},
+            'resources': {'type': 'Box', 'low': 0.0, 'high': 500.0, 'shape': (3,)},
+            'step': {'type': 'Discrete', 'n': 6}
+        }
+        self.action_space = {
+            'action_type': {'type': 'Discrete', 'n': 7},
+            'target_domain': {'type': 'Discrete', 'n': 6},
+            'metric_changes': {'type': 'Box', 'low': -50.0, 'high': 50.0, 'shape': (24,)},
+            'resource_cost': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (3,)}
+        }
+        self.metadata = {
+            'name': 'LifeStack-v1',
+            'version': '1.0.0',
+            'description': 'Multi-domain life conflict resolution environment',
+            'reward_range': (-1.0, 1.0),
+            'max_episode_steps': 5
+        }
+        
         self.graph = DependencyGraph()
         self.max_steps = 5
         self.state = None
@@ -13,6 +33,17 @@ class LifeStackEnv(Env):
         self.step_count = 0
         self.last_reward = None
         self.last_breakdown = None
+
+    def seed(self, s: int):
+        import random
+        random.seed(s)
+
+    def observation_to_vector(self, obs: dict) -> list:
+        metrics = list(obs['metrics'].values())
+        resources = [obs['resources']['time'], obs['resources']['money'], obs['resources']['energy']]
+        step = [obs['step']]
+        import numpy as np
+        return np.array(metrics + resources + step).tolist()
 
     def reset(self, conflict: dict = None) -> dict:
         """Resets the environment to initial state (70s) or apply a conflict."""
@@ -26,7 +57,7 @@ class LifeStackEnv(Env):
             # Apply initial disruption via cascade
             self.state = self.graph.cascade(self.state, conflict)
 
-        return self._get_obs()
+        return self._get_obs(), {}
 
     def _get_obs(self, done: bool = False) -> dict:
         return {
@@ -110,15 +141,16 @@ class LifeStackEnv(Env):
                           self.budget.money_dollars <= 0 and 
                           self.budget.energy_units <= 0)
         
-        done = (self.step_count >= self.max_steps or any_hit_zero or resources_dead)
+        terminated = any_hit_zero or resources_dead
+        truncated = self.step_count >= self.max_steps
+        done = terminated or truncated
         
         obs = self._get_obs(done)
-        obs.update({
-            "reward": reward,
+        env_info = {
             "breakdown": breakdown,
-            "info": info
-        })
-        return obs
+            "info_msgs": info
+        }
+        return obs, reward, terminated, truncated, env_info
 
     def render(self):
         """Vibrant status report of the current LifeMetrics state."""
@@ -138,10 +170,13 @@ class LifeStackEnv(Env):
         for dom, label in domain_labels.items():
             print(f"\n{label}")
             submetrics = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
+            inverted = {"stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"}
             for name, val in submetrics.items():
                 short = name.split('.')[1]
-                # Indicators: 🟢 > 70, 🟡 40-70, 🔴 < 40
-                icon = "🟢" if val > 70 else ("🟡" if val >= 40 else "🔴")
+                if short in inverted:
+                    icon = "🔴" if val > 70 else ("🟡" if val >= 40 else "🟢")
+                else:
+                    icon = "🟢" if val > 70 else ("🟡" if val >= 40 else "🔴")
                 print(f"  {icon} {short:20} : {val:5.2f}")
 
         if self.last_reward is not None:

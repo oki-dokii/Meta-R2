@@ -58,6 +58,16 @@ DOMAIN_EMOJI = {
     "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅",
 }
 
+# Metrics where HIGH = BAD (inverted color logic)
+INVERTED_METRICS = {"stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"}
+
+def _metric_color(key: str, val: float) -> str:
+    """Return CSS color: inverted for 'bad-when-high' metrics."""
+    sub = key.split(".")[-1]
+    if sub in INVERTED_METRICS:
+        return "#f87171" if val > 70 else ("#facc15" if val >= 40 else "#4ade80")
+    return "#4ade80" if val > 70 else ("#facc15" if val >= 40 else "#f87171")
+
 def metrics_html(flat: dict, title: str = "", before: dict = None) -> str:
     """Render metrics as coloured progress bars.
     If `before` is supplied, metrics that changed >1 pt show ↑/↓ + delta.
@@ -72,7 +82,7 @@ def metrics_html(flat: dict, title: str = "", before: dict = None) -> str:
         sub = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
         for key, val in sub.items():
             name  = key.split(".")[1].replace("_", " ")
-            color = "#4ade80" if val > 70 else ("#facc15" if val >= 40 else "#f87171")
+            color = _metric_color(key, val)
             pct   = min(val, 100)
 
             delta_str = ""

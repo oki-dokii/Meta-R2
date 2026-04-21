@@ -181,6 +181,41 @@ def escalate_conflict(conflict: ConflictEvent) -> ConflictEvent:
         difficulty=new_difficulty
     )
 
+def adaptive_escalate(conflict: ConflictEvent, agent_history: list) -> tuple:
+    """Decide whether to escalate, ease, or hold based on past performance.
+    
+    Args:
+        conflict: Current conflict event.
+        agent_history: List of (conflict_id, reward) tuples from past episodes.
+    
+    Returns:
+        (new_conflict, reason): Updated conflict and a human-readable reason string.
+    """
+    # Group history by conflict id prefix (strip _escalated suffix)
+    from collections import defaultdict
+    by_type = defaultdict(list)
+    for cid, reward in agent_history:
+        base_id = cid.replace("_escalated", "")
+        by_type[base_id].append(reward)
+    
+    base_id = conflict.id.replace("_escalated", "")
+    past = by_type.get(base_id, [])
+    
+    if len(past) >= 3:
+        avg = sum(past) / len(past)
+        if avg > 0.7:
+            # Agent is crushing this type — escalate
+            escalated = escalate_conflict(conflict)
+            return escalated, f"Agent averaged {avg:.2f} on {base_id} ({len(past)} runs) — escalating"
+        elif avg < 0.4:
+            # Agent is struggling — reduce difficulty
+            new_diff = max(1, conflict.difficulty - 1)
+            eased = generate_conflict(difficulty=new_diff)
+            return eased, f"Agent averaged {avg:.2f} on {base_id} ({len(past)} runs) — easing to difficulty {new_diff}"
+    
+    # Not enough history — no change
+    return conflict, "insufficient history — holding"
+
 def save_templates():
     with open('conflicts.json', 'w') as f:
         json.dump([asdict(t) for t in TEMPLATES], f, indent=4)
