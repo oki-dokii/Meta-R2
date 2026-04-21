@@ -2,3 +2,11 @@
 __pycache__/
 lifestack_memory/
 *.pyc
+
+# scratch/debug files
+create_notebook.py
+debug_demo.py
+demo_debug.log
+test_groq.py
+.DS_Store
+.env
