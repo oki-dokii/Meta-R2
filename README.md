@@ -13,11 +13,14 @@ LifeStack is the first OpenEnv-compatible environment that trains agents to reso
 ```bash
 git clone https://github.com/oki-dokii/Meta-R2
 cd Meta-R2
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 export GROQ_API_KEY=your_key_here
 python3 app.py          # Launch Gradio demo  →  http://127.0.0.1:7860
 python3 train.py        # Run 50-episode curriculum training
 ```
+
+> **Verify openenv installed:** `pip3 show openenv` — should show `Version: 0.1.13`  
+> **Note:** On macOS use `pip3` / `python3`. The package does not expose `__version__` but imports correctly via `from openenv.env import Env`.
 
 ---
 
