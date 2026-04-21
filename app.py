@@ -1,0 +1,436 @@
+"""
+app.py — LifeStack Gradio Demo App
+Hackathon presentation interface for the LifeStack simulation engine.
+"""
+
+import os
+import json
+import copy
+import gradio as gr
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+# ─── LifeStack modules ────────────────────────────────────────────────────────
+from life_state import LifeMetrics, ResourceBudget
+from lifestack_env import LifeStackEnv
+from agent import LifeStackAgent
+from simperson import SimPerson
+from conflict_generator import ConflictEvent, generate_conflict, TEMPLATES
+from action_space import apply_action, validate_action
+from memory import LifeStackMemory
+from reward import compute_reward
+
+# ─── Pre-load at startup ──────────────────────────────────────────────────────
+print("🚀 LifeStack booting…")
+
+AGENT  = LifeStackAgent()
+MEMORY = LifeStackMemory(silent=True)
+
+# Friday 6PM is always the default demo conflict
+DEMO_CONFLICT = next(t for t in TEMPLATES if t.id == "d5_friday")
+
+PERSONS = {
+    "Alex (Executive) — driven, high-stress":
+        SimPerson(openness=0.4, conscientiousness=0.9, extraversion=0.7,  agreeableness=0.25, neuroticism=0.8,  name="Alex (Executive)"),
+    "Chloe (Creative) — spontaneous, resilient":
+        SimPerson(openness=0.9, conscientiousness=0.2, extraversion=0.5,  agreeableness=0.70, neuroticism=0.15, name="Chloe (Creative)"),
+    "Sam (Introvert) — anxious, thoughtful":
+        SimPerson(openness=0.5, conscientiousness=0.6, extraversion=0.1,  agreeableness=0.65, neuroticism=0.9,  name="Sam (Introvert)"),
+    "Maya (Family) — empathetic, nurturing":
+        SimPerson(openness=0.5, conscientiousness=0.7, extraversion=0.5,  agreeableness=0.95, neuroticism=0.3,  name="Maya (Family)"),
+    "Leo (Student) — curious, organised":
+        SimPerson(openness=0.85, conscientiousness=0.8, extraversion=0.4, agreeableness=0.4,  neuroticism=0.55, name="Leo (Student)"),
+}
+
+CONFLICT_CHOICES = {f"[Diff {t.difficulty}] {t.title}": t for t in TEMPLATES}
+
+print("✅ LifeStack ready.")
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+DOMAIN_EMOJI = {
+    "career": "💼", "finances": "💰", "relationships": "❤️",
+    "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅",
+}
+
+def _bar(value: float, width: int = 22) -> str:
+    filled = int(round(value / 100 * width))
+    bar    = "█" * filled + "░" * (width - filled)
+    icon   = "🟢" if value > 70 else ("🟡" if value >= 40 else "🔴")
+    return f"{icon} {bar} {value:5.1f}"
+
+def metrics_html(flat: dict, title: str = "") -> str:
+    domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
+    rows = []
+    if title:
+        rows.append(f"<h3 style='margin:0 0 8px;font-size:14px;color:#aaa'>{title}</h3>")
+    for dom in domains:
+        emoji = DOMAIN_EMOJI[dom]
+        rows.append(f"<div style='margin:6px 0 2px;font-size:12px;font-weight:700;color:#ccc'>{emoji} {dom.upper()}</div>")
+        sub = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
+        for key, val in sub.items():
+            name  = key.split(".")[1].replace("_", " ")
+            color = "#4ade80" if val > 70 else ("#facc15" if val >= 40 else "#f87171")
+            pct   = val
+            rows.append(
+                f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
+                f"  <span style='width:140px;font-size:11px;color:#bbb'>{name}</span>"
+                f"  <div style='flex:1;background:#333;border-radius:4px;height:10px'>"
+                f"    <div style='width:{pct}%;background:{color};border-radius:4px;height:10px'></div>"
+                f"  </div>"
+                f"  <span style='width:38px;font-size:11px;color:#ccc;text-align:right'>{val:.1f}</span>"
+                f"</div>"
+            )
+    return "<div style='font-family:monospace;padding:8px'>" + "\n".join(rows) + "</div>"
+
+
+def _init_env(conflict: ConflictEvent) -> LifeStackEnv:
+    env = LifeStackEnv()
+    env.reset(conflict=conflict.primary_disruption)
+    return env
+
+
+# ─── Tab 1 — Live Demo ────────────────────────────────────────────────────────
+def run_demo(person_label: str, conflict_label: str):
+    conflict = CONFLICT_CHOICES[conflict_label]
+    person   = PERSONS[person_label]
+    env      = _init_env(conflict)
+
+    before_flat = env.state.flatten()
+    before_html = metrics_html(before_flat, "BEFORE")
+
+    action = AGENT.get_action(env.state, env.budget, conflict, person)
+
+    # Validate & scale by personality uptake
+    is_valid, reason = validate_action(action, env.budget)
+    if not is_valid:
+        action.primary.metric_changes = {"mental_wellbeing.stress_level": -3.0}
+        action.primary.resource_cost  = {}
+
+    import time as _t
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, env.state.mental_wellbeing.stress_level)
+    scaled = {}
+    for path, delta in action.primary.metric_changes.items():
+        if "." not in path:
+            path = f"{action.primary.target_domain}.{path}"
+        try:
+            scaled[path] = float(delta) * uptake
+        except (ValueError, TypeError):
+            pass
+
+    env_action = {"metric_changes": scaled, "resource_cost": action.primary.resource_cost, "actions_taken": 1}
+    obs = env.step(env_action)
+    after_html = metrics_html(env.state.flatten(), "AFTER")
+
+    reward = obs["reward"]
+
+    # Build decision card
+    comm_block = ""
+    if action.communication:
+        comm_block = (
+            f"<div style='margin-top:8px;padding:8px;background:#1e3a5f;border-radius:6px;font-size:12px'>"
+            f"💬 <b>Message to {action.communication.recipient}</b> ({action.communication.tone}): "
+            f"<em>{action.communication.content}</em></div>"
+        )
+
+    reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
+    decision_html = f"""
+<div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:16px;font-family:sans-serif'>
+  <div style='font-size:18px;font-weight:700;margin-bottom:6px'>
+    {action.primary.action_type.upper()} → {action.primary.target_domain}
+  </div>
+  <div style='color:#ccc;margin-bottom:8px'>{action.primary.description}</div>
+  {comm_block}
+  <div style='margin-top:10px;font-size:12px;color:#aaa;border-top:1px solid #333;padding-top:8px'>
+    <b>Reasoning:</b> {action.reasoning}
+  </div>
+  <div style='margin-top:8px;display:flex;gap:16px;font-size:13px'>
+    <span>⏱ Cost: {action.primary.resource_cost}</span>
+    <span>🎯 Uptake: {uptake:.2f}</span>
+    <span style='color:{reward_color};font-weight:700'>★ Reward: {reward:.3f}</span>
+  </div>
+</div>"""
+
+    return before_html, after_html, decision_html
+
+
+# ─── Tab 2 — Try Your Situation ───────────────────────────────────────────────
+def run_custom(situation: str, work_stress: int, money_stress: int, relationship_q: int, energy: int, person_label: str):
+    # Map sliders → metric disruption
+    disruption = {
+        "career.workload":                  work_stress * 3.0,
+        "mental_wellbeing.stress_level":    work_stress * 2.5,
+        "finances.liquidity":              -money_stress * 4.0,
+        "relationships.romantic":          (relationship_q - 5) * 4.0,
+        "physical_health.energy":           energy * 5.0 - 50,
+    }
+
+    conflict = ConflictEvent(
+        id="custom",
+        title="Your Situation",
+        story=situation or "Feeling overwhelmed and unsure what to do.",
+        primary_disruption=disruption,
+        decisions_required=["Take action", "Seek help", "Rest"],
+        resource_budget={"time": 10.0, "money": 200.0, "energy": 50.0},
+        difficulty=3,
+    )
+
+    person = PERSONS[person_label]
+    env    = _init_env(conflict)
+    life_html = metrics_html(env.state.flatten(), "YOUR LIFE RIGHT NOW")
+
+    action = AGENT.get_action(env.state, env.budget, conflict, person)
+
+    is_valid, _ = validate_action(action, env.budget)
+    if not is_valid:
+        action.primary.metric_changes = {"mental_wellbeing.stress_level": -5.0}
+        action.primary.resource_cost  = {}
+
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, env.state.mental_wellbeing.stress_level)
+    scaled = {}
+    for path, delta in action.primary.metric_changes.items():
+        if "." not in path:
+            path = f"{action.primary.target_domain}.{path}"
+        try:
+            scaled[path] = float(delta) * uptake
+        except (ValueError, TypeError):
+            pass
+
+    env_action = {"metric_changes": scaled, "resource_cost": action.primary.resource_cost, "actions_taken": 1}
+    obs = env.step(env_action)
+    reward = obs["reward"]
+    reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
+
+    steps = []
+    steps.append(f"<b>Step 1:</b> {action.primary.description}")
+    if action.communication:
+        steps.append(f"<b>Message to {action.communication.recipient}</b> ({action.communication.tone}): <em>{action.communication.content}</em>")
+    cost = action.primary.resource_cost
+    cost_str = f"⏱ {cost.get('time', 0):.1f}h · 💵 ${cost.get('money', 0):.0f} · ⚡ {cost.get('energy', 0):.0f} energy"
+
+    plan_html = f"""
+<div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:16px;font-family:sans-serif;color:#eee'>
+  <div style='font-size:16px;font-weight:700;margin-bottom:10px'>🎯 Resolution Plan for {person.name}</div>
+  <div style='margin-bottom:8px'>{"<br>".join(steps)}</div>
+  <div style='margin:10px 0;padding:8px;background:#0d1b2a;border-radius:6px;font-size:12px;color:#aaa'>
+    <b>Why:</b> {action.reasoning}
+  </div>
+  <div style='display:flex;gap:20px;font-size:13px;border-top:1px solid #333;padding-top:8px'>
+    <span>{cost_str}</span>
+    <span>🎯 Personality fit: {uptake:.0%}</span>
+    <span style='color:{reward_color};font-weight:700'>★ Confidence: {min(reward/0.6, 1.0):.0%}</span>
+  </div>
+</div>"""
+
+    return life_html, plan_html
+
+
+# ─── Tab 3 — Training Results ─────────────────────────────────────────────────
+def load_training_tab():
+    html_parts = []
+
+    # Memory stats
+    try:
+        stats = MEMORY.get_stats()
+        html_parts.append(f"""
+<div style='display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px'>
+  <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:140px;text-align:center'>
+    <div style='font-size:28px;font-weight:700;color:#4ade80'>{stats['total_memories']}</div>
+    <div style='color:#aaa;font-size:12px'>Decisions Stored</div>
+  </div>
+  <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:140px;text-align:center'>
+    <div style='font-size:28px;font-weight:700;color:#60a5fa'>{stats['average_reward']:.3f}</div>
+    <div style='color:#aaa;font-size:12px'>Avg Memory Reward</div>
+  </div>
+  <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:200px'>
+    <div style='font-size:12px;color:#aaa;margin-bottom:6px'>By Action Type</div>
+    {''.join(f"<div style='font-size:12px'><b>{k}</b>: {v}</div>" for k,v in stats['by_action_type'].items())}
+  </div>
+</div>""")
+    except Exception as e:
+        html_parts.append(f"<p style='color:#f87171'>Memory error: {e}</p>")
+
+    # Training log stats
+    log_path = os.path.join(os.path.dirname(__file__), "training_log.json")
+    if os.path.exists(log_path):
+        try:
+            data    = json.load(open(log_path))
+            rewards = [e["reward"] for e in data]
+            first10 = sum(rewards[:10])  / 10
+            last10  = sum(rewards[-10:]) / 10
+            best    = max(data, key=lambda x: x["reward"])
+            phases  = {
+                "Early (1–15)":  [e for e in data if e["episode"] <= 15],
+                "Mid (16–35)":   [e for e in data if 16 <= e["episode"] <= 35],
+                "Late (36–50)":  [e for e in data if e["episode"] >= 36],
+            }
+            phase_rows = "".join(
+                f"<tr><td style='padding:4px 10px'>{name}</td><td style='padding:4px 10px;text-align:center'>{len(eps)}</td>"
+                f"<td style='padding:4px 10px;text-align:center;color:#4ade80'>{sum(e['reward'] for e in eps)/len(eps):.3f}</td></tr>"
+                for name, eps in phases.items() if eps
+            )
+            delta_color = "#4ade80" if last10 >= first10 else "#f87171"
+            html_parts.append(f"""
+<div style='margin-bottom:16px'>
+  <div style='display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px'>
+    <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:140px;text-align:center'>
+      <div style='font-size:28px;font-weight:700;color:#a78bfa'>{len(data)}</div>
+      <div style='color:#aaa;font-size:12px'>Total Episodes</div>
+    </div>
+    <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:140px;text-align:center'>
+      <div style='font-size:28px;font-weight:700;color:#4ade80'>{sum(rewards)/len(rewards):.3f}</div>
+      <div style='color:#aaa;font-size:12px'>Overall Avg Reward</div>
+    </div>
+    <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:140px;text-align:center'>
+      <div style='font-size:28px;font-weight:700;color:#fbbf24'>{best["reward"]:.3f}</div>
+      <div style='color:#aaa;font-size:12px'>Best Episode (#{best["episode"]})</div>
+    </div>
+    <div style='background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;min-width:160px;text-align:center'>
+      <div style='font-size:22px;font-weight:700;color:{delta_color}'>
+        {"+" if last10>=first10 else ""}{(last10-first10):.3f}
+      </div>
+      <div style='color:#aaa;font-size:12px'>Ep 1–10 → 41–50 Δ</div>
+    </div>
+  </div>
+  <table style='border-collapse:collapse;width:100%;max-width:400px;font-size:13px;color:#eee'>
+    <tr style='color:#aaa;border-bottom:1px solid #333'>
+      <th style='padding:4px 10px;text-align:left'>Phase</th>
+      <th style='padding:4px 10px'>Episodes</th>
+      <th style='padding:4px 10px'>Avg Reward</th>
+    </tr>
+    {phase_rows}
+  </table>
+</div>""")
+        except Exception as e:
+            html_parts.append(f"<p style='color:#f87171'>Log parse error: {e}</p>")
+    else:
+        html_parts.append("<p style='color:#aaa'>training_log.json not found — run train.py first.</p>")
+
+    return "<div style='font-family:sans-serif;color:#eee'>" + "\n".join(html_parts) + "</div>"
+
+
+# ─── Gradio App ───────────────────────────────────────────────────────────────
+PERSON_CHOICES   = list(PERSONS.keys())
+CONFLICT_CHOICES_LIST = list(CONFLICT_CHOICES.keys())
+DEFAULT_CONFLICT = next(k for k in CONFLICT_CHOICES_LIST if "Friday 6PM" in k)
+
+with gr.Blocks(
+    theme=gr.themes.Base(
+        primary_hue="violet",
+        neutral_hue="slate",
+    ),
+    title="LifeStack — AI Life Coach",
+    css="""
+    body { background:#0d0d1a; }
+    .gradio-container { max-width: 1100px; margin: auto; }
+    h1 { text-align:center; }
+    .tab-nav button { font-size:14px; font-weight:600; }
+    """
+) as app:
+
+    gr.HTML("""
+    <div style='text-align:center;padding:24px 0 8px;font-family:sans-serif'>
+      <div style='font-size:36px;font-weight:900;letter-spacing:-1px;
+                  background:linear-gradient(90deg,#a78bfa,#60a5fa);
+                  -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
+        LifeStack
+      </div>
+      <div style='color:#888;font-size:14px;margin-top:4px'>
+        AI that handles life's worst Fridays
+      </div>
+    </div>
+    """)
+
+    with gr.Tabs():
+
+        # ── Tab 1: Live Demo ─────────────────────────────────────────────────
+        with gr.Tab("🎯 Live Demo"):
+            gr.HTML(f"""
+            <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:16px;
+                        margin-bottom:16px;font-family:sans-serif'>
+              <div style='font-size:16px;font-weight:700;color:#a78bfa;margin-bottom:6px'>
+                🚨 Friday 6PM
+              </div>
+              <div style='color:#ddd;font-size:14px'>{DEMO_CONFLICT.story}</div>
+              <div style='margin-top:8px;font-size:12px;color:#888'>
+                Difficulty: ⭐⭐⭐⭐⭐ &nbsp;|&nbsp;
+                Domains hit: Career, Finances, Mental Health, Time
+              </div>
+            </div>
+            """)
+
+            with gr.Row():
+                conflict_dd = gr.Dropdown(
+                    choices=CONFLICT_CHOICES_LIST,
+                    value=DEFAULT_CONFLICT,
+                    label="📋 Conflict Scenario",
+                )
+                person_dd = gr.Dropdown(
+                    choices=PERSON_CHOICES,
+                    value=PERSON_CHOICES[0],
+                    label="👤 Choose Your Person",
+                )
+
+            run_btn = gr.Button("▶  Run Agent", variant="primary", size="lg")
+
+            with gr.Row():
+                before_out = gr.HTML(label="Life State BEFORE")
+                after_out  = gr.HTML(label="Life State AFTER")
+
+            decision_out = gr.HTML(label="Agent Decision")
+
+            run_btn.click(
+                fn=run_demo,
+                inputs=[person_dd, conflict_dd],
+                outputs=[before_out, after_out, decision_out],
+            )
+
+        # ── Tab 2: Try Your Situation ────────────────────────────────────────
+        with gr.Tab("💭 Try Your Situation"):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    situation_input = gr.Textbox(
+                        label="What's stressing you out right now?",
+                        placeholder="e.g. My boss moved the deadline to tomorrow and I have no energy left…",
+                        lines=2,
+                    )
+                    person_dd2 = gr.Dropdown(
+                        choices=PERSON_CHOICES,
+                        value=PERSON_CHOICES[2],
+                        label="👤 Who are you most like?",
+                    )
+                    gr.Markdown("**Rate your current state:**")
+                    work_sl  = gr.Slider(0, 10, value=7, step=1, label="💼 Work Stress")
+                    money_sl = gr.Slider(0, 10, value=5, step=1, label="💰 Money Stress")
+                    rel_sl   = gr.Slider(0, 10, value=6, step=1, label="❤️ Relationship Quality")
+                    energy_sl= gr.Slider(0, 10, value=4, step=1, label="⚡ Energy Level")
+                    submit_btn = gr.Button("✨ Get My Resolution Plan", variant="primary")
+
+                with gr.Column(scale=1):
+                    life_graph_out = gr.HTML(label="Your Life Graph")
+                    plan_out       = gr.HTML(label="Resolution Plan")
+
+            submit_btn.click(
+                fn=run_custom,
+                inputs=[situation_input, work_sl, money_sl, rel_sl, energy_sl, person_dd2],
+                outputs=[life_graph_out, plan_out],
+            )
+
+        # ── Tab 3: Training Results ──────────────────────────────────────────
+        with gr.Tab("📊 Training Results"):
+            training_html = gr.HTML(value=load_training_tab())
+
+            plot_path = os.path.join(os.path.dirname(__file__), "reward_curve.png")
+            if os.path.exists(plot_path):
+                gr.Image(value=plot_path, label="Learning Curve — 50 Episode Training Run",
+                         show_download_button=False, show_label=True)
+
+    gr.HTML("""
+    <div style='text-align:center;padding:16px;color:#444;font-size:11px;border-top:1px solid #222;margin-top:16px'>
+      LifeStack · Built for hackathon demo · Powered by Groq + ChromaDB + Sentence Transformers
+    </div>
+    """)
+
+
+if __name__ == "__main__":
+    app.launch(share=False, server_port=7860, show_error=True)
