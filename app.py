@@ -59,7 +59,10 @@ def _bar(value: float, width: int = 22) -> str:
     icon   = "🟢" if value > 70 else ("🟡" if value >= 40 else "🔴")
     return f"{icon} {bar} {value:5.1f}"
 
-def metrics_html(flat: dict, title: str = "") -> str:
+def metrics_html(flat: dict, title: str = "", before: dict = None) -> str:
+    """Render metrics as coloured progress bars.
+    If `before` is supplied, metrics that changed >1 pt show ↑/↓ + delta.
+    """
     domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
     rows = []
     if title:
@@ -71,7 +74,20 @@ def metrics_html(flat: dict, title: str = "") -> str:
         for key, val in sub.items():
             name  = key.split(".")[1].replace("_", " ")
             color = "#4ade80" if val > 70 else ("#facc15" if val >= 40 else "#f87171")
-            pct   = val
+            pct   = min(val, 100)
+
+            # Delta annotation
+            delta_str = ""
+            if before is not None and key in before:
+                delta = val - before[key]
+                if abs(delta) > 1.0:
+                    arrow  = "↑" if delta > 0 else "↓"
+                    dc     = "#4ade80" if delta > 0 else "#f87171"
+                    delta_str = (
+                        f"<span style='font-size:10px;color:{dc};margin-left:4px;font-weight:700'>"
+                        f"{arrow} ({delta:+.1f})</span>"
+                    )
+
             rows.append(
                 f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
                 f"  <span style='width:140px;font-size:11px;color:#bbb'>{name}</span>"
@@ -79,6 +95,7 @@ def metrics_html(flat: dict, title: str = "") -> str:
                 f"    <div style='width:{pct}%;background:{color};border-radius:4px;height:10px'></div>"
                 f"  </div>"
                 f"  <span style='width:38px;font-size:11px;color:#ccc;text-align:right'>{val:.1f}</span>"
+                f"  {delta_str}"
                 f"</div>"
             )
     return "<div style='font-family:monospace;padding:8px'>" + "\n".join(rows) + "</div>"
@@ -94,35 +111,29 @@ def _init_env(conflict: ConflictEvent) -> LifeStackEnv:
 def run_demo(person_label: str, conflict_label: str):
     conflict = CONFLICT_CHOICES[conflict_label]
     person   = PERSONS[person_label]
-    env      = _init_env(conflict)
 
-    before_flat = env.state.flatten()
-    before_html = metrics_html(before_flat, "BEFORE")
+    # Fresh metrics & budget (post-conflict disruption applied)
+    env         = _init_env(conflict)
+    before_metrics = copy.deepcopy(env.state)
+    before_budget  = copy.deepcopy(env.budget)
+    before_flat    = before_metrics.flatten()
+    before_html    = metrics_html(before_flat, "BEFORE")
 
-    action = AGENT.get_action(env.state, env.budget, conflict, person)
+    # Agent decides
+    action = AGENT.get_action(before_metrics, before_budget, conflict, person)
 
-    # Validate & scale by personality uptake
-    is_valid, reason = validate_action(action, env.budget)
-    if not is_valid:
-        action.primary.metric_changes = {"mental_wellbeing.stress_level": -3.0}
-        action.primary.resource_cost  = {}
+    # Apply action via apply_action() — this returns updated metrics + budget
+    updated_metrics, updated_budget, uptake = apply_action(
+        action, before_metrics, before_budget, person
+    )
 
-    import time as _t
-    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, env.state.mental_wellbeing.stress_level)
-    scaled = {}
-    for path, delta in action.primary.metric_changes.items():
-        if "." not in path:
-            path = f"{action.primary.target_domain}.{path}"
-        try:
-            scaled[path] = float(delta) * uptake
-        except (ValueError, TypeError):
-            pass
+    after_flat  = updated_metrics.flatten()
+    # Pass before_flat so AFTER column highlights what changed
+    after_html  = metrics_html(after_flat, "AFTER", before=before_flat)
 
-    env_action = {"metric_changes": scaled, "resource_cost": action.primary.resource_cost, "actions_taken": 1}
-    obs = env.step(env_action)
-    after_html = metrics_html(env.state.flatten(), "AFTER")
-
-    reward = obs["reward"]
+    # Compute reward from updated state
+    reward_tuple = compute_reward(before_metrics, updated_metrics, action.primary.resource_cost, 1)
+    reward = reward_tuple[0] if isinstance(reward_tuple, tuple) else reward_tuple
 
     # Build decision card
     comm_block = ""
@@ -133,7 +144,10 @@ def run_demo(person_label: str, conflict_label: str):
             f"<em>{action.communication.content}</em></div>"
         )
 
+    cost = action.primary.resource_cost
+    cost_str = f"⏱ {cost.get('time',0):.1f}h · 💵 ${cost.get('money',0):.0f} · ⚡ {cost.get('energy',0):.0f}"
     reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
+
     decision_html = f"""
 <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:16px;font-family:sans-serif'>
   <div style='font-size:18px;font-weight:700;margin-bottom:6px'>
@@ -145,8 +159,8 @@ def run_demo(person_label: str, conflict_label: str):
     <b>Reasoning:</b> {action.reasoning}
   </div>
   <div style='margin-top:8px;display:flex;gap:16px;font-size:13px'>
-    <span>⏱ Cost: {action.primary.resource_cost}</span>
-    <span>🎯 Uptake: {uptake:.2f}</span>
+    <span>{cost_str}</span>
+    <span>🎯 Personality uptake: {uptake:.0%}</span>
     <span style='color:{reward_color};font-weight:700'>★ Reward: {reward:.3f}</span>
   </div>
 </div>"""
