@@ -122,7 +122,20 @@ def run_demo(person_label: str, conflict_label: str):
     # Agent decides
     action = AGENT.get_action(before_metrics, before_budget, conflict, person)
 
-    # Apply action via apply_action() — this returns updated metrics + budget
+    # ── Fix malformed keys from LLM ──────────────────────────────────────────
+    # LLM sometimes returns "workload" instead of "career.workload".
+    # apply_action() skips keys without a "." so we must normalise first.
+    fixed_changes = {}
+    for path, delta in action.primary.metric_changes.items():
+        if "." not in str(path):
+            path = f"{action.primary.target_domain}.{path}"
+        try:
+            fixed_changes[path] = float(delta)
+        except (ValueError, TypeError):
+            pass
+    action.primary.metric_changes = fixed_changes
+
+    # Apply action via apply_action() — returns updated metrics + budget
     updated_metrics, updated_budget, uptake = apply_action(
         action, before_metrics, before_budget, person
     )
