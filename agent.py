@@ -99,12 +99,20 @@ SCHEMA:
 """
         return prompt
 
-    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> AgentAction:
+    def get_action_for_type(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, forced_type: str) -> "AgentAction":
+        """Generate an action specifically for a given action_type."""
+        base_prompt = self.build_prompt(metrics, budget, conflict, person)
+        forced_prompt = base_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST set 'action_type' to exactly '{forced_type}'."
+        return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type)
+
+    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> "AgentAction":
         if not self.api_key:
             return self._fallback_action("Error: GROQ_API_KEY not set.")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
-        
+        return self._get_action_from_prompt(prompt)
+
+    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest") -> "AgentAction":
         import time as _t
         try:
             for attempt in range(3):  # Up to 3 retries on rate limit
@@ -193,12 +201,12 @@ SCHEMA:
             
         except Exception as e:
             print(f"Error calling LLM or parsing response: {e}")
-            return self._fallback_action(f"Exception: {str(e)}")
+            return self._fallback_action(f"Exception: {str(e)}", fallback_type=fallback_type)
 
-    def _fallback_action(self, error_msg: str) -> AgentAction:
+    def _fallback_action(self, error_msg: str, fallback_type: str = "rest") -> "AgentAction":
         return AgentAction(
             primary=PrimaryAction(
-                action_type="rest", target_domain="mental_wellbeing",
+                action_type=fallback_type, target_domain="mental_wellbeing",
                 metric_changes={"mental_wellbeing.stress_level": -5.0},
                 resource_cost={},
                 description="Short breather to regain composure."

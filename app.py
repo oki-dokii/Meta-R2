@@ -22,6 +22,7 @@ from memory import LifeStackMemory
 from reward import compute_reward
 from intake import LifeIntake
 from conflict_predictor import ConflictPredictor
+from counterfactuals import generate_counterfactuals
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -417,6 +418,22 @@ def run_demo(person_label: str, conflict_label: str):
     obs, reward, terminated, truncated, env_info = env.step(env_action)
     updated_metrics = env.state
 
+    # Generate Counterfactuals BEFORE yield
+    cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
+    cf_html_blocks = []
+    for cf in cf_data:
+        cf_html_blocks.append(f"""
+        <div style='margin-top:10px;padding:10px;background:#1e1e2f;border-left:3px solid #444;border-radius:4px'>
+          <div style='display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px'>
+            <span style='font-weight:700;color:#9ca3af'>vs. {cf['action_type']}</span>
+            <span style='color:#888'>reward: {cf['reward']:.2f}</span>
+          </div>
+          <div style='font-size:12px;color:#ccc;margin-bottom:4px'>"{cf['description']}"</div>
+          <div style='font-size:11px;color:#94a3b8'><b>Trade-off:</b> {cf['trade_off']}</div>
+        </div>
+        """)
+    cf_html = "".join(cf_html_blocks)
+
     after_flat = updated_metrics.flatten()
     before_flat = f0['flat']
     # Build status: mark improved metrics green, rest from f3
@@ -472,6 +489,20 @@ def run_demo(person_label: str, conflict_label: str):
     <span style='color:{reward_color};font-weight:700'>★ Reward: {reward:.3f}</span>
   </div>
   {legend}
+  
+  <div style='margin-top:24px;border-top:1px solid #444;padding-top:16px'>
+    <div style='font-size:14px;font-weight:900;color:#94a3b8;letter-spacing:1px;margin-bottom:12px'>
+      🔀 WHAT IF YOU CHOSE DIFFERENTLY?
+    </div>
+    <div style='padding:10px;background:#0d1b2a;border-radius:6px;border-left:4px solid #4ade80;margin-bottom:16px'>
+       <div style='display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px'>
+         <span style='font-weight:700;color:#4ade80'>✅ Agent chose: {action.primary.action_type}</span>
+         <span style='color:#4ade80;font-weight:700'>{reward:.2f}</span>
+       </div>
+       <div style='font-size:12px;color:#ccc'>"{action.primary.description}"</div>
+    </div>
+    {cf_html}
+  </div>
 </div>"""
 
     DEMO_PREDICTOR.add_snapshot(updated_metrics)
