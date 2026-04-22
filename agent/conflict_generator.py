@@ -217,9 +217,11 @@ def adaptive_escalate(conflict: ConflictEvent, agent_history: list) -> tuple:
     return conflict, "insufficient history — holding"
 
 def save_templates():
-    with open('conflicts.json', 'w') as f:
+    import os
+    data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "conflicts.json")
+    with open(data_path, 'w') as f:
         json.dump([asdict(t) for t in TEMPLATES], f, indent=4)
-    print("Saved 15 templates to conflicts.json")
+    print(f"Saved 15 templates to {data_path}")
 
 def main():
     save_templates()

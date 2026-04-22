@@ -1,6 +1,6 @@
 import math
 import copy
-from life_state import LifeMetrics
+from core.life_state import LifeMetrics
 
 def compute_reward(state_before: LifeMetrics, state_after: LifeMetrics, resources_used: dict, actions_taken: int) -> tuple[float, dict]:
     """

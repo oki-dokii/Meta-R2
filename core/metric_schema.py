@@ -1,5 +1,5 @@
 
-from life_state import LifeMetrics
+from core.life_state import LifeMetrics
 
 
 VALID_METRIC_PATHS = tuple(sorted(LifeMetrics().flatten().keys()))

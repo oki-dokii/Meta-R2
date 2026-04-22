@@ -6,17 +6,17 @@ generates a learning curve plot, and compares agent performance
 before and after memory accumulation.
 """
 
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
-import os
 import random
 import shutil
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend — safe for headless runs
 import matplotlib.pyplot as plt
 
-from run_episode import run_episode
-from memory import LifeStackMemory
-from agent import LifeStackAgent
+from scripts.run_episode import run_episode
+from agent.memory import LifeStackMemory
+from agent.agent import LifeStackAgent
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     # ------------------------------------------------------------------
     # Save training log
     # ------------------------------------------------------------------
-    log_path = os.path.join(os.path.dirname(__file__), "training_log.json")
+    log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "training_log.json")
     with open(log_path, "w") as f:
         json.dump(episode_log, f, indent=2)
     print(f"  📄 Training log saved → {log_path}")
@@ -161,7 +161,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
 
-        plot_path = os.path.join(os.path.dirname(__file__), "reward_curve.png")
+        plot_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "reward_curve.png")
         fig.savefig(plot_path, dpi=150)
         plt.close(fig)
         print(f"  📊 Learning curve saved → {plot_path}")
@@ -174,7 +174,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     print(f"  BEHAVIORAL COMPARISON — Friday 6PM Crisis ({N_COMPARE} runs each)")
     print(f"{'═' * 58}")
 
-    memory_dir    = os.path.join(os.path.dirname(__file__), "lifestack_memory")
+    memory_dir    = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lifestack_memory")
     memory_backup = memory_dir + "_backup"
 
     # --- WITHOUT memory: temporarily hide the ChromaDB folder ---
@@ -290,7 +290,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
             "percentage": round(pct, 1),
         },
     }
-    comp_path = os.path.join(os.path.dirname(__file__), "before_after_comparison.json")
+    comp_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "before_after_comparison.json")
     with open(comp_path, "w") as f:
         json.dump(comparison, f, indent=2)
     print(f"  📄 Behavioral comparison saved → {comp_path}")

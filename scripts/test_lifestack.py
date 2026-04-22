@@ -3,15 +3,15 @@ test_lifestack.py — LifeStack Edge Case Test Suite
 Covers: cascade bounds, resource exhaustion, penalties, memory threshold, episode termination.
 """
 
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import copy
 import shutil
-import os
 
-from life_state import LifeMetrics, ResourceBudget, DependencyGraph
-from lifestack_env import LifeStackEnv, LifeStackAction
-from reward import compute_reward
-from simperson import SimPerson
-from memory import LifeStackMemory
+from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from core.lifestack_env import LifeStackEnv, LifeStackAction
+from core.reward import compute_reward
+from intake.simperson import SimPerson
+from agent.memory import LifeStackMemory
 
 
 passed = 0
@@ -186,7 +186,7 @@ def test_full_episode_smoke():
     if os.path.exists(test_dir):
         shutil.rmtree(test_dir)
     try:
-        from run_episode import run_episode
+        from scripts.run_episode import run_episode
         memory = LifeStackMemory(silent=True, path=test_dir)
         result = run_episode(difficulty=1, verbose=False, memory=memory)
         reward = result.get("total_reward", None)

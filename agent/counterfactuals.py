@@ -4,8 +4,8 @@ counterfactuals.py — Generates alternative "What If" scenarios for LifeStack a
 
 import copy
 import random
-from reward import compute_reward
-from life_state import DependencyGraph
+from core.reward import compute_reward
+from core.life_state import DependencyGraph
 
 def generate_counterfactuals(agent, metrics, budget, conflict, person, chosen_action):
     """

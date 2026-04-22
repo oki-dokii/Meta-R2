@@ -3,7 +3,7 @@ conflict_predictor.py — Proactive intelligence and trajectory forecasting
 """
 
 import copy
-from life_state import LifeMetrics, DependencyGraph
+from core.life_state import LifeMetrics, DependencyGraph
 
 class ConflictPredictor:
     def __init__(self):

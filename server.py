@@ -10,7 +10,7 @@ except ImportError:
         def create_app(*a, **k):
             print("⚠️ create_app not found in openenv. Using fallback.")
             return None
-from lifestack_env import LifeStackEnv, LifeStackAction, LifeStackObservation
+from core.lifestack_env import LifeStackEnv, LifeStackAction, LifeStackObservation
 
 def main():
     """

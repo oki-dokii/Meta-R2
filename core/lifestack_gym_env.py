@@ -12,11 +12,11 @@ import numpy as np
 from gymnasium import spaces
 import random, copy
 
-from life_state import LifeMetrics, ResourceBudget, DependencyGraph
-from metric_schema import normalize_metric_path
-from reward import compute_reward
-from conflict_generator import generate_conflict, ConflictEvent
-from simperson import SimPerson
+from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from core.metric_schema import normalize_metric_path
+from core.reward import compute_reward
+from agent.conflict_generator import generate_conflict, ConflictEvent
+from intake.simperson import SimPerson
 
 
 # Map discrete action IDs to action types
@@ -219,7 +219,7 @@ class LifeStackGymEnv(gym.Env):
     def render(self):
         if self.render_mode == "human":
             # Reuse the rich render from the original env
-            from lifestack_env import LifeStackEnv as _Orig
+            from core.lifestack_env import LifeStackEnv as _Orig
             tmp = _Orig()
             tmp.state = self.state
             tmp.budget = self.budget

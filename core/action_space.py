@@ -1,7 +1,7 @@
 import copy
 from dataclasses import dataclass, field
-from life_state import LifeMetrics, ResourceBudget
-from simperson import SimPerson
+from core.life_state import LifeMetrics, ResourceBudget
+from intake.simperson import SimPerson
 
 @dataclass
 class PrimaryAction:
@@ -190,7 +190,7 @@ def main():
     sam = SimPerson(name="Sam (Introvert)", openness=0.5, conscientiousness=0.6, extraversion=0.1, agreeableness=0.65, neuroticism=0.9)
     
     # 2. Setup initial state (Friday 6PM Conflict)
-    from life_state import DependencyGraph
+    from core.life_state import DependencyGraph
     graph = DependencyGraph()
     metrics = LifeMetrics() # starts at 70s
     metrics = graph.cascade(metrics, {"career.workload": 35.0, "finances.liquidity": -40.0})

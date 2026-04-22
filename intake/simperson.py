@@ -126,9 +126,11 @@ def generate_and_save_profiles():
         }
     ]
     
-    with open('simperson_profiles.json', 'w') as f:
+    import os
+    data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "simperson_profiles.json")
+    with open(data_path, 'w') as f:
         json.dump(profiles_data, f, indent=4)
-    print("Saved 5 diverse profiles to simperson_profiles.json")
+    print(f"Saved 5 diverse profiles to {data_path}")
 
 def main():
     # 1. Setup

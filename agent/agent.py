@@ -2,11 +2,11 @@ import os
 import json
 import copy
 from openai import OpenAI
-from life_state import LifeMetrics, ResourceBudget
-from metric_schema import format_valid_metrics, normalize_metric_path, is_valid_metric_path
-from conflict_generator import ConflictEvent, generate_conflict
-from action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
-from simperson import SimPerson
+from core.life_state import LifeMetrics, ResourceBudget
+from core.metric_schema import format_valid_metrics, normalize_metric_path, is_valid_metric_path
+from agent.conflict_generator import ConflictEvent, generate_conflict
+from core.action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
+from intake.simperson import SimPerson
 
 class LifeStackAgent:
     def __init__(self):

@@ -20,11 +20,13 @@ from datasets import Dataset
 from transformers import AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
 
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # LifeStack imports
-from life_state import LifeMetrics, DependencyGraph
-from reward import compute_reward
-from conflict_generator import generate_conflict, TEMPLATES
-from simperson import SimPerson
+from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from core.reward import compute_reward
+from agent.conflict_generator import generate_conflict, TEMPLATES
+from intake.simperson import SimPerson
 
 
 # ──────────────────────────────────────────────

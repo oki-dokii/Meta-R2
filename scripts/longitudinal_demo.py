@@ -2,10 +2,10 @@
 longitudinal_demo.py — Arjun's journey from baseline to expert agent support.
 """
 
-import os
-from memory import LifeStackMemory
-from life_state import LifeMetrics
-from simperson import SimPerson
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from agent.memory import LifeStackMemory
+from core.life_state import LifeMetrics
+from intake.simperson import SimPerson
 
 class LongitudinalDemo:
     def __init__(self):

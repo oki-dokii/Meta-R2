@@ -8,15 +8,16 @@ Orchestrates a complete episode:
   4. Print a rich episode summary at the end
 """
 
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import random
-from life_state import LifeMetrics, ResourceBudget
-from lifestack_env import LifeStackEnv, LifeStackAction
-from agent import LifeStackAgent
-from simperson import SimPerson
-from conflict_generator import generate_conflict, escalate_conflict, adaptive_escalate
-from action_space import apply_action, validate_action
-from memory import LifeStackMemory
-from reward import compute_reward
+from core.life_state import LifeMetrics, ResourceBudget
+from core.lifestack_env import LifeStackEnv, LifeStackAction
+from agent.agent import LifeStackAgent
+from intake.simperson import SimPerson
+from agent.conflict_generator import generate_conflict, escalate_conflict, adaptive_escalate
+from core.action_space import apply_action, validate_action
+from agent.memory import LifeStackMemory
+from core.reward import compute_reward
 import copy
 
 

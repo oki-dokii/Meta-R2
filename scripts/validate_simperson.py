@@ -3,9 +3,10 @@ validate_simperson.py — Empirical validation of the SimPerson OCEAN model.
 Verifies outputs are consistent with published stress-personality research.
 """
 
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import numpy as np
-from simperson import SimPerson
+from intake.simperson import SimPerson
 
 
 passed = 0
@@ -110,7 +111,8 @@ def check_profile_diversity():
     This ensures the agent encounters meaningfully different people during
     training — critical for generalisation.
     """
-    with open("simperson_profiles.json") as f:
+    data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "simperson_profiles.json")
+    with open(data_path) as f:
         profiles = json.load(f)
 
     traits = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]

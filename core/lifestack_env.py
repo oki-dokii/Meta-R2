@@ -2,9 +2,9 @@ import copy
 from typing import Any, Optional, Dict
 from pydantic import Field
 
-from life_state import LifeMetrics, ResourceBudget, DependencyGraph
-from metric_schema import normalize_metric_path
-from reward import compute_reward
+from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from core.metric_schema import normalize_metric_path
+from core.reward import compute_reward
 
 try:
     from openenv.core import Environment, Action, Observation, State

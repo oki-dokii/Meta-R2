@@ -12,20 +12,20 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ─── LifeStack modules ────────────────────────────────────────────────────────
-from life_state import LifeMetrics, ResourceBudget
-from lifestack_env import LifeStackEnv
-from agent import LifeStackAgent
-from simperson import SimPerson
-from conflict_generator import ConflictEvent, generate_conflict, TEMPLATES
-from action_space import apply_action, validate_action
-from memory import LifeStackMemory
-from metric_schema import normalize_metric_path, is_valid_metric_path
-from reward import compute_reward
-from intake import LifeIntake
-from conflict_predictor import ConflictPredictor
-from counterfactuals import generate_counterfactuals
-from longitudinal_demo import LongitudinalDemo
-from gmail_intake import GmailIntake
+from core.life_state import LifeMetrics, ResourceBudget
+from core.lifestack_env import LifeStackEnv, LifeStackAction
+from agent.agent import LifeStackAgent
+from intake.simperson import SimPerson
+from agent.conflict_generator import ConflictEvent, generate_conflict, TEMPLATES
+from core.action_space import apply_action, validate_action
+from agent.memory import LifeStackMemory
+from core.metric_schema import normalize_metric_path, is_valid_metric_path
+from core.reward import compute_reward
+from intake.intake import LifeIntake
+from agent.conflict_predictor import ConflictPredictor
+from agent.counterfactuals import generate_counterfactuals
+from scripts.longitudinal_demo import LongitudinalDemo
+from intake.gmail_intake import GmailIntake
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -154,7 +154,7 @@ def animate_cascade(primary_disruption: dict, metrics: LifeMetrics) -> list[dict
       { 'flat': {metric: value}, 'status': {metric: 'primary'|'first'|'second'|'unchanged'} }
     """
     import copy as _cp
-    from life_state import DependencyGraph, CASCADE_DAMPENING_DEFAULT
+    from core.life_state import DependencyGraph, CASCADE_DAMPENING_DEFAULT
 
     graph = DependencyGraph()
     dampening = CASCADE_DAMPENING_DEFAULT
@@ -677,7 +677,7 @@ def load_training_tab():
     except Exception as e:
         html_parts.append(f"<p style='color:#f87171'>Memory error: {e}</p>")
 
-    log_path = os.path.join(os.path.dirname(__file__), "training_log.json")
+    log_path = os.path.join(os.path.dirname(__file__), "data", "training_log.json")
     if os.path.exists(log_path):
         try:
             data    = json.load(open(log_path))
@@ -856,7 +856,7 @@ with gr.Blocks(
         with gr.Tab("📊 Training Results"):
             training_html = gr.HTML(value=load_training_tab())
 
-            plot_path = os.path.join(os.path.dirname(__file__), "reward_curve.png")
+            plot_path = os.path.join(os.path.dirname(__file__), "data", "reward_curve.png")
             if os.path.exists(plot_path):
                 gr.Image(value=plot_path, label="Learning Curve — 100 Episode Training Run")
 

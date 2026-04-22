@@ -7,9 +7,9 @@ from a user's natural language description + slider inputs.
 import os
 import json
 from openai import OpenAI
-from life_state import LifeMetrics, ResourceBudget
-from metric_schema import VALID_METRIC_PATHS, normalize_metric_path, is_valid_metric_path
-from conflict_generator import ConflictEvent
+from core.life_state import LifeMetrics, ResourceBudget
+from core.metric_schema import VALID_METRIC_PATHS, normalize_metric_path, is_valid_metric_path
+from agent.conflict_generator import ConflictEvent
 
 
 class LifeIntake:
