@@ -41,7 +41,7 @@ python3 train.py        # Run 50-episode curriculum training
 
 ## Environment Overview
 
-LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 29 weighted edges that propagate impact across nodes using a dampened BFS traversal. 
+LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 20 weighted edges that propagate impact across nodes using a dampened BFS traversal. 
 
 1.  **OpenEnv Core**: Inherits from `openenv.core.Environment` with Pydantic-based action and observation schemas.
 2.  **Cascade Engine**: A graph-based propagator using BFS traversal with distance-decay to model how a "work crisis" bleeds into relationships or health.
@@ -144,7 +144,7 @@ Memory advantage: agents with retrieval-augmented memory outperform blind agents
 | File | Description |
 |---|---|
 | `lifestack_env.py` | Core OpenEnv environment — `reset()`, `step()`, `render()` with cascade propagation |
-| `life_state.py` | 6-domain, 23-sub-metric `LifeMetrics` dataclass + `DependencyGraph` with 29 edges |
+| `life_state.py` | 6-domain, 23-sub-metric `LifeMetrics` dataclass + `DependencyGraph` with 20 edges |
 | `reward.py` | 4-component reward function with Pareto weighting and hard penalties |
 | `agent.py` | LLM-powered agent (Groq / llama-3.1-8b) with retry logic and JSON action parsing |
 | `conflict_generator.py` | 15 conflict templates across 5 difficulty levels with mid-episode escalation |

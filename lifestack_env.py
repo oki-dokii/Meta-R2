@@ -54,11 +54,16 @@ class LifeStackObservation(Observation):
     metrics: Dict[str, float] = Field(default_factory=dict, description="Flattened 23-domain life metrics")
     resources: Dict[str, float] = Field(default_factory=dict, description="Current budget remaining")
     step: int = Field(default=0, description="Current episode step")
+    done: bool = Field(default=False)
+    reward: Optional[float] = Field(default=None)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class LifeStackState(State):
     """Internal state of the LifeStack environment."""
     current_metrics: LifeMetrics = Field(default_factory=LifeMetrics)
     budget: ResourceBudget = Field(default_factory=ResourceBudget)
+    episode_id: Optional[str] = None
+    step_count: int = 0
 
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""
@@ -67,14 +72,19 @@ class LifeStackRubric(Rubric):
         # This rubric provides a hook for external reward evaluation if needed.
         return observation.reward if observation.reward is not None else 0.0
 
-class LifeStackEnv(Environment[LifeStackAction, LifeStackObservation, LifeStackState]):
+_EnvBase = Environment[LifeStackAction, LifeStackObservation, LifeStackState] if USING_MODERN_API else Environment
+
+class LifeStackEnv(_EnvBase):
     """
     LifeStack Environment v1.1 — Refactored for OpenEnv 0.2.3 compliance.
     """
     SUPPORTS_CONCURRENT_SESSIONS = True
     
     def __init__(self):
-        super().__init__(rubric=LifeStackRubric())
+        if USING_MODERN_API:
+            super().__init__(rubric=LifeStackRubric())
+        else:
+            super().__init__()
         
         self.metadata_internal = {
             'name': 'LifeStack-v1',
@@ -88,6 +98,8 @@ class LifeStackEnv(Environment[LifeStackAction, LifeStackObservation, LifeStackS
         self._internal_state = LifeStackState()
 
     def get_metadata(self):
+        if not USING_MODERN_API:
+            return self.metadata_internal
         from openenv.core.env_server.types import EnvironmentMetadata
         return EnvironmentMetadata(
             name=self.metadata_internal['name'],
@@ -102,7 +114,8 @@ class LifeStackEnv(Environment[LifeStackAction, LifeStackObservation, LifeStackS
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, 
               conflict: Optional[dict] = None, budget: Optional[dict] = None, **kwargs) -> LifeStackObservation:
         """Resets the environment. Seed and conflict can be provided."""
-        self._reset_rubric()
+        if USING_MODERN_API:
+            self._reset_rubric()
         
         if seed is not None:
             import random
