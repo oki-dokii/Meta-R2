@@ -19,8 +19,8 @@ python3 app.py          # Launch Gradio demo  →  http://127.0.0.1:7860
 python3 train.py        # Run 100-episode curriculum training
 ```
 
-> **Verify openenv installed:** `pip3 show openenv` — should show `Version: 0.1.13`  
-> **Note:** On macOS use `pip3` / `python3`. The package does not expose `__version__` but imports correctly via `from openenv.env import Env`.
+> **Verify openenv installed:** `pip3 show openenv-core` — should show `Version: 0.2.3`  
+> **Note:** On macOS use `pip3` / `python3`. The package imports natively via `from openenv.env import Env`.
 
 ---
 
@@ -29,7 +29,7 @@ python3 train.py        # Run 100-episode curriculum training
 | Item | Detail |
 |---|---|
 | **Python** | 3.9+ |
-| **RL Environment** | `openenv >= 0.1.13` — `LifeStackEnv` inherits from `openenv.env.Env` |
+| **RL Environment** | `openenv-core >= 0.2.3` — `LifeStackEnv` inherits from `openenv.env.Env` |
 | **LLM Backend** | Groq Cloud API (`llama-3.1-8b-instant`) via OpenAI-compatible client |
 | **Vector Memory** | ChromaDB + `sentence-transformers/all-MiniLM-L6-v2` |
 | **Demo UI** | Gradio 4.x — 3-tab interface |
@@ -112,7 +112,7 @@ Memory advantage: agents with retrieval-augmented memory outperform blind agents
 
 ## OpenEnv Compliance
 
-- Uses **OpenEnv v0.1.13** (`pip install openenv`)
+- Uses **OpenEnv v0.2.3** (`pip install openenv-core`)
 - `LifeStackEnv` inherits from `openenv.env.Env` — standard `reset()` / `step()` / `render()` API
 - Training script: **`LifeStack_Training.ipynb`** — runs end-to-end on Colab T4 GPU, Unsloth/TRL compatible
 - HuggingFace blog post: [BLOG.md](./BLOG.md)
