@@ -235,15 +235,36 @@ class LifeIntake:
         relationship_quality: int,
         energy_level: int,
         time_pressure: int,
+        calendar_signals: dict = None,
+        gmail_signals: dict = None,
     ) -> tuple:
         """
         Runs all three extraction steps and returns:
             (LifeMetrics, ResourceBudget, ConflictEvent, personality_dict)
         """
-        metrics     = self.extract_life_state(
+        metrics = self.extract_life_state(
             user_description, work_stress, money_stress,
             relationship_quality, energy_level, time_pressure
         )
+
+        # Apply Gmail/Calendar signal adjustments if provided
+        signals = {}
+        if calendar_signals: signals.update(calendar_signals)
+        if gmail_signals: signals.update(gmail_signals)
+
+        for path, val in signals.items():
+            if '.' not in path: continue
+            domain_name, sub_name = path.split('.')
+            domain = getattr(metrics, domain_name, None)
+            if domain and hasattr(domain, sub_name):
+                # Signals like social/romantic/network from Gmail are treated as base values (overrides)
+                # while others like stress/free_time are cumulative deltas.
+                if any(x in sub_name for x in ["social", "romantic", "network", "professional"]):
+                    setattr(domain, sub_name, max(0.0, min(100.0, val)))
+                else:
+                    current = getattr(domain, sub_name)
+                    setattr(domain, sub_name, max(0.0, min(100.0, current + val)))
+
         conflict    = self.extract_conflict(user_description, metrics)
         personality = self.get_personality_from_description(user_description)
         budget      = ResourceBudget()
