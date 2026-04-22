@@ -23,6 +23,7 @@ from reward import compute_reward
 from intake import LifeIntake
 from conflict_predictor import ConflictPredictor
 from counterfactuals import generate_counterfactuals
+from longitudinal_demo import LongitudinalDemo
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -30,6 +31,10 @@ print("🚀 LifeStack booting…")
 AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
 INTAKE = LifeIntake()
+LONG_DEMO = LongitudinalDemo()
+
+# Pre-seed Arjun's 3-week context into ChromaDB on startup
+LONG_DEMO.pre_seed_arjun()
 
 # Friday 6PM is always the default demo conflict
 DEMO_CONFLICT = next(t for t in TEMPLATES if t.id == "d5_friday")
@@ -45,6 +50,8 @@ PERSONS = {
         SimPerson(openness=0.5, conscientiousness=0.7, extraversion=0.5,  agreeableness=0.95, neuroticism=0.3,  name="Maya (Family)"),
     "Leo (Student) — curious, organised":
         SimPerson(openness=0.85, conscientiousness=0.8, extraversion=0.4, agreeableness=0.4,  neuroticism=0.55, name="Leo (Student)"),
+    "Arjun (Startup Lead) — high- conscientiousness, high-neuroticism":
+        SimPerson(name="Arjun", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
 }
 
 CONFLICT_CHOICES      = {f"[Diff {t.difficulty}] {t.title}": t for t in TEMPLATES}
@@ -825,6 +832,37 @@ with gr.Blocks(
             plot_path = os.path.join(os.path.dirname(__file__), "reward_curve.png")
             if os.path.exists(plot_path):
                 gr.Image(value=plot_path, label="Learning Curve — 100 Episode Training Run")
+
+        # ── Tab 4: Arjun's Journey ──────────────────────────────────────────
+        with gr.Tab("🗓️ Arjun's Journey"):
+            gr.HTML(LONG_DEMO.show_longitudinal_comparison())
+            
+            with gr.Column():
+                gr.Markdown("### 🎓 Experimental Context Loading")
+                gr.Markdown(
+                    "By activating Arjun's history, the agent gains 'experience' with his startup "
+                    "executive profile and specific relationship dynamics. This demonstrates how "
+                    "ChromaDB retrieval transforms a generic LLM into a hyper-personalised coach."
+                )
+                load_arjun_btn = gr.Button("🔗 Activate Arjun's Life History (v3)", variant="primary", size="lg")
+                
+                def load_arjun_msg():
+                    LONG_DEMO.pre_seed_arjun()
+                    return "✅ Arjun's memory (Week 1 & 2) is now ACTIVE in ChromaDB. Go to 'Live Demo', select Arjun, and click 'Run Agent'."
+                
+                load_status = gr.Markdown()
+                load_arjun_btn.click(fn=load_arjun_msg, outputs=load_status)
+                
+                gr.Markdown("""
+                ---
+                **Experience it yourself:**
+                1. Click the button above to seed the memories.
+                2. Switch to the **🎯 Live Demo** tab.
+                3. Select **Arjun (Startup Lead)** from the persona list.
+                4. Select the **🚨 Friday 6PM** conflict.
+                5. Click **Run Agent**.
+                6. **Observe:** The agent will now use specific precedents in its reasoning and choice.
+                """)
 
     gr.HTML("""
     <div style='text-align:center;padding:16px;color:#444;font-size:11px;border-top:1px solid #222;margin-top:16px'>
