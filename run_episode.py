@@ -67,7 +67,7 @@ def run_episode(
     initial_conflict_id = conflict.id
 
     # Apply initial disruption to env
-    obs, _ = env.reset(conflict=conflict.primary_disruption)
+    obs, _ = env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
     done = obs.get("done", False)
 
     # --------------------------------------------------

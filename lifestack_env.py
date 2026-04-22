@@ -45,10 +45,17 @@ class LifeStackEnv(Env):
         import numpy as np
         return np.array(metrics + resources + step).tolist()
 
-    def reset(self, conflict: dict = None) -> dict:
+    def reset(self, conflict: dict = None, budget: dict = None) -> dict:
         """Resets the environment to initial state (70s) or apply a conflict."""
         self.state = LifeMetrics()  # All metrics at 70
-        self.budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
+        if budget:
+            self.budget = ResourceBudget(
+                time_hours=budget.get("time", 20.0),
+                money_dollars=budget.get("money", 500.0),
+                energy_units=budget.get("energy", 100.0)
+            )
+        else:
+            self.budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
         self.step_count = 0
         self.last_reward = None
         self.last_breakdown = None

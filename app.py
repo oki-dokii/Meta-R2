@@ -111,7 +111,7 @@ def metrics_html(flat: dict, title: str = "", before: dict = None) -> str:
 
 def _init_env(conflict: ConflictEvent) -> LifeStackEnv:
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption)
+    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
     return env
 
 
@@ -621,14 +621,7 @@ def load_training_tab():
 
 # ─── Gradio App ───────────────────────────────────────────────────────────────
 with gr.Blocks(
-    theme=gr.themes.Base(primary_hue="violet", neutral_hue="slate"),
     title="LifeStack — AI Life Coach",
-    css="""
-    body { background:#0d0d1a; }
-    .gradio-container { max-width: 1100px; margin: auto; }
-    h1 { text-align:center; }
-    .tab-nav button { font-size:14px; font-weight:600; }
-    """
 ) as app:
 
     gr.HTML("""
@@ -727,8 +720,7 @@ with gr.Blocks(
 
             plot_path = os.path.join(os.path.dirname(__file__), "reward_curve.png")
             if os.path.exists(plot_path):
-                gr.Image(value=plot_path, label="Learning Curve — 50 Episode Training Run",
-                         show_download_button=False, show_label=True)
+                gr.Image(value=plot_path, label="Learning Curve — 100 Episode Training Run")
 
     gr.HTML("""
     <div style='text-align:center;padding:16px;color:#444;font-size:11px;border-top:1px solid #222;margin-top:16px'>
@@ -738,4 +730,15 @@ with gr.Blocks(
 
 
 if __name__ == "__main__":
-    app.launch(share=False, server_port=7860, show_error=True)
+    app.launch(
+        share=False,
+        server_port=7860,
+        show_error=True,
+        theme=gr.themes.Base(primary_hue="violet", neutral_hue="slate"),
+        css="""
+        body { background:#0d0d1a; }
+        .gradio-container { max-width: 1100px; margin: auto; }
+        h1 { text-align:center; }
+        .tab-nav button { font-size:14px; font-weight:600; }
+        """
+    )
