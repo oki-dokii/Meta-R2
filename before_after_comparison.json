@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "runs": 5,
+    "avg_no_memory": 1.13,
+    "avg_with_memory": 2.45,
+    "pct_improvement": 116.81,
+    "most_common_action_no_memory": "delegate",
+    "most_common_action_with_memory": "communicate",
+    "comm_usage_no_memory_pct": 40.0,
+    "comm_usage_yes_memory_pct": 100.0
+  },
+  "no_memory": [
+    {
+      "total_reward": 1.0,
+      "first_action": "delegate"
+    },
+    {
+      "total_reward": 1.2
+    }
+  ],
+  "with_memory": [
+    {
+      "total_reward": 2.5,
+      "first_action": "communicate"
+    },
+    {
+      "total_reward": 2.4
+    }
+  ]
+}
