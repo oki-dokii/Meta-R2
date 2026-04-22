@@ -55,7 +55,7 @@ class LifeStackAgent:
 
         prompt = f"""
 ROLE: You are the LifeStack AI Agent. Your goal is to help the user navigate a life crisis.
-PERSONALITY CONTEXT: {person.get_personality_hint()}
+PERSONALITY CONTEXT: Observe how the person responds to your actions over time. You do not have direct access to their personality traits.
 
 CURRENT CONFLICT:
 Title: {conflict.title}
