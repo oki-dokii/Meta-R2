@@ -1,11 +1,11 @@
 import copy
 from life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from reward import compute_reward
-from openenv.env import Env
+from openenv.core import Environment as Env
 
 class LifeStackEnv(Env):
     def __init__(self):
-        super().__init__(name="LifeStackEnv", episode_max_length=5)
+        super().__init__()
         
         self.observation_space = {
             'metrics': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (23,)},
@@ -28,11 +28,19 @@ class LifeStackEnv(Env):
         
         self.graph = DependencyGraph()
         self.max_steps = 5
-        self.state = None
+        self._state = None
         self.budget = None
         self.step_count = 0
         self.last_reward = None
         self.last_breakdown = None
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, value):
+        self._state = value
 
     def seed(self, s: int):
         import random
@@ -45,7 +53,7 @@ class LifeStackEnv(Env):
         import numpy as np
         return np.array(metrics + resources + step).tolist()
 
-    def reset(self, conflict: dict = None, budget: dict = None) -> dict:
+    def reset(self, seed: int = None, episode_id: str = None, conflict: dict = None, budget: dict = None, **kwargs) -> dict:
         """Resets the environment to initial state (70s) or apply a conflict."""
         self.state = LifeMetrics()  # All metrics at 70
         if budget:
@@ -89,7 +97,7 @@ class LifeStackEnv(Env):
         current = getattr(domain, sub_name)
         setattr(domain, sub_name, max(0.0, min(100.0, current + delta)))
 
-    def step(self, action: dict) -> dict:
+    def step(self, action: dict, timeout_s: float = None, **kwargs) -> dict:
         """
         Executes one step in the environment.
         
@@ -237,8 +245,8 @@ def main():
     
     for sce in scenarios:
         print(f"\nTaking Action: {sce['name']}...")
-        obs = env.step(sce['action'])
-        total_reward += obs['reward']
+        obs, reward, terminated, truncated, _ = env.step(sce['action'])
+        total_reward += reward
         env.render()
         
     # 3. Final Summary
