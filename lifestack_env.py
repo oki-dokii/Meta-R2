@@ -8,14 +8,14 @@ class LifeStackEnv(Env):
         super().__init__(name="LifeStackEnv", episode_max_length=5)
         
         self.observation_space = {
-            'metrics': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (24,)},
+            'metrics': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (23,)},
             'resources': {'type': 'Box', 'low': 0.0, 'high': 500.0, 'shape': (3,)},
             'step': {'type': 'Discrete', 'n': 6}
         }
         self.action_space = {
             'action_type': {'type': 'Discrete', 'n': 7},
             'target_domain': {'type': 'Discrete', 'n': 6},
-            'metric_changes': {'type': 'Box', 'low': -50.0, 'high': 50.0, 'shape': (24,)},
+            'metric_changes': {'type': 'Box', 'low': -50.0, 'high': 50.0, 'shape': (23,)},
             'resource_cost': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (3,)}
         }
         self.metadata = {
