@@ -20,3 +20,10 @@ numpy>=1.26.0
 
 # Utilities (stdlib — listed for clarity)
 # json, os, copy, random, math, uuid, shutil, datetime — no install needed
+
+# TRL / PPO Framework Training (Optional on demo server)
+torch>=2.0.0
+transformers>=4.40.0
+trl>=0.8.0
+accelerate>=0.29.0
+peft>=0.10.0
