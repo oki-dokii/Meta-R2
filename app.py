@@ -371,9 +371,25 @@ def run_demo(person_label: str, conflict_label: str):
         action.primary.metric_changes = {"mental_wellbeing.stress_level": -5.0}
         action.primary.resource_cost  = {}
 
-    updated_metrics, updated_budget, uptake = apply_action(
-        action, before_metrics, before_budget, person
+    current_stress = before_metrics.mental_wellbeing.stress_level
+    uptake = person.respond_to_action(
+        action.primary.action_type, 
+        action.primary.resource_cost, 
+        current_stress
     )
+
+    scaled_changes = {}
+    for path, delta in action.primary.metric_changes.items():
+        scaled_changes[path] = float(delta) * uptake
+
+    env_action = {
+        "metric_changes": scaled_changes,
+        "resource_cost": action.primary.resource_cost,
+        "actions_taken": 1
+    }
+
+    obs, reward, terminated, truncated, env_info = env.step(env_action)
+    updated_metrics = env.state
 
     after_flat = updated_metrics.flatten()
     before_flat = f0['flat']
@@ -387,9 +403,6 @@ def run_demo(person_label: str, conflict_label: str):
 
     after_html = cascade_metrics_html(after_flat, final_status, "AFTER AGENT ACTION",
                                        before=before_flat)
-
-    reward_tuple = compute_reward(before_metrics, updated_metrics, action.primary.resource_cost, 1)
-    reward = reward_tuple[0] if isinstance(reward_tuple, tuple) else reward_tuple
 
     comm_block = ""
     if action.communication:
@@ -480,18 +493,31 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
         action.primary.metric_changes = {"mental_wellbeing.stress_level": -5.0}
         action.primary.resource_cost  = {}
 
+    env = LifeStackEnv()
+    env.state = metrics
+    env.budget = budget
+    
+    current_stress = metrics.mental_wellbeing.stress_level
     uptake = person.respond_to_action(
-        action.primary.action_type, action.primary.resource_cost,
-        metrics.mental_wellbeing.stress_level
+        action.primary.action_type, 
+        action.primary.resource_cost, 
+        current_stress
     )
 
-    updated_metrics, _, _ = apply_action(action, metrics, budget, person)
-    after_flat  = updated_metrics.flatten()
-    before_flat = metrics.flatten()
-    after_html  = metrics_html(after_flat, "AFTER ACTION", before=before_flat)
+    scaled_changes = {}
+    for path, delta in action.primary.metric_changes.items():
+        scaled_changes[path] = float(delta) * uptake
 
-    reward_tuple = compute_reward(metrics, updated_metrics, action.primary.resource_cost, 1)
-    reward       = reward_tuple[0] if isinstance(reward_tuple, tuple) else reward_tuple
+    env_action = {
+        "metric_changes": scaled_changes,
+        "resource_cost": action.primary.resource_cost,
+        "actions_taken": 1
+    }
+
+    obs, reward, terminated, truncated, env_info = env.step(env_action)
+    updated_metrics = env.state
+
+    after_html = metrics_html(updated_metrics.flatten(), "AFTER ACTION", before=metrics.flatten())
     reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
 
     trait_bar = lambda v: "█" * int(v * 10) + "░" * (10 - int(v * 10))
