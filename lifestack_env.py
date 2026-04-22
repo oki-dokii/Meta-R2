@@ -41,6 +41,8 @@ class LifeStackEnv(Environment[LifeStackAction, LifeStackObservation, LifeStackS
     """
     LifeStack Environment v1.1 — Refactored for OpenEnv 0.2.3 compliance.
     """
+    SUPPORTS_CONCURRENT_SESSIONS = True
+    
     def __init__(self):
         super().__init__(rubric=LifeStackRubric())
         
@@ -56,7 +58,7 @@ class LifeStackEnv(Environment[LifeStackAction, LifeStackObservation, LifeStackS
         self._internal_state = LifeStackState()
 
     def get_metadata(self):
-        from openenv.core import EnvironmentMetadata
+        from openenv.core.env_server.types import EnvironmentMetadata
         return EnvironmentMetadata(
             name=self.metadata_internal['name'],
             version=self.metadata_internal['version'],
