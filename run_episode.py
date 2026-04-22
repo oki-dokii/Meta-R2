@@ -118,7 +118,7 @@ def run_episode(
         metrics_before = copy.deepcopy(env.state)
         budget_before = copy.deepcopy(env.budget)
 
-        action = agent.get_action(env.state, env.budget, conflict, person)
+        action = agent.get_action(env.state, env.budget, conflict, person, few_shot_context=few_shot)
 
         # Validate resource cost
         is_valid, reason = validate_action(action, env.budget)

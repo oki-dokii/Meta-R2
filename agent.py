@@ -31,7 +31,7 @@ class LifeStackAgent:
         self.model = 'llama-3.1-8b-instant'  # 500k TPD on free tier (vs 100k for 70b)
         self.memory = [] # Will store last 10 decisions
 
-    def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson) -> str:
+    def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> str:
         # 1. Build Status Board
         flat = metrics.flatten()
         status_board = ""
@@ -69,16 +69,25 @@ Time: {budget.time_hours:.1f} hours
 Money: ${budget.money_dollars:.1f}
 Energy: {budget.energy_units:.1f} units
 {memory_str}
+{few_shot_context}
 
 TASK:
 Choose the best action to address the conflict. Consider the person's personality and resource constraints.
 Respond ONLY with valid JSON following the schema below. No markdown fences, no extra text.
 
+VALID METRICS (use ONLY these exact keys in metric_changes):
+career: satisfaction, workload, stability, growth_trajectory
+finances: liquidity, debt_pressure, long_term_health
+relationships: romantic, family, social, professional_network
+physical_health: energy, sleep_quality, exercise_routine
+mental_wellbeing: stress_level, emotional_stability, motivation, clarity
+time: free_hours_per_week, commute_burden, admin_overhead
+
 SCHEMA:
 {{
   "action_type": "communicate|rest|delegate|negotiate|spend|reschedule|deprioritize",
   "target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time",
-  "metric_changes": {{"domain.submetric": "delta_value"}},
+  "metric_changes": {{"domain.submetric": "delta_value (use ONLY valid metrics above)"}},
   "resource_cost": {{"time": 0.0, "money": 0.0, "energy": 0.0}},
   "description": "one sentence what you are doing",
   "recipient": "boss|partner|family|friend|colleague|none",
@@ -90,11 +99,11 @@ SCHEMA:
 """
         return prompt
 
-    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson) -> AgentAction:
+    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> AgentAction:
         if not self.api_key:
             return self._fallback_action("Error: GROQ_API_KEY not set.")
 
-        prompt = self.build_prompt(metrics, budget, conflict, person)
+        prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
         
         import time as _t
         try:

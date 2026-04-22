@@ -16,7 +16,7 @@ cd Meta-R2
 pip3 install -r requirements.txt
 export GROQ_API_KEY=your_key_here
 python3 app.py          # Launch Gradio demo  →  http://127.0.0.1:7860
-python3 train.py        # Run 50-episode curriculum training
+python3 train.py        # Run 100-episode curriculum training
 ```
 
 > **Verify openenv installed:** `pip3 show openenv` — should show `Version: 0.1.13`  
@@ -41,7 +41,7 @@ python3 train.py        # Run 50-episode curriculum training
 
 ## Environment Overview
 
-LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 40 weighted edges that propagate impact across nodes exactly as they do in real life. When a crisis disrupts one domain (e.g. a sudden workload spike), the cascade engine propagates secondary effects through connected nodes (stress rises, sleep degrades, motivation falls, career growth slows) using a dampened BFS traversal. The agent operates under hard resource constraints: 20 hours per week, a fixed money budget, and finite energy units that cannot be manufactured — only managed. Each episode runs for up to 5 steps, during which the agent must find a sequence of actions that resolves the crisis without triggering critical collapses (any metric hitting zero terminates the episode with a severe penalty).
+LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 28 weighted edges that propagate impact across nodes exactly as they do in real life. When a crisis disrupts one domain (e.g. a sudden workload spike), the cascade engine propagates secondary effects through connected nodes (stress rises, sleep degrades, motivation falls, career growth slows) using a dampened BFS traversal. The agent operates under hard resource constraints: 20 hours per week, a fixed money budget, and finite energy units that cannot be manufactured — only managed. Each episode runs for up to 5 steps, during which the agent must find a sequence of actions that resolves the crisis without triggering critical collapses (any metric hitting zero terminates the episode with a severe penalty).
 
 ---
 
@@ -94,7 +94,7 @@ reward = (0.40 × outcome_score)
 | **Overall** | **1–50** | **2.478** |
 
 Memory growth: **0 → 928 decisions** stored across 50 training episodes.  
-Best single episode reward: **3.141** (Episode 42).  
+Best single episode reward: **2.579** (Episode 7).  
 Memory advantage: agents with retrieval-augmented memory outperform blind agents on compound difficulty-5 crises.
 
 ---
@@ -124,7 +124,7 @@ Memory advantage: agents with retrieval-augmented memory outperform blind agents
 | File | Description |
 |---|---|
 | `lifestack_env.py` | Core OpenEnv environment — `reset()`, `step()`, `render()` with cascade propagation |
-| `life_state.py` | 6-domain, 23-sub-metric `LifeMetrics` dataclass + `DependencyGraph` with 40 edges |
+| `life_state.py` | 6-domain, 23-sub-metric `LifeMetrics` dataclass + `DependencyGraph` with 28 edges |
 | `reward.py` | 4-component reward function with Pareto weighting and hard penalties |
 | `agent.py` | LLM-powered agent (Groq / llama-3.1-8b) with retry logic and JSON action parsing |
 | `conflict_generator.py` | 15 conflict templates across 5 difficulty levels with mid-episode escalation |
@@ -132,7 +132,7 @@ Memory advantage: agents with retrieval-augmented memory outperform blind agents
 | `simperson.py` | OCEAN personality model with `respond_to_action()` uptake scoring and drift |
 | `memory.py` | ChromaDB RAG memory — stores high-reward decisions, retrieves few-shot context |
 | `run_episode.py` | Full episode orchestrator — conflict → agent → apply → reward → memory loop |
-| `train.py` | 50-episode curriculum trainer with `training_log.json` and `reward_curve.png` output |
+| `train.py` | 100-episode curriculum trainer with `training_log.json` and `reward_curve.png` output |
 | `app.py` | 3-tab Gradio demo — Live Demo, Try Your Situation, Training Results |
 | `LifeStack_Training.ipynb` | Google Colab notebook — full training pipeline, runs on free T4 GPU |
 
