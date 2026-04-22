@@ -114,8 +114,8 @@ class LifeStackEnv(_EnvBase):
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, 
               conflict: Optional[dict] = None, budget: Optional[dict] = None, **kwargs) -> LifeStackObservation:
         """Resets the environment. Seed and conflict can be provided."""
-        if USING_MODERN_API:
-            self._reset_rubric()
+        if USING_MODERN_API and getattr(self, 'rubric', None):
+            self.rubric.reset()
         
         if seed is not None:
             import random
