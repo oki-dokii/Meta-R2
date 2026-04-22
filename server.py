@@ -1,5 +1,16 @@
 import os
-import uvicorn
+from pathlib import Path
+
+try:
+    import uvicorn
+except ImportError as exc:
+    root_dir = Path(__file__).resolve().parent
+    venv_python = root_dir / ".venv" / "bin" / "python"
+    raise SystemExit(
+        "uvicorn is not installed for this interpreter.\n"
+        f"Run the server with: {venv_python} {root_dir / 'server.py'}\n"
+        "Or activate the virtualenv first: source .venv/bin/activate"
+    ) from exc
 try:
     from openenv.core import create_app
 except ImportError:
