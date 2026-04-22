@@ -21,6 +21,7 @@ from action_space import apply_action, validate_action
 from memory import LifeStackMemory
 from reward import compute_reward
 from intake import LifeIntake
+from conflict_predictor import ConflictPredictor
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -49,6 +50,8 @@ CONFLICT_CHOICES      = {f"[Diff {t.difficulty}] {t.title}": t for t in TEMPLATE
 PERSON_CHOICES        = list(PERSONS.keys())
 CONFLICT_CHOICES_LIST = list(CONFLICT_CHOICES.keys())
 DEFAULT_CONFLICT      = next(k for k in CONFLICT_CHOICES_LIST if "Friday 6PM" in k)
+
+DEMO_PREDICTOR = ConflictPredictor()
 
 print("✅ LifeStack ready.")
 
@@ -305,10 +308,30 @@ def run_demo(person_label: str, conflict_label: str):
     base_metrics = LifeMetrics()
     frames = animate_cascade(conflict.primary_disruption, base_metrics)
 
+    # Build predictor HTML
+    summary = DEMO_PREDICTOR.get_prediction_summary()
+    rscore = DEMO_PREDICTOR.get_risk_score()
+    rcolor = "#4ade80" if rscore < 0.3 else ("#facc15" if rscore <= 0.6 else "#f87171")
+    pct = min(100, int(rscore * 100))
+    pred_html = f"""
+    <div style='background:#1e1e2f;border:1px solid #333;border-left:4px solid {rcolor};border-radius:6px;padding:12px;margin-bottom:16px;font-family:sans-serif'>
+        <div style='font-size:14px;font-weight:700;color:#ccc;margin-bottom:8px'>⚠️ TRAJECTORY ANALYSIS — Next 7 Days</div>
+        <div style='margin-bottom:10px;font-size:13px;color:#ddd'>{summary}</div>
+        <div style='display:flex;align-items:center;gap:10px'>
+            <span style='font-size:12px;color:#aaa'>Risk Score:</span>
+            <div style='flex:1;background:#333;border-radius:4px;height:12px'>
+                <div style='width:{pct}%;background:{rcolor};border-radius:4px;height:12px'></div>
+            </div>
+            <span style='font-size:12px;color:{rcolor};font-weight:700'>{rscore:.2f}</span>
+        </div>
+    </div>
+    """
+
     # ── Frame 0 — stable state ────────────────────────────────────────────
     f0 = frames[0]
     narr = f"<div style='padding:8px;color:#9ca3af;font-style:italic'>{NARRATIVE[0]}</div>"
     yield (
+        pred_html,
         cascade_metrics_html(f0['flat'], f0['status'], "BEFORE"),
         narr,
         "",
@@ -320,6 +343,7 @@ def run_demo(person_label: str, conflict_label: str):
     narr = (f"<div style='padding:8px;color:#ef4444;font-weight:700'>"
             f"{NARRATIVE[1].format(title=conflict.title)}</div>")
     yield (
+        pred_html,
         cascade_metrics_html(f1['flat'], f1['status'], "DISRUPTION", before=f0['flat']),
         narr,
         "",
@@ -331,6 +355,7 @@ def run_demo(person_label: str, conflict_label: str):
     narr = (f"<div style='padding:8px;color:#f97316;font-weight:700'>"
             f"{NARRATIVE[2]}</div>")
     yield (
+        pred_html,
         cascade_metrics_html(f2['flat'], f2['status'], "CASCADE — 1st ORDER", before=f0['flat']),
         narr,
         "",
@@ -342,6 +367,7 @@ def run_demo(person_label: str, conflict_label: str):
     narr = (f"<div style='padding:8px;color:#eab308;font-weight:700'>"
             f"{NARRATIVE[3]}</div>")
     yield (
+        pred_html,
         cascade_metrics_html(f3['flat'], f3['status'], "CASCADE — 2nd ORDER", before=f0['flat']),
         narr,
         "",
@@ -448,7 +474,26 @@ def run_demo(person_label: str, conflict_label: str):
   {legend}
 </div>"""
 
-    yield (after_html, narr, decision_html)
+    DEMO_PREDICTOR.add_snapshot(updated_metrics)
+    summary = DEMO_PREDICTOR.get_prediction_summary()
+    rscore = DEMO_PREDICTOR.get_risk_score()
+    rcolor = "#4ade80" if rscore < 0.3 else ("#facc15" if rscore <= 0.6 else "#f87171")
+    pct = min(100, int(rscore * 100))
+    after_pred_html = f"""
+    <div style='background:#1e1e2f;border:1px solid #333;border-left:4px solid {rcolor};border-radius:6px;padding:12px;margin-bottom:16px;font-family:sans-serif'>
+        <div style='font-size:14px;font-weight:700;color:#ccc;margin-bottom:8px'>⚠️ TRAJECTORY ANALYSIS — Next 7 Days</div>
+        <div style='margin-bottom:10px;font-size:13px;color:#ddd'>{summary}</div>
+        <div style='display:flex;align-items:center;gap:10px'>
+            <span style='font-size:12px;color:#aaa'>Risk Score:</span>
+            <div style='flex:1;background:#333;border-radius:4px;height:12px'>
+                <div style='width:{pct}%;background:{rcolor};border-radius:4px;height:12px'></div>
+            </div>
+            <span style='font-size:12px;color:{rcolor};font-weight:700'>{rscore:.2f}</span>
+        </div>
+    </div>
+    """
+
+    yield (after_pred_html, after_html, narr, decision_html)
 
 
 # ─── Tab 2 — Try Your Situation (intake-powered) ─────────────────────────────
@@ -681,6 +726,8 @@ with gr.Blocks(
             </div>
             """)
 
+            prediction_ui = gr.HTML()
+            
             with gr.Row():
                 conflict_dd = gr.Dropdown(
                     choices=CONFLICT_CHOICES_LIST,
@@ -704,7 +751,7 @@ with gr.Blocks(
             run_btn.click(
                 fn=run_demo,
                 inputs=[person_dd, conflict_dd],
-                outputs=[before_out, cascade_narrative, after_out],
+                outputs=[prediction_ui, before_out, cascade_narrative, after_out],
             )
 
         # ── Tab 2: Try Your Situation ────────────────────────────────────────
