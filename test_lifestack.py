@@ -137,37 +137,28 @@ def test_memory_threshold():
     test_dir = "./test_memory_tmp"
     if os.path.exists(test_dir):
         shutil.rmtree(test_dir)
+    os.makedirs(test_dir, exist_ok=True)
+    try:
+        memory = LifeStackMemory(silent=True, path=test_dir)
+        rewards = [0.3, 0.5, 0.6, 0.4, 0.8]
 
-    import chromadb
-    from sentence_transformers import SentenceTransformer
-
-    client     = chromadb.PersistentClient(path=test_dir)
-    collection = client.get_or_create_collection(name="test_decisions")
-    encoder    = SentenceTransformer("all-MiniLM-L6-v2")
-
-    rewards    = [0.3, 0.5, 0.6, 0.4, 0.8]
-    threshold  = 0.5
-    stored     = 0
-
-    for i, r in enumerate(rewards):
-        if r >= threshold:
-            text = f"test conflict action_{i} domain reasoning"
-            emb  = encoder.encode(text).tolist()
-            collection.add(
-                ids=[f"test_{i}"],
-                embeddings=[emb],
-                documents=[text],
-                metadatas=[{"reward": r, "action_type": f"action_{i}", "target_domain": "test"}],
+        for i, r in enumerate(rewards):
+            memory.store_decision(
+                conflict_title="test conflict",
+                action_type=f"action_{i}",
+                target_domain="test",
+                reward=r,
+                metrics_snapshot={},
+                reasoning="test reasoning",
             )
-            stored += 1
 
-    expected = sum(1 for r in rewards if r >= threshold)
-    actual   = collection.count()
-    shutil.rmtree(test_dir, ignore_errors=True)
-
-    report("Memory threshold (only reward >= 0.5 stored)",
-           actual == expected,
-           f"expected {expected}, stored {actual} (rewards: {rewards})")
+        expected = sum(1 for r in rewards if r >= 0.5)
+        actual = memory.collection.count()
+        report("Memory threshold (only reward >= 0.5 stored)",
+               actual == expected,
+               f"expected {expected}, stored {actual} (rewards: {rewards})")
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)
 
 
 # ─── 9. Episode Termination Test ─────────────────────────────────────────────
@@ -191,9 +182,13 @@ def test_episode_termination():
 
 # ─── 10. Full Episode Smoke Test ─────────────────────────────────────────────
 def test_full_episode_smoke():
+    test_dir = "./test_episode_memory_tmp"
+    if os.path.exists(test_dir):
+        shutil.rmtree(test_dir)
     try:
         from run_episode import run_episode
-        result = run_episode(difficulty=1, verbose=False)
+        memory = LifeStackMemory(silent=True, path=test_dir)
+        result = run_episode(difficulty=1, verbose=False, memory=memory)
         reward = result.get("total_reward", None)
         steps  = result.get("steps", None)
         ok     = isinstance(reward, float) and (steps is None or steps <= 5)
@@ -202,6 +197,8 @@ def test_full_episode_smoke():
                f"reward = {reward}, steps = {steps}, type = {type(reward).__name__}")
     except Exception as e:
         report("Full episode smoke test", False, f"Exception: {e}")
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)
 
 
 # ─── Run All ──────────────────────────────────────────────────────────────────

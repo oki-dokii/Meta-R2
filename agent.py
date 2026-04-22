@@ -3,6 +3,7 @@ import json
 import copy
 from openai import OpenAI
 from life_state import LifeMetrics, ResourceBudget
+from metric_schema import format_valid_metrics, normalize_metric_path, is_valid_metric_path
 from conflict_generator import ConflictEvent, generate_conflict
 from action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
 from simperson import SimPerson
@@ -76,12 +77,7 @@ Choose the best action to address the conflict. Consider the person's personalit
 Respond ONLY with valid JSON following the schema below. No markdown fences, no extra text.
 
 VALID METRICS (use ONLY these exact keys in metric_changes):
-career: satisfaction, workload, stability, growth_trajectory
-finances: liquidity, debt_pressure, long_term_health
-relationships: romantic, family, social, professional_network
-physical_health: energy, sleep_quality, exercise_routine
-mental_wellbeing: stress_level, emotional_stability, motivation, clarity
-time: free_hours_per_week, commute_burden, admin_overhead
+{format_valid_metrics()}
 
 SCHEMA:
 {{
@@ -162,11 +158,16 @@ SCHEMA:
             
             # Cast values to float in case the LLM returned strings
             metric_changes = data.get("metric_changes", {})
+            normalized_metric_changes = {}
             for k, v in list(metric_changes.items()):
+                norm_key = normalize_metric_path(k)
+                if not is_valid_metric_path(norm_key):
+                    continue
                 try:
-                    metric_changes[k] = float(v)
+                    normalized_metric_changes[norm_key] = float(v)
                 except ValueError:
-                    del metric_changes[k]
+                    continue
+            metric_changes = normalized_metric_changes
                     
             resource_cost = data.get("resource_cost", {})
             for k, v in list(resource_cost.items()):

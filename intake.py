@@ -8,6 +8,7 @@ import os
 import json
 from openai import OpenAI
 from life_state import LifeMetrics, ResourceBudget
+from metric_schema import VALID_METRIC_PATHS, normalize_metric_path, is_valid_metric_path
 from conflict_generator import ConflictEvent
 
 
@@ -133,14 +134,7 @@ class LifeIntake:
         energy     = flat.get("physical_health.energy", 70)
         free_hours = flat.get("time.free_hours_per_week", 70)
 
-        valid_paths = (
-            "career.workload, career.satisfaction, career.stability, career.growth_trajectory, "
-            "finances.liquidity, finances.debt_pressure, finances.monthly_runway, finances.long_term_health, "
-            "relationships.romantic, relationships.family, relationships.social, relationships.professional_network, "
-            "physical_health.energy, physical_health.fitness, physical_health.sleep_quality, physical_health.nutrition, "
-            "mental_wellbeing.stress_level, mental_wellbeing.clarity, mental_wellbeing.motivation, mental_wellbeing.emotional_stability, "
-            "time.free_hours_per_week, time.commute_burden, time.admin_overhead"
-        )
+        valid_paths = ", ".join(VALID_METRIC_PATHS)
         prompt = (
             f"The user described their situation as: {user_description}\n"
             f"Their life metrics show: stress={stress:.1f}, liquidity={liquidity:.1f}, "
@@ -159,8 +153,11 @@ class LifeIntake:
             data = json.loads(raw)
             disruption = {}
             for k, v in data.get("primary_disruption", {}).items():
+                norm_key = normalize_metric_path(k)
+                if not is_valid_metric_path(norm_key):
+                    continue
                 try:
-                    disruption[k] = float(v)
+                    disruption[norm_key] = float(v)
                 except (ValueError, TypeError):
                     pass
 

@@ -1,20 +1,40 @@
 import chromadb
 from sentence_transformers import SentenceTransformer
-import json
 import uuid
-import os
+import math
 from datetime import datetime
 from collections import defaultdict
 
 
 class LifeStackMemory:
-    def __init__(self, silent: bool = False):
-        self.client = chromadb.PersistentClient(path='./lifestack_memory')
+    def __init__(self, silent: bool = False, path: str = "./lifestack_memory"):
+        self.client = chromadb.PersistentClient(path=path)
         self.collection = self.client.get_or_create_collection(name='decisions')
-        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
         self.silent = silent
+        self.encoder = self._load_encoder()
         if not self.silent:
             print("Memory system initialized")
+
+    def _load_encoder(self):
+        try:
+            return SentenceTransformer('all-MiniLM-L6-v2', local_files_only=True)
+        except Exception as exc:
+            if not self.silent:
+                print(f"Falling back to local hash embeddings: {exc}")
+            return None
+
+    def _embed_text(self, text: str) -> list[float]:
+        if self.encoder is not None:
+            return self.encoder.encode(text).tolist()
+
+        import zlib
+        buckets = [0.0] * 384
+        for token in text.lower().split():
+            idx = zlib.adler32(token.encode()) % len(buckets)
+            buckets[idx] += 1.0
+
+        norm = math.sqrt(sum(v * v for v in buckets)) or 1.0
+        return [v / norm for v in buckets]
 
     def store_decision(
         self,
@@ -32,7 +52,7 @@ class LifeStackMemory:
             return
 
         text = f"{conflict_title} {action_type} {target_domain} {reasoning[:100]}"
-        embedding = self.encoder.encode(text).tolist()
+        embedding = self._embed_text(text)
 
         doc_id = str(uuid.uuid4())
         self.collection.add(
@@ -61,7 +81,7 @@ class LifeStackMemory:
         top_stressed = " ".join(f"{k}:{v:.0f}" for k, v in sorted_metrics[:3])
         query_text = f"{conflict_title} {top_stressed}"
 
-        query_embedding = self.encoder.encode(query_text).tolist()
+        query_embedding = self._embed_text(query_text)
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=min(n, self.collection.count())

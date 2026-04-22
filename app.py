@@ -19,11 +19,13 @@ from simperson import SimPerson
 from conflict_generator import ConflictEvent, generate_conflict, TEMPLATES
 from action_space import apply_action, validate_action
 from memory import LifeStackMemory
+from metric_schema import normalize_metric_path, is_valid_metric_path
 from reward import compute_reward
 from intake import LifeIntake
 from conflict_predictor import ConflictPredictor
 from counterfactuals import generate_counterfactuals
 from longitudinal_demo import LongitudinalDemo
+from gmail_intake import GmailIntake
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -31,6 +33,7 @@ print("🚀 LifeStack booting…")
 AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
 INTAKE = LifeIntake()
+GMAIL  = GmailIntake()
 LONG_DEMO = LongitudinalDemo()
 
 # Pre-seed Arjun's 3-week context into ChromaDB on startup
@@ -124,6 +127,22 @@ def _init_env(conflict: ConflictEvent) -> LifeStackEnv:
     env = LifeStackEnv()
     env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
     return env
+
+
+def _normalize_action_metric_changes(action) -> None:
+    fixed_changes = {}
+    for path, delta in action.primary.metric_changes.items():
+        raw_path = str(path)
+        if "." not in raw_path:
+            raw_path = f"{action.primary.target_domain}.{raw_path}"
+        norm_path = normalize_metric_path(raw_path)
+        if not is_valid_metric_path(norm_path):
+            continue
+        try:
+            fixed_changes[norm_path] = float(delta)
+        except (ValueError, TypeError):
+            continue
+    action.primary.metric_changes = fixed_changes
 
 
 # ─── Cascade Animation Engine ────────────────────────────────────────────────
@@ -390,15 +409,7 @@ def run_demo(person_label: str, conflict_label: str):
     action = AGENT.get_action(before_metrics, before_budget, conflict, person)
 
     # Normalise metric keys
-    fixed_changes = {}
-    for path, delta in action.primary.metric_changes.items():
-        if "." not in str(path):
-            path = f"{action.primary.target_domain}.{path}"
-        try:
-            fixed_changes[path] = float(delta)
-        except (ValueError, TypeError):
-            pass
-    action.primary.metric_changes = fixed_changes
+    _normalize_action_metric_changes(action)
 
     is_valid, _ = validate_action(action, before_budget)
     if not is_valid:
@@ -536,10 +547,12 @@ def run_demo(person_label: str, conflict_label: str):
 
 # ─── Tab 2 — Try Your Situation (intake-powered) ─────────────────────────────
 def run_custom(situation: str, work_stress: int, money_stress: int,
-               relationship_q: int, energy: int, time_pressure: int):
+               relationship_q: int, energy: int, time_pressure: int,
+               gmail_signals: dict = None):
     """Uses LifeIntake to extract structured conflict + personality from NL + sliders."""
     metrics, budget, conflict, personality = INTAKE.full_intake(
-        situation, work_stress, money_stress, relationship_q, energy, time_pressure
+        situation, work_stress, money_stress, relationship_q, energy, time_pressure,
+        gmail_signals=gmail_signals
     )
 
     person = SimPerson(
@@ -561,15 +574,7 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
 
     action = AGENT.get_action(metrics, budget, conflict, person)
 
-    fixed = {}
-    for path, delta in action.primary.metric_changes.items():
-        if "." not in str(path):
-            path = f"{action.primary.target_domain}.{path}"
-        try:
-            fixed[path] = float(delta)
-        except (ValueError, TypeError):
-            pass
-    action.primary.metric_changes = fixed
+    _normalize_action_metric_changes(action)
 
     is_valid, _ = validate_action(action, budget)
     if not is_valid:
@@ -812,7 +817,27 @@ with gr.Blocks(
                     rel_sl    = gr.Slider(0, 10, value=6, step=1, label="❤️ Relationship Quality")
                     energy_sl = gr.Slider(0, 10, value=4, step=1, label="⚡ Energy Level")
                     time_sl   = gr.Slider(0, 10, value=7, step=1, label="📅 Time Pressure")
+                    
+                    gmail_state = gr.State(None)
+                    with gr.Row():
+                        gmail_btn = gr.Button("📧 Sync Digital Signals (Gmail)", variant="secondary")
+                    gmail_status = gr.Markdown("<span style='color:#777;font-size:12px'>Gmail not connected. (Optional)</span>")
+                    
+                    def sync_gmail():
+                        try:
+                            service = GMAIL.authenticate()
+                            rel = GMAIL.extract_relationship_signals(service)
+                            work = GMAIL.extract_work_signals(service)
+                            signals = GMAIL.to_life_metrics(rel, work)
+                            summary = GMAIL.get_email_summary(rel, work)
+                            return signals, f"✅ **Signals synced!** {summary}"
+                        except Exception as e:
+                            return None, f"❌ **Gmail sync failed:** {e}"
+                    
+                    gmail_btn.click(fn=sync_gmail, outputs=[gmail_state, gmail_status])
+
                     submit_btn = gr.Button("✨ Analyse & Get My Plan", variant="primary", size="lg")
+
 
                 with gr.Column(scale=1):
                     life_graph_out  = gr.HTML(label="Your Life Right Now")
@@ -821,7 +846,7 @@ with gr.Blocks(
 
             submit_btn.click(
                 fn=run_custom,
-                inputs=[situation_input, work_sl, money_sl, rel_sl, energy_sl, time_sl],
+                inputs=[situation_input, work_sl, money_sl, rel_sl, energy_sl, time_sl, gmail_state],
                 outputs=[life_graph_out, after_graph_out, plan_out],
             )
 

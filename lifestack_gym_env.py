@@ -13,10 +13,10 @@ from gymnasium import spaces
 import random, copy
 
 from life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from metric_schema import normalize_metric_path
 from reward import compute_reward
 from conflict_generator import generate_conflict, ConflictEvent
 from simperson import SimPerson
-from action_space import EXAMPLE_ACTIONS
 
 
 # Map discrete action IDs to action types
@@ -100,9 +100,9 @@ class LifeStackGymEnv(gym.Env):
         # Fresh state + budget
         self.state = LifeMetrics()
         self.budget = ResourceBudget(
-            time_hours=20.0,
+            time_hours=self.conflict.resource_budget.get("time", 20.0),
             money_dollars=self.conflict.resource_budget.get("money", 500.0),
-            energy_units=100.0,
+            energy_units=self.conflict.resource_budget.get("energy", 100.0),
         )
         self.step_count = 0
         self.last_reward = None
@@ -137,6 +137,7 @@ class LifeStackGymEnv(gym.Env):
 
         # Apply significant changes via cascade
         for path, delta in scaled_changes.items():
+            path = normalize_metric_path(path)
             if '.' not in path:
                 continue
             if abs(delta) > 5:
@@ -171,8 +172,8 @@ class LifeStackGymEnv(gym.Env):
             and self.budget.money_dollars <= 0
             and self.budget.energy_units <= 0
         )
-        terminated = any_zero or self.step_count >= self.max_steps
-        truncated = no_resources and not terminated
+        terminated = any_zero or no_resources
+        truncated = self.step_count >= self.max_steps
 
         obs = self._obs_vector()
         info = {
@@ -183,7 +184,6 @@ class LifeStackGymEnv(gym.Env):
 
     def _action_to_changes(self, action_type: str):
         """Maps an action type string to (metric_changes, resource_cost)."""
-        # Default templates per action type
         templates = {
             "negotiate": (
                 {"career.workload": -15.0, "mental_wellbeing.stress_level": -5.0},

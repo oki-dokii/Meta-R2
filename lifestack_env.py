@@ -1,7 +1,19 @@
 import copy
 from life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from metric_schema import normalize_metric_path
 from reward import compute_reward
-from openenv.core import Environment as Env
+
+try:
+    from openenv.env import Env
+except ImportError:
+    try:
+        from openenv.core import Environment as Env
+    except ImportError:
+        class Env:
+            """Fallback shim so the local environment still runs without openenv installed."""
+
+            def __init__(self, *args, **kwargs):
+                pass
 
 class LifeStackEnv(Env):
     def __init__(self):
@@ -88,6 +100,7 @@ class LifeStackEnv(Env):
 
     def _update_metric(self, path: str, delta: float):
         """Manually update a metric without a full cascade."""
+        path = normalize_metric_path(path)
         if '.' not in path:
             return
         domain_name, sub_name = path.split('.', 1)
@@ -118,6 +131,7 @@ class LifeStackEnv(Env):
         # Skip malformed keys (LLM sometimes omits the domain prefix)
         sig_changes = {}
         for path, delta in metric_changes.items():
+            path = normalize_metric_path(path)
             if '.' not in path:
                 continue
             if abs(delta) > 5:
@@ -209,7 +223,7 @@ def main():
         "finances.liquidity": -40.0
     }
     print("Initializing environment with Friday 6PM conflict...")
-    env.reset(conflict)
+    env.reset(conflict=conflict)
     env.render()
     
     total_reward = 0
