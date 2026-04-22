@@ -3,148 +3,148 @@ from life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from metric_schema import normalize_metric_path
 from reward import compute_reward
 
-try:
-    from openenv.env import Env
-except ImportError:
-    try:
-        from openenv.core import Environment as Env
-    except ImportError:
-        class Env:
-            """Fallback shim so the local environment still runs without openenv installed."""
+from typing import Any, Optional, Dict
+from pydantic import Field
 
-            def __init__(self, *args, **kwargs):
-                pass
+from life_state import LifeMetrics, ResourceBudget, DependencyGraph
+from metric_schema import normalize_metric_path
+from reward import compute_reward
 
-class LifeStackEnv(Env):
+from openenv.core import Environment, Action, Observation, State
+from openenv.core.rubrics import Rubric
+
+class LifeStackAction(Action):
+    """Structured action for LifeStack."""
+    metric_changes: Dict[str, float] = Field(default_factory=dict, description="Metric adjustment deltas")
+    resource_cost: Dict[str, float] = Field(default_factory=dict, description="Time, money, and energy costs")
+    actions_taken: int = Field(default=0, description="Number of atomic actions taken")
+
+class LifeStackObservation(Observation):
+    """Observation returned by LifeStack."""
+    metrics: Dict[str, float] = Field(default_factory=dict, description="Flattened 23-domain life metrics")
+    resources: Dict[str, float] = Field(default_factory=dict, description="Current budget remaining")
+    step: int = Field(default=0, description="Current episode step")
+
+class LifeStackState(State):
+    """Internal state of the LifeStack environment."""
+    current_metrics: LifeMetrics = Field(default_factory=LifeMetrics)
+    budget: ResourceBudget = Field(default_factory=ResourceBudget)
+
+class LifeStackRubric(Rubric):
+    """Standard reward rubric for LifeStack."""
+    def forward(self, action: LifeStackAction, observation: LifeStackObservation) -> float:
+        # In LifeStack, reward is usually computed inside step() for state-transition access.
+        # This rubric provides a hook for external reward evaluation if needed.
+        return observation.reward if observation.reward is not None else 0.0
+
+class LifeStackEnv(Environment[LifeStackAction, LifeStackObservation, LifeStackState]):
+    """
+    LifeStack Environment v1.1 — Refactored for OpenEnv 0.2.3 compliance.
+    """
     def __init__(self):
-        super().__init__()
+        super().__init__(rubric=LifeStackRubric())
         
-        self.observation_space = {
-            'metrics': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (23,)},
-            'resources': {'type': 'Box', 'low': 0.0, 'high': 500.0, 'shape': (3,)},
-            'step': {'type': 'Discrete', 'n': 6}
-        }
-        self.action_space = {
-            'action_type': {'type': 'Discrete', 'n': 7},
-            'target_domain': {'type': 'Discrete', 'n': 6},
-            'metric_changes': {'type': 'Box', 'low': -50.0, 'high': 50.0, 'shape': (23,)},
-            'resource_cost': {'type': 'Box', 'low': 0.0, 'high': 100.0, 'shape': (3,)}
-        }
-        self.metadata = {
+        self.metadata_internal = {
             'name': 'LifeStack-v1',
-            'version': '1.0.0',
-            'description': 'Multi-domain life conflict resolution environment',
-            'reward_range': (-1.0, 1.0),
+            'version': '1.1.0',
+            'description': 'Premium multi-domain life conflict resolution simulation',
             'max_episode_steps': 5
         }
         
         self.graph = DependencyGraph()
         self.max_steps = 5
-        self._state = None
-        self.budget = None
-        self.step_count = 0
-        self.last_reward = None
-        self.last_breakdown = None
+        self._internal_state = LifeStackState()
+
+    def get_metadata(self):
+        from openenv.core import EnvironmentMetadata
+        return EnvironmentMetadata(
+            name=self.metadata_internal['name'],
+            version=self.metadata_internal['version'],
+            description=self.metadata_internal['description']
+        )
 
     @property
-    def state(self):
-        return self._state
+    def state(self) -> LifeStackState:
+        return self._internal_state
 
-    @state.setter
-    def state(self, value):
-        self._state = value
+    def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, 
+              conflict: Optional[dict] = None, budget: Optional[dict] = None, **kwargs) -> LifeStackObservation:
+        """Resets the environment. Seed and conflict can be provided."""
+        self._reset_rubric()
+        
+        if seed is not None:
+            import random
+            random.seed(seed)
 
-    def seed(self, s: int):
-        import random
-        random.seed(s)
-
-    def observation_to_vector(self, obs: dict) -> list:
-        metrics = list(obs['metrics'].values())
-        resources = [obs['resources']['time'], obs['resources']['money'], obs['resources']['energy']]
-        step = [obs['step']]
-        import numpy as np
-        return np.array(metrics + resources + step).tolist()
-
-    def reset(self, seed: int = None, episode_id: str = None, conflict: dict = None, budget: dict = None, **kwargs) -> dict:
-        """Resets the environment to initial state (70s) or apply a conflict."""
-        self.state = LifeMetrics()  # All metrics at 70
+        # Reset state
+        self._internal_state.episode_id = episode_id
+        self._internal_state.step_count = 0
+        self._internal_state.current_metrics = LifeMetrics()
+        
         if budget:
-            self.budget = ResourceBudget(
+            self._internal_state.budget = ResourceBudget(
                 time_hours=budget.get("time", 20.0),
                 money_dollars=budget.get("money", 500.0),
                 energy_units=budget.get("energy", 100.0)
             )
         else:
-            self.budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
-        self.step_count = 0
-        self.last_reward = None
-        self.last_breakdown = None
+            self._internal_state.budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
 
         if conflict:
             # Apply initial disruption via cascade
-            self.state = self.graph.cascade(self.state, conflict)
+            self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, conflict)
 
-        return self._get_obs(), {}
+        return self._get_obs()
 
-    def _get_obs(self, done: bool = False) -> dict:
-        return {
-            "metrics": self.state.flatten(),
-            "resources": {
-                "time": self.budget.time_hours,
-                "money": self.budget.money_dollars,
-                "energy": self.budget.energy_units
+    def _get_obs(self, done: bool = False, reward: Optional[float] = None) -> LifeStackObservation:
+        return LifeStackObservation(
+            metrics=self._internal_state.current_metrics.flatten(),
+            resources={
+                "time": self._internal_state.budget.time_hours,
+                "money": self._internal_state.budget.money_dollars,
+                "energy": self._internal_state.budget.energy_units
             },
-            "step": self.step_count,
-            "done": done
-        }
+            step=self._internal_state.step_count,
+            done=done,
+            reward=reward
+        )
 
     def _update_metric(self, path: str, delta: float):
-        """Manually update a metric without a full cascade."""
+        """Internal helper for non-cascading updates."""
         path = normalize_metric_path(path)
         if '.' not in path:
             return
         domain_name, sub_name = path.split('.', 1)
-        domain = getattr(self.state, domain_name, None)
-        if domain is None or not hasattr(domain, sub_name):
-            return
-        current = getattr(domain, sub_name)
-        setattr(domain, sub_name, max(0.0, min(100.0, current + delta)))
+        domain = getattr(self._internal_state.current_metrics, domain_name, None)
+        if domain and hasattr(domain, sub_name):
+            val = getattr(domain, sub_name)
+            setattr(domain, sub_name, max(0.0, min(100.0, val + delta)))
 
-    def step(self, action: dict, timeout_s: float = None, **kwargs) -> dict:
-        """
-        Executes one step in the environment.
-        
-        action: {
-            'metric_changes': {path: delta},
-            'resource_cost': {'time': T, 'money': M, 'energy': E},
-            'actions_taken': int
-        }
-        """
-        state_before = copy.deepcopy(self.state)
-        metric_changes = action.get('metric_changes', {})
-        resource_cost = action.get('resource_cost', {})
-        actions_taken = action.get('actions_taken', 0)
-        
-        info = []
+    def step(self, action: LifeStackAction, timeout_s: Optional[float] = None, **kwargs) -> LifeStackObservation:
+        """Executes one step in the environment using LifeStackAction."""
+        if isinstance(action, dict): # Backward compatibility for old calls
+            action = LifeStackAction(**action)
 
-        # 1. Separate changes into significant (trigger cascade) and insignificant
-        # Skip malformed keys (LLM sometimes omits the domain prefix)
+        state_before = copy.deepcopy(self._internal_state.current_metrics)
+        metric_changes = action.metric_changes
+        resource_cost = action.resource_cost
+        
+        info_msgs = []
+
+        # 1. Cascade logic
         sig_changes = {}
         for path, delta in metric_changes.items():
             path = normalize_metric_path(path)
-            if '.' not in path:
-                continue
             if abs(delta) > 5:
                 sig_changes[path] = delta
             else:
                 self._update_metric(path, delta)
         
-        # 2. Run cascade on significant changes
         if sig_changes:
-            self.state = self.graph.cascade(self.state, sig_changes)
+            self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, sig_changes)
 
-        # 3. Handle resource deduction
-        deduct_success = self.budget.deduct(
+        # 2. Resource deduction
+        deduct_success = self._internal_state.budget.deduct(
             time=resource_cost.get('time', 0.0),
             money=resource_cost.get('money', 0.0),
             energy=resource_cost.get('energy', 0.0)
@@ -153,40 +153,37 @@ class LifeStackEnv(Env):
         budget_penalty = 0.0
         if not deduct_success:
             budget_penalty = -0.20
-            info.append("INSUFFICIENT_RESOURCES")
+            info_msgs.append("INSUFFICIENT_RESOURCES")
 
-        # 4. Calculate reward
-        reward, breakdown = compute_reward(state_before, self.state, resource_cost, actions_taken)
+        # 3. Reward calculation
+        reward, breakdown = compute_reward(state_before, self._internal_state.current_metrics, resource_cost, action.actions_taken)
         reward += budget_penalty
         
-        self.last_reward = reward
-        self.last_breakdown = breakdown
-        self.step_count += 1
+        self._internal_state.step_count += 1
 
-        # 5. Ending conditions
-        metrics_flat = self.state.flatten()
+        # 4. End conditions
+        metrics_flat = self._internal_state.current_metrics.flatten()
         any_hit_zero = any(v <= 0.0 for v in metrics_flat.values())
-        resources_dead = (self.budget.time_hours <= 0 and 
-                          self.budget.money_dollars <= 0 and 
-                          self.budget.energy_units <= 0)
+        resources_dead = (self._internal_state.budget.time_hours <= 0 and 
+                          self._internal_state.budget.money_dollars <= 0 and 
+                          self._internal_state.budget.energy_units <= 0)
         
         terminated = any_hit_zero or resources_dead
-        truncated = self.step_count >= self.max_steps
+        truncated = self._internal_state.step_count >= self.max_steps
         done = terminated or truncated
         
-        obs = self._get_obs(done)
-        env_info = {
-            "breakdown": breakdown,
-            "info_msgs": info
-        }
-        return obs, reward, terminated, truncated, env_info
+        observation = self._get_obs(done, reward)
+        observation.metadata["breakdown"] = breakdown
+        observation.metadata["info"] = info_msgs
+        
+        return observation
 
     def render(self):
         """Vibrant status report of the current LifeMetrics state."""
         print("\n" + "═"*60)
-        print(f"STEP: {self.step_count} | ⏳ TIME: {self.budget.time_hours:.1f}h | 💵 MONEY: ${self.budget.money_dollars:.1f} | ⚡ ENERGY: {self.budget.energy_units:.1f}")
+        print(f"STEP: {self._internal_state.step_count} | ⏳ TIME: {self._internal_state.budget.time_hours:.1f}h | 💵 MONEY: ${self._internal_state.budget.money_dollars:.1f} | ⚡ ENERGY: {self._internal_state.budget.energy_units:.1f}")
         
-        flat = self.state.flatten()
+        flat = self._internal_state.current_metrics.flatten()
         domain_labels = {
             "career": "💼 CAREER",
             "finances": "💰 FINANCES",
@@ -202,17 +199,11 @@ class LifeStackEnv(Env):
             inverted = {"stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"}
             for name, val in submetrics.items():
                 short = name.split('.')[1]
-                if short in inverted:
-                    icon = "🔴" if val > 70 else ("🟡" if val >= 40 else "🟢")
-                else:
-                    icon = "🟢" if val > 70 else ("🟡" if val >= 40 else "🔴")
+                icon = ("🔴" if val > 70 else "🟢") if short in inverted else ("🟢" if val > 70 else "🔴")
+                if 40 <= val <= 70: icon = "🟡"
                 print(f"  {icon} {short:20} : {val:5.2f}")
-
-        if self.last_reward is not None:
-            print(f"\nLAST STEP REWARD: {self.last_reward:.4f}")
-            if self.last_breakdown and self.last_breakdown['penalties_fired']:
-                print(f"CRITICAL WARNINGS: {', '.join(self.last_breakdown['penalties_fired'])}")
         print("═"*60)
+
 
 def main():
     env = LifeStackEnv()
@@ -259,17 +250,25 @@ def main():
     
     for sce in scenarios:
         print(f"\nTaking Action: {sce['name']}...")
-        obs, reward, terminated, truncated, _ = env.step(sce['action'])
-        total_reward += reward
-        env.render()
+        action_obj = LifeStackAction(**sce['action'])
+        obs = env.step(action_obj)
+        env_render_compact(env, obs)
+        total_reward += (obs.reward or 0.0)
+
+def env_render_compact(env, obs):
+    """Compact printer for testing."""
+    print(f"STEP: {obs.step} | REWARD: {obs.reward:.3f} | DONE: {obs.done}")
+    if obs.metadata.get("breakdown", {}).get("penalties_fired"):
+        print(f"  ⚠️ PENALTIES: {obs.metadata['breakdown']['penalties_fired']}")
+
         
     # 3. Final Summary
-    final_flat = env.state.flatten()
+    final_flat = env.state.current_metrics.flatten()
     critical = [k for k, v in final_flat.items() if v < 20]
     
     print("\n" + "█"*60)
     print("EPISODE SUMMARY")
-    print(f"Steps Taken      : {env.step_count}")
+    print(f"Steps Taken      : {env.state.step_count}")
     print(f"Total Cumulative Reward : {total_reward:.4f}")
     if critical:
         print(f"Critical Floor Violations: {', '.join(critical)}")

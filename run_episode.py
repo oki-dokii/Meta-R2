@@ -10,7 +10,7 @@ Orchestrates a complete episode:
 
 import random
 from life_state import LifeMetrics, ResourceBudget
-from lifestack_env import LifeStackEnv
+from lifestack_env import LifeStackEnv, LifeStackAction
 from agent import LifeStackAgent
 from simperson import SimPerson
 from conflict_generator import generate_conflict, escalate_conflict, adaptive_escalate
@@ -67,8 +67,8 @@ def run_episode(
     initial_conflict_id = conflict.id
 
     # Apply initial disruption to env
-    obs, _ = env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
-    done = obs.get("done", False)
+    obs = env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    done = obs.done
 
     # --------------------------------------------------
     # 2. EPISODE LOOP
@@ -87,7 +87,7 @@ def run_episode(
         env.render()
 
     while not done:
-        step = obs["step"]
+        step = obs.step
 
         # Personality drift every 5 steps
         drift_event = person.drift(step)
@@ -99,8 +99,8 @@ def run_episode(
             delta = drift_event.get('delta', 0)
             if path and '.' in path:
                 dom, sub = path.split('.')
-                current = getattr(getattr(env.state, dom), sub)
-                setattr(getattr(env.state, dom), sub, max(0.0, min(100.0, current + delta)))
+                current = getattr(getattr(env.state.current_metrics, dom), sub)
+                setattr(getattr(env.state.current_metrics, dom), sub, max(0.0, min(100.0, current + delta)))
 
         # Adaptive escalation on step 3 using agent history
         if step == 2 and conflict.difficulty < 5:
@@ -113,16 +113,16 @@ def run_episode(
                     print(f"   New conflict: {conflict.title}")
 
         # Inject few-shot context into agent memory
-        few_shot = memory.build_few_shot_prompt(conflict.title, env.state.flatten())
-
+        few_shot = memory.build_few_shot_prompt(conflict.title, env.state.current_metrics.flatten())
+        
         # Agent decision
-        metrics_before = copy.deepcopy(env.state)
-        budget_before = copy.deepcopy(env.budget)
-
-        action = agent.get_action(env.state, env.budget, conflict, person, few_shot_context=few_shot)
+        metrics_before = copy.deepcopy(env.state.current_metrics)
+        budget_before = copy.deepcopy(env.state.budget)
+        
+        action = agent.get_action(env.state.current_metrics, env.state.budget, conflict, person, few_shot_context=few_shot)
 
         # Validate resource cost
-        is_valid, reason = validate_action(action, env.budget)
+        is_valid, reason = validate_action(action, env.state.budget)
         if not is_valid:
             if verbose:
                 print(f"\n  ⚠️  Step {step+1}: Action unaffordable ({reason}). Forcing rest.")
@@ -130,7 +130,7 @@ def run_episode(
             action.primary.resource_cost = {}
 
         # Scale metric changes by personality uptake
-        current_stress = env.state.mental_wellbeing.stress_level
+        current_stress = env.state.current_metrics.mental_wellbeing.stress_level
         uptake_score = person.respond_to_action(
             action.primary.action_type, 
             action.primary.resource_cost, 
@@ -148,13 +148,14 @@ def run_episode(
                 pass
 
         # Apply action through environment
-        env_action = {
-            "metric_changes": scaled_changes,
-            "resource_cost": action.primary.resource_cost,
-            "actions_taken": 1  # any deliberate action counts
-        }
-        obs, step_reward, terminated, truncated, env_info = env.step(env_action)
-        done = terminated or truncated
+        env_action = LifeStackAction(
+            metric_changes=scaled_changes,
+            resource_cost=action.primary.resource_cost,
+            actions_taken=1
+        )
+        obs = env.step(env_action)
+        step_reward = obs.reward or 0.0
+        done = obs.done
         total_reward += step_reward
 
         # Store high-quality decisions in memory
@@ -164,7 +165,7 @@ def run_episode(
             action.primary.action_type,
             action.primary.target_domain,
             step_reward,
-            env.state.flatten(),
+            env.state.current_metrics.flatten(),
             action.reasoning
         )
 
@@ -175,7 +176,7 @@ def run_episode(
             "domain": action.primary.target_domain,
             "description": action.primary.description,
             "reward": round(step_reward, 3),
-            "penalties": env_info["breakdown"]["penalties_fired"]
+            "penalties": obs.metadata.get("breakdown", {}).get("penalties_fired", [])
         })
 
         if verbose:
@@ -184,13 +185,13 @@ def run_episode(
             print(f"  \"{action.primary.description}\"")
             if action.communication:
                 print(f"  💬 [{action.communication.recipient}] ({action.communication.tone}): {action.communication.content}")
-            print(f"  Reward: {step_reward:.3f} | Penalties: {env_info['breakdown']['penalties_fired'] or 'none'}")
+            print(f"  Reward: {step_reward:.3f} | Penalties: {obs.metadata.get('breakdown', {}).get('penalties_fired') or 'none'}")
             env.render()
 
     # --------------------------------------------------
     # 3. EPISODE SUMMARY
     # --------------------------------------------------
-    final_flat = env.state.flatten()
+    final_flat = env.state.current_metrics.flatten()
     critical = [k for k, v in final_flat.items() if v < 20]
     improved = [k for k, v in final_flat.items() if v > 70]
     mem_stats = memory.get_stats()
@@ -201,7 +202,7 @@ def run_episode(
         print("█" * 60)
         print(f"  Person         : {person.name}")
         print(f"  Conflicts Seen : {' → '.join(conflicts_seen)}")
-        print(f"  Steps Taken    : {env.step_count}")
+        print(f"  Steps Taken    : {env.state.step_count}")
         print(f"  Total Reward   : {total_reward:.4f}")
         print(f"  Critical (<20) : {critical or 'None'}")
         print(f"  Thriving (>70) : {len(improved)} metrics")
@@ -216,7 +217,7 @@ def run_episode(
         "person": person.name,
         "initial_conflict_id": initial_conflict_id,
         "total_reward": round(total_reward, 4),
-        "steps": env.step_count,
+        "steps": env.state.step_count,
         "conflicts_seen": conflicts_seen,
         "critical_metrics": critical,
         "thriving_count": len(improved),

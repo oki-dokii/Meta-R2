@@ -1,0 +1,21 @@
+# openenv.yaml — LifeStack Manifest
+# Defines the environment for OpenEnv CLI compatibility.
+
+name: lifestack-v1
+version: 1.1.0
+description: "Premium multi-domain life conflict resolution simulation."
+entry_point: "lifestack_env:LifeStackEnv"
+action_cls: "lifestack_env:LifeStackAction"
+observation_cls: "lifestack_env:LifeStackObservation"
+
+metadata:
+  difficulty_range: [1, 5]
+  max_episode_steps: 5
+  domains: ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
+  resources: ["time", "money", "energy"]
+  
+# Optional: Default serve configuration
+serve:
+  host: "0.0.0.0"
+  port: 8000
+  enable_web: true

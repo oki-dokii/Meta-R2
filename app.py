@@ -403,8 +403,8 @@ def run_demo(person_label: str, conflict_label: str):
 
     # ── Frame 4 — agent intervention (final) ──────────────────────────────
     env            = _init_env(conflict)
-    before_metrics = copy.deepcopy(env.state)
-    before_budget  = copy.deepcopy(env.budget)
+    before_metrics = copy.deepcopy(env.state.current_metrics)
+    before_budget  = copy.deepcopy(env.state.budget)
 
     action = AGENT.get_action(before_metrics, before_budget, conflict, person)
 
@@ -427,14 +427,15 @@ def run_demo(person_label: str, conflict_label: str):
     for path, delta in action.primary.metric_changes.items():
         scaled_changes[path] = float(delta) * uptake
 
-    env_action = {
-        "metric_changes": scaled_changes,
-        "resource_cost": action.primary.resource_cost,
-        "actions_taken": 1
-    }
+    env_action = LifeStackAction(
+        metric_changes=scaled_changes,
+        resource_cost=action.primary.resource_cost,
+        actions_taken=1
+    )
 
-    obs, reward, terminated, truncated, env_info = env.step(env_action)
-    updated_metrics = env.state
+    obs = env.step(env_action)
+    reward = obs.reward or 0.0
+    updated_metrics = env.state.current_metrics
 
     # Generate Counterfactuals BEFORE yield
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
@@ -582,8 +583,8 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
         action.primary.resource_cost  = {}
 
     env = LifeStackEnv()
-    env.state = metrics
-    env.budget = budget
+    env.state.current_metrics = metrics
+    env.state.budget = budget
     
     current_stress = metrics.mental_wellbeing.stress_level
     uptake = person.respond_to_action(
@@ -596,14 +597,15 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
     for path, delta in action.primary.metric_changes.items():
         scaled_changes[path] = float(delta) * uptake
 
-    env_action = {
-        "metric_changes": scaled_changes,
-        "resource_cost": action.primary.resource_cost,
-        "actions_taken": 1
-    }
+    env_action = LifeStackAction(
+        metric_changes=scaled_changes,
+        resource_cost=action.primary.resource_cost,
+        actions_taken=1
+    )
 
-    obs, reward, terminated, truncated, env_info = env.step(env_action)
-    updated_metrics = env.state
+    obs = env.step(env_action)
+    updated_metrics = env.state.current_metrics
+    reward = obs.reward or 0.0
 
     after_html = metrics_html(updated_metrics.flatten(), "AFTER ACTION", before=metrics.flatten())
     reward_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")

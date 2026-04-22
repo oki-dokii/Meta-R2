@@ -8,7 +8,7 @@ import shutil
 import os
 
 from life_state import LifeMetrics, ResourceBudget, DependencyGraph
-from lifestack_env import LifeStackEnv
+from lifestack_env import LifeStackEnv, LifeStackAction
 from reward import compute_reward
 from simperson import SimPerson
 from memory import LifeStackMemory
@@ -164,20 +164,20 @@ def test_memory_threshold():
 # ─── 9. Episode Termination Test ─────────────────────────────────────────────
 def test_episode_termination():
     env = LifeStackEnv()
-    env.reset()
+    obs = env.reset()
 
     done = False
-    for step in range(5):
-        obs, reward, terminated, truncated, info = env.step({
-            "metric_changes": {},
-            "resource_cost": {},
-            "actions_taken": 0,
-        })
-        done = terminated or truncated
+    for _ in range(5):
+        obs = env.step(LifeStackAction(
+            metric_changes={},
+            resource_cost={},
+            actions_taken=0,
+        ))
+        done = obs.done
 
     report("Episode terminates after 5 steps",
            done is True,
-           f"done = {done} after {env.step_count} steps")
+           f"done = {done} after {env.state.step_count} steps")
 
 
 # ─── 10. Full Episode Smoke Test ─────────────────────────────────────────────

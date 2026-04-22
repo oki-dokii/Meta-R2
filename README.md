@@ -20,7 +20,7 @@ python3 train.py        # Run 50-episode curriculum training
 ```
 
 > **Verify openenv installed:** `pip3 show openenv-core` — should show `Version: 0.2.3`  
-> **Note:** On macOS use `pip3` / `python3`. The package imports natively via `from openenv.env import Env`.
+> **Note:** On macOS use `pip3` / `python3`. The package imports natively via `from openenv.core import Environment`.
 
 ---
 
@@ -41,7 +41,13 @@ python3 train.py        # Run 50-episode curriculum training
 
 ## Environment Overview
 
-LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 29 weighted edges that propagate impact across nodes using a dampened BFS traversal. When a crisis disrupts one domain (e.g. a sudden workload spike), the cascade engine propagates secondary effects through connected nodes (stress rises, sleep degrades, motivation falls, career growth slows). The agent operates under hard resource constraints: time, money, and finite energy units that cannot be manufactured — only managed. Each episode runs for up to 5 steps, during which the agent must find a sequence of actions that resolves the crisis without triggering critical collapses (any metric hitting zero terminates the episode with a severe penalty).
+LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 29 weighted edges that propagate impact across nodes using a dampened BFS traversal. 
+
+1.  **OpenEnv Core**: Inherits from `openenv.core.Environment` with Pydantic-based action and observation schemas.
+2.  **Cascade Engine**: A graph-based propagator using BFS traversal with distance-decay to model how a "work crisis" bleeds into relationships or health.
+3.  **Rubric Reward**: Normalized `LifeStackRubric` computing rewards in the [0.0, 1.0] range with hard-floor penalty triggers. 
+
+When a crisis disrupts one domain (e.g. a sudden workload spike), the cascade engine propagates secondary effects through connected nodes (stress rises, sleep degrades, motivation falls, career growth slows). The agent operates under hard resource constraints: time, money, and finite energy units that cannot be manufactured — only managed. Each episode runs for up to 5 steps, during which the agent must find a sequence of actions that resolves the crisis without triggering critical collapses (any metric hitting zero terminates the episode with a severe penalty).
 
 ---
 
@@ -67,6 +73,20 @@ reward = (0.40 × outcome_score)
 - The agent takes an action with insufficient resources — `INSUFFICIENT_RESOURCES` penalty
 - No meaningful action is taken (inaction on a high-severity conflict) — `INACTION` penalty
 - Relationship metrics fall by more than 15 points in a single step — `RELATIONSHIP_COLLAPSE` penalty
+
+## Deployment (OpenEnv Native)
+
+LifeStack is now a fully qualified OpenEnv project. You can serve it as an environment service or manage it via the OpenEnv CLI.
+
+**Launch Environment Service:**
+```bash
+python3 server.py      # Starts the environment server on port 8000
+```
+- **Web Interface:** `http://localhost:8000/web`
+- **MCP Tool List:** `http://localhost:8000/mcp`
+- **EnvClient Target:** `sync_client = SyncEnvClient("http://localhost:8000")`
+
+**CLI Manifest:** See [openenv.yaml](file:///Users/sohambanerjee/meta/openenv.yaml) for integration details.
 
 ---
 
