@@ -1,6 +1,15 @@
 import os
 import uvicorn
-from openenv.core import create_app
+try:
+    from openenv.core import create_app
+except ImportError:
+    # Alternative path for older/flat openenv structures
+    try:
+        from openenv.env import create_app
+    except ImportError:
+        def create_app(*a, **k):
+            print("⚠️ create_app not found in openenv. Using fallback.")
+            return None
 from lifestack_env import LifeStackEnv, LifeStackAction, LifeStackObservation
 
 def main():

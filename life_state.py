@@ -99,7 +99,8 @@ class DependencyGraph:
             "mental_wellbeing.stress_level": [
                 ("physical_health.sleep_quality", -0.55),
                 ("mental_wellbeing.emotional_stability", -0.50),
-                ("mental_wellbeing.motivation", -0.40)
+                ("mental_wellbeing.motivation", -0.40),
+                ("career.satisfaction", -0.35)
             ],
             "physical_health.sleep_quality": [
                 ("mental_wellbeing.clarity", 0.60),

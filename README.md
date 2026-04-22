@@ -20,7 +20,7 @@ python3 train.py        # Run 50-episode curriculum training
 ```
 
 > **Verify openenv installed:** `pip3 show openenv-core` — should show `Version: 0.2.3`  
-> **Note:** On macOS use `pip3` / `python3`. The package imports natively via `from openenv.core import Environment`.
+> **Note:** For compatibility with older environments, LifeStack supports both `openenv.core` and `openenv.env` import paths.
 
 ---
 

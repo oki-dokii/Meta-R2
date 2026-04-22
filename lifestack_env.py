@@ -10,8 +10,38 @@ from life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from metric_schema import normalize_metric_path
 from reward import compute_reward
 
-from openenv.core import Environment, Action, Observation, State
-from openenv.core.rubrics import Rubric
+try:
+    from openenv.core import Environment, Action, Observation, State
+    from openenv.core.env_server.types import EnvironmentMetadata
+    from openenv.core.rubrics import Rubric
+    USING_MODERN_API = True
+except ImportError:
+    try:
+        from openenv.env import Env as Environment
+        from pydantic import BaseModel
+        # Shims for missing classes in older/alternative openenv
+        class Action(BaseModel): pass
+        class Observation(BaseModel): pass
+        class State(BaseModel): pass
+        class Rubric:
+            def __init__(self, *a, **k): pass
+            def compute(self, *a, **k): return 0.0
+        EnvironmentMetadata = None
+        USING_MODERN_API = False
+    except ImportError:
+        # Final fallback to nominal shim
+        class Environment:
+            def __init__(self, rubric=None): self.rubric = rubric
+            def reset(self, *a, **k): pass
+            def step(self, *a, **k): pass
+        class Action: pass
+        class Observation: pass
+        class State: pass
+        class Rubric:
+            def __init__(self, *a, **k): pass
+            def compute(self, *a, **k): return 0.0
+        EnvironmentMetadata = None
+        USING_MODERN_API = False
 
 class LifeStackAction(Action):
     """Structured action for LifeStack."""
