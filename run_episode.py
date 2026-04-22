@@ -64,6 +64,7 @@ def run_episode(
 
     # Generate starting conflict
     conflict = generate_conflict(difficulty)
+    initial_conflict_id = conflict.id
 
     # Apply initial disruption to env
     obs, _ = env.reset(conflict=conflict.primary_disruption)
@@ -213,6 +214,7 @@ def run_episode(
 
     return {
         "person": person.name,
+        "initial_conflict_id": initial_conflict_id,
         "total_reward": round(total_reward, 4),
         "steps": env.step_count,
         "conflicts_seen": conflicts_seen,

@@ -63,6 +63,7 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     """
     episode_log = []
     rewards = []
+    agent_history = []
 
     print(f"\n{'═' * 50}")
     print(f"  LIFESTACK TRAINING — {n_episodes} EPISODES")
@@ -77,12 +78,14 @@ def run_training(n_episodes: int = 50, save_plot: bool = True) -> dict:
     for ep in range(1, n_episodes + 1):
         difficulty = _difficulty_for_episode(ep)
 
-        # Run episode with shared memory + agent
+        # Run episode with shared memory + agent + history tracking
         result = run_episode(difficulty=difficulty, verbose=False,
-                             memory=shared_memory, agent=shared_agent)
+                             memory=shared_memory, agent=shared_agent,
+                             agent_history=agent_history)
 
         total_reward = result["total_reward"]
         rewards.append(total_reward)
+        agent_history.append((result["initial_conflict_id"], total_reward))
 
         record = {
             "episode": ep,
