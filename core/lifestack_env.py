@@ -115,14 +115,20 @@ class LifeStackRubric(Rubric):
 
 class PartialObsFilter:
     @staticmethod
-    def filter(task: Task, world: dict, revealed_keys: list) -> dict:
-        """Returns only visible_world + revealed fields."""
+    def filter(task: Task, revealed_keys: list) -> dict:
+        """Returns visible_world plus any keys the agent has explicitly inspected.
+
+        Revealed keys are checked against mutable_world first, then hidden_state.
+        Keys sourced from hidden_state are wrapped as
+        ``{"value": <val>, "source": "inspect"}`` so the agent knows they were
+        obtained via an inspect action rather than being freely observable.
+        """
         obs_world = copy.deepcopy(task.visible_world)
-        if not world:
-            return obs_world
         for k in revealed_keys:
-            if k in world:
-                obs_world[k] = world[k]
+            if k in task.mutable_world:
+                obs_world[k] = task.mutable_world[k]
+            elif k in task.hidden_state:
+                obs_world[k] = {"value": task.hidden_state[k], "source": "inspect"}
         return obs_world
 
 class WorldEngine:
@@ -262,8 +268,7 @@ class LifeStackEnv(_EnvBase):
                  success: bool = False, failure: bool = False,
                  failure_reason: str = "", routes_remaining: int = 0) -> LifeStackObservation:
         revealed_world = PartialObsFilter.filter(
-            self._internal_state.current_task, 
-            self._internal_state.world_state, 
+            self._internal_state.current_task,
             self._internal_state.inspected_keys
         )
         
@@ -377,6 +382,11 @@ class LifeStackEnv(_EnvBase):
                 else:
                     self._internal_state.inspected_keys.append(target)
                     info_msgs.append(f"INSPECT_REVEALED: {target}")
+                    # Emit an explicit signal when a hidden-state value is uncovered.
+                    if target in task.hidden_state:
+                        info_msgs.append(
+                            f"INSPECT_REVEALED_HIDDEN: {target} = {task.hidden_state[target]}"
+                        )
         
         # Handle Wait
         if tool_type == "wait":

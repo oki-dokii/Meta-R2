@@ -180,17 +180,32 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             return {"reward": -0.5, "breakdown": {}}
         
         meta = json.loads(m.group(1).strip())
-        task = Task(
-            id="grpo_eval", domain="life_conflict",
-            goal=meta.get("goal", "Resolve Crisis"),
-            constraints={"budget": meta.get("budget", {})},
-            hidden_state={},
-            mutable_world=meta.get("disruption", {}),
-            visible_world=meta.get("disruption", {}),
-            success_conditions=[], failure_conditions=[],
-            event_schedule=[], viable_routes=[], milestones=[],
-            horizon=meta.get("horizon", 30), difficulty=meta.get("difficulty", 3)
-        )
+        try:
+            task = Task(
+                id="grpo_eval",
+                domain="life_conflict",
+                goal=meta.get("goal", "Resolve Crisis"),
+                constraints={"budget": meta.get("budget", {})},
+                hidden_state={},
+                mutable_world=meta.get("disruption", {}),
+                visible_world=meta.get("disruption", {}),
+                success_conditions=[],
+                failure_conditions=[],
+                event_schedule=[],
+                viable_routes=[],
+                milestones=[],
+                horizon=meta.get("horizon", 30),
+                difficulty=meta.get("difficulty", 3),
+            )
+        except Exception as e:
+            print(f"[reward] Task construction failed: {e}")
+            return {"reward": -0.5, "breakdown": {"error": str(e)}}
+
+        # Validate required fields are present and non-None.
+        _required = ("id", "goal", "constraints", "mutable_world", "visible_world")
+        if any(getattr(task, f, None) is None for f in _required):
+            print("[reward] Task missing required fields after construction.")
+            return {"reward": -0.5, "breakdown": {"error": "missing_fields"}}
 
         # 3. Step Env
         env = LifeStackEnv()

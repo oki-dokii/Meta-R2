@@ -814,7 +814,7 @@ def submit_outcome_feedback(ep_id, score, domains_up, domains_down, notes, time_
     )
     
     # Store in memory
-    AGENT_MEMORY.store_feedback(feedback)
+    MEMORY.store_feedback(feedback)
     
     return f"✅ Feedback for **{ep_id}** submitted! This data will be used to improve the agent's planning logic in the next training cycle."
 
