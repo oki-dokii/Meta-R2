@@ -483,11 +483,9 @@ def run_demo(person_label: str, conflict_label: str):
     for path, delta in action.primary.metric_changes.items():
         scaled_changes[path] = float(delta) * uptake
 
-    env_action = LifeStackAction(
-        metric_changes=scaled_changes,
-        resource_cost=action.primary.resource_cost,
-        actions_taken=1
-    )
+    env_action = LifeStackAction.from_agent_action(action)
+    # Apply scaled changes
+    env_action.metric_changes = scaled_changes
 
     obs = env.step(env_action)
     reward = obs.reward or 0.0
@@ -653,11 +651,9 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
     for path, delta in action.primary.metric_changes.items():
         scaled_changes[path] = float(delta) * uptake
 
-    env_action = LifeStackAction(
-        metric_changes=scaled_changes,
-        resource_cost=action.primary.resource_cost,
-        actions_taken=1
-    )
+    env_action = LifeStackAction.from_agent_action(action)
+    # Apply scaled changes
+    env_action.metric_changes = scaled_changes
 
     obs = env.step(env_action)
     updated_metrics = env.state.current_metrics

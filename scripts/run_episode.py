@@ -128,11 +128,9 @@ def run_episode(
                 pass
 
         # Apply action through environment
-        env_action = LifeStackAction(
-            metric_changes=scaled_changes,
-            resource_cost=action.primary.resource_cost,
-            actions_taken=1
-        )
+        env_action = LifeStackAction.from_agent_action(action)
+        # Apply scaled changes
+        env_action.metric_changes = scaled_changes
         obs = env.step(env_action)
         step_reward = obs.reward or 0.0
         done = obs.done

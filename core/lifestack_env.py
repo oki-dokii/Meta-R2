@@ -53,9 +53,21 @@ class LifeStackAction(Action):
     parameters: Dict[str, Any] = Field(default_factory=dict)
     reasoning: Optional[str] = Field(default=None)
 
-    # Legacy fields (maintained for backward compat)
     inspect_target: Optional[str] = Field(default=None, description="Optional hidden state key to inspect")
     is_rollback: bool = Field(default=False, description="Set true to rollback the previous action.")
+
+    @classmethod
+    def from_agent_action(cls, agent_action: Any) -> "LifeStackAction":
+        """Unified converter from legacy AgentAction to LifeStackAction."""
+        primary = agent_action.primary
+        return cls(
+            action_type=primary.action_type,
+            target=primary.target_domain, # Mapping target_domain to target
+            metric_changes=primary.metric_changes,
+            resource_cost=primary.resource_cost,
+            reasoning=agent_action.reasoning,
+            actions_taken=1
+        )
 
 class LifeStackObservation(Observation):
     """Observation returned by LifeStack."""
