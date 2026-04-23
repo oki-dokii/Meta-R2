@@ -62,6 +62,7 @@ class LifeStackState(State):
     episode_id: Optional[str] = None
     step_count: int = 0
     inspected_keys: list = Field(default_factory=list)
+    consecutive_waits: int = 0
 
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""
@@ -124,6 +125,7 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.step_count = 0
         self._internal_state.current_metrics = LifeMetrics()
         self._internal_state.inspected_keys = []
+        self._internal_state.consecutive_waits = 0
         
         # Scale budgets proportionally and check task constraints
         self.max_steps = kwargs.get('horizon', getattr(self, 'max_steps', 5))
@@ -179,6 +181,22 @@ class LifeStackEnv(_EnvBase):
         
         info_msgs = []
         
+        # -1. Wait Loop Anti-Cheat Logic
+        is_wait = len(metric_changes) == 0 and not getattr(action, 'inspect_target', None)
+        if is_wait:
+            self._internal_state.consecutive_waits += 1
+        else:
+            self._internal_state.consecutive_waits = 0
+
+        forced_escalation_penalty = 0.0
+        if self._internal_state.consecutive_waits >= 4:
+            # Trigger forced escalate on 4th consecutive wait
+            metric_changes["mental_wellbeing.stress_level"] = 15.0
+            metric_changes["career.workload"] = 15.0
+            metric_changes["physical_health.energy"] = -15.0
+            forced_escalation_penalty = -0.50
+            info_msgs.append("Wait Cap Exceeded: FORCED ESCALATE applied.")
+        
         # 0. Inspect Anti-Cheat Logic
         inspect_penalty = 0.0
         if getattr(action, 'inspect_target', None):
@@ -218,6 +236,7 @@ class LifeStackEnv(_EnvBase):
         reward, breakdown = compute_reward(state_before, self._internal_state.current_metrics, resource_cost, action.actions_taken)
         reward += budget_penalty
         reward += inspect_penalty
+        reward += forced_escalation_penalty
         
         self._internal_state.step_count += 1
 
