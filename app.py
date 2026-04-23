@@ -27,6 +27,7 @@ from agent.counterfactuals import generate_counterfactuals
 from scripts.longitudinal_demo import LongitudinalDemo
 from intake.gmail_intake import GmailIntake
 from core.task import Task, ExoEvent, Route, Milestone
+from core.feedback import OutcomeFeedback, compute_human_feedback_reward
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -640,6 +641,10 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
     env.state.current_metrics = metrics
     env.state.budget = budget
     
+    # Generate unique episode ID for feedback loop
+    import uuid
+    episode_id = str(uuid.uuid4())[:8].upper()
+    
     current_stress = metrics.mental_wellbeing.stress_level
     uptake = person.respond_to_action(
         action.primary.action_type, 
@@ -698,11 +703,19 @@ def run_custom(situation: str, work_stress: int, money_stress: int,
   <div style='display:flex;gap:20px;font-size:13px;border-top:1px solid #333;padding-top:8px'>
     <span>{cost_str}</span>
     <span>🎯 Personality fit: {uptake:.0%}</span>
-    <span style='color:{reward_color};font-weight:700'>★ Confidence: {min(reward/0.6, 1.0):.0%}</span>
+    <span style='margin-left:auto;color:#a78bfa;font-weight:700'>ID: {episode_id}</span>
   </div>
-</div>"""
+</div>
+<div style='margin-top:12px;font-size:11px;color:#888;text-align:right'>
+  Keep this ID to record the real-world outcome in the 'Real-World Verification' tab.
+</div>
+"""
 
-    return life_html, after_html, plan_html
+    return (
+        life_html,
+        after_html,
+        plan_html
+    )
 
 
 # ─── Tab 3 — Training Results ─────────────────────────────────────────────────
@@ -787,7 +800,26 @@ def load_training_tab():
     return "<div style='font-family:sans-serif;color:#eee'>" + "\n".join(html_parts) + "</div>"
 
 
-# ─── Gradio App ───────────────────────────────────────────────────────────────
+def submit_outcome_feedback(ep_id, score, domains_up, domains_down, notes, time_spent):
+    if not ep_id:
+        return "⚠️ Please enter a valid Episode ID."
+    
+    feedback = OutcomeFeedback(
+        episode_id=ep_id,
+        overall_effectiveness=int(score),
+        domains_improved=domains_up,
+        domains_worsened=domains_down,
+        unexpected_effects=notes,
+        resolution_time_hours=float(time_spent)
+    )
+    
+    # Store in memory
+    AGENT_MEMORY.store_feedback(feedback)
+    
+    return f"✅ Feedback for **{ep_id}** submitted! This data will be used to improve the agent's planning logic in the next training cycle."
+
+
+# ─── Main Gradio App Construction ───────────────────────────────────────────────────────────────
 with gr.Blocks(
     title="LifeStack — AI Life Coach",
 ) as app:
@@ -990,6 +1022,37 @@ with gr.Blocks(
                 )
             
             load_task_btn.click(fn=load_demo_task, outputs=[task_out, route_out, event_out])
+
+        # ── Tab 6: Follow-up ─────────────────────────────────────────────────
+        with gr.Tab("📬 Follow-up"):
+            gr.Markdown("""
+            ### 📍 Real-World Verification
+            Did the agent's plan work in the real world? Provide your feedback here to close the loop. 
+            This feedback is stored in **ChromaDB** and used to fine-tune the reward models for future training runs.
+            """)
+            with gr.Row():
+                with gr.Column(scale=1):
+                    fb_id = gr.Textbox(label="Episode ID", placeholder="e.g. A1B2C3D4")
+                    fb_score = gr.Slider(0, 10, value=7, label="Overall Effectiveness (0-10)")
+                    fb_time = gr.Number(label="Actual Resolution Time (hours)", value=2.0)
+                with gr.Column(scale=2):
+                    fb_up = gr.CheckboxGroup(
+                        ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"],
+                        label="Domains that actually improved"
+                    )
+                    fb_down = gr.CheckboxGroup(
+                        ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"],
+                        label="Domains that actually worsened"
+                    )
+            fb_notes = gr.Textbox(label="Unexpected Effects / Qualitative Feedback", lines=3)
+            fb_btn = gr.Button("Submit Outcome Feedback", variant="primary")
+            fb_out = gr.Markdown()
+            
+            fb_btn.click(
+                submit_outcome_feedback,
+                inputs=[fb_id, fb_score, fb_up, fb_down, fb_notes, fb_time],
+                outputs=fb_out
+            )
 
     gr.HTML("""
     <div style='text-align:center;padding:16px;color:#444;font-size:11px;border-top:1px solid #222;margin-top:16px'>
