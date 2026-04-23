@@ -35,9 +35,11 @@ python scripts/train_trl.py
 ```
 
 ### 4. Evaluate (Benchmark)
-Run the professional benchmark suite and generate the `eval_results.json` judge report.
+Run the random-baseline evaluation suite across N episodes.
 ```bash
-python scripts/eval.py --n 50 --verbose
+python scripts/eval.py --episodes 50 --verbose
+# Optional: filter by domain
+python scripts/eval.py --episodes 20 --domain flight_crisis
 ```
 
 ### 5. Serve (Deployment)
@@ -181,17 +183,45 @@ python3 server.py      # Starts the environment server on port 8000
 
 ---
 
+## Documentation
+
+All reference docs live in [`docs/`](docs/).
+
+| Doc | Covers |
+|---|---|
+| [`docs/INDEX.md`](docs/INDEX.md) | Master index — **update this for every new feature** |
+| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Documentation rule — what must ship with every change |
+| [`docs/lifestack_env.md`](docs/lifestack_env.md) | `core/lifestack_env.py` — env API, actions, observations |
+| [`docs/task.md`](docs/task.md) | `core/task.py` — Task / Route / Milestone / ExoEvent schema |
+| [`docs/reward.md`](docs/reward.md) | `core/reward.py` — reward components and penalties |
+| [`docs/memory.md`](docs/memory.md) | `agent/memory.py` — ChromaDB trajectory and feedback store |
+| [`docs/conflict_generator.md`](docs/conflict_generator.md) | `agent/conflict_generator.py` — TaskGenerator and templates |
+| [`docs/eval.md`](docs/eval.md) | `scripts/eval.py` — evaluation runner CLI reference |
+| [`docs/train_trl.md`](docs/train_trl.md) | `scripts/train_trl.py` — GRPO training reference |
+| [`docs/app.md`](docs/app.md) | `app.py` — Gradio tabs and module-level singletons |
+| [`docs/scripts.md`](docs/scripts.md) | All other scripts |
+| [`docs/configuration.md`](docs/configuration.md) | Env vars, secrets, Docker, openenv.yaml |
+
+> **Rule:** Any new feature, script, or module must update `docs/INDEX.md` and `README.md`.
+> See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the full checklist.
+
+---
+
 ## File Structure
 
-| File | Description |
+| File / Dir | Description |
 |---|---|
-| `core/task.py` | **NEW:** Dataclass schema for Tasks, ExoEvents, Routes, and Milestones |
-| `core/lifestack_env.py` | **UPDATED:** Logic for WorldEngine, PartialObsFilter, and Long-Horizon Step processing |
-| `core/reward.py` | **UPDATED:** Task-aware reward orchestrator with completion bonuses |
-| `agent/conflict_generator.py` | **NEW:** `TaskGenerator` class for automated crisis scenario building |
-| `agent/memory.py` | **UPDATED:** Trajectory storage and retrieval for episode-level learning |
+| `core/task.py` | Dataclass schema for Tasks, ExoEvents, Routes, and Milestones |
+| `core/lifestack_env.py` | WorldEngine, PartialObsFilter, and Long-Horizon Step processing |
+| `core/reward.py` | Task-aware reward orchestrator with completion bonuses |
+| `agent/conflict_generator.py` | `TaskGenerator` class for automated crisis scenario building |
+| `agent/memory.py` | Trajectory + human-feedback storage and retrieval (ChromaDB) |
 | `core/life_state.py` | Dependency graph with `METRIC_FLOOR` and BFS cascade bounding |
-| `app.py` | Gradio interface including the **Task Explorer** tab for real-time visualization |
+| `app.py` | Gradio interface — 6 tabs including Task Explorer and Follow-up |
+| `scripts/eval.py` | Standalone random-baseline evaluation runner (no GPU/key needed) |
+| `scripts/train_trl.py` | GRPO curriculum training via TRL + Unsloth |
+| `scripts/test_lifestack.py` | 11-test edge-case suite |
+| `docs/` | All reference documentation (see Documentation section above) |
 
 ---
 
