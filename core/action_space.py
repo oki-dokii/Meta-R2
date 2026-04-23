@@ -16,9 +16,9 @@ class ToolActionType(str, Enum):
 @dataclass
 class ToolAction:
     action_type: ToolActionType
-    target: str = ""          # inspect target, execute target, communicate recipient, etc.
-    parameters: dict = field(default_factory=dict)
-    reasoning: str = ""
+    target: str          # inspect target, execute target, communicate recipient, etc.
+    parameters: dict     # action-specific params
+    reasoning: str
 
 @dataclass
 class PrimaryAction:
