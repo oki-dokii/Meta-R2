@@ -150,107 +150,98 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
 # 3. REWARD FUNCTION for GRPO
 # ──────────────────────────────────────────────
 
+_REWARD_CACHE = {}
 _GLOBAL_REWARD_CALL_COUNT = 0
-LOG_INTERVAL = 20  # Log every N completions
+LOG_INTERVAL = 20
 LOG_DIR = "training_logs"
 SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 
-def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """
-    Score each LLM completion using the real LifeStackEnv.
-    """
-    global _GLOBAL_REWARD_CALL_COUNT
+def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
+    """Run the environment and return the full reward breakdown. Cached for efficiency."""
+    key = (prompt, completion)
+    if key in _REWARD_CACHE:
+        return _REWARD_CACHE[key]
+        
     from core.lifestack_env import LifeStackEnv, LifeStackAction
     import re
     
-    rewards = []
-    env = LifeStackEnv()
+    try:
+        # 1. Parse JSON
+        text = completion.strip()
+        if "```json" in text:
+            text = text.split("```json")[-1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[-1].split("```")[0]
+        data = json.loads(text.strip())
 
-    for completion, prompt in zip(completions, prompts):
-        try:
-            # 1. Parse JSON from completion
-            text = completion.strip()
-            if "```json" in text:
-                text = text.split("```json")[-1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[-1].split("```")[0]
-            data = json.loads(text.strip())
+        # 2. Extract Task Metadata
+        m = re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, re.DOTALL)
+        if not m:
+            return {"reward": -0.5, "breakdown": {}}
+        
+        meta = json.loads(m.group(1).strip())
+        task = Task(
+            id="grpo_eval", domain="life_conflict",
+            goal=meta.get("goal", "Resolve Crisis"),
+            constraints={"budget": meta.get("budget", {})},
+            hidden_state={},
+            mutable_world=meta.get("disruption", {}),
+            visible_world=meta.get("disruption", {}),
+            success_conditions=[], failure_conditions=[],
+            event_schedule=[], viable_routes=[], milestones=[],
+            horizon=meta.get("horizon", 30), difficulty=meta.get("difficulty", 3)
+        )
 
-            # 2. Extract Task Metadata from Prompt
-            m = re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, re.DOTALL)
-            if not m:
-                rewards.append(-0.5)
-                continue
-            
-            meta = json.loads(m.group(1).strip())
-            
-            # Reconstruct Task object for env
-            task = Task(
-                id="grpo_eval",
-                domain="life_conflict",
-                goal=meta.get("goal", "Resolve Crisis"),
-                constraints={"budget": meta.get("budget", {})},
-                hidden_state={},
-                mutable_world=meta.get("disruption", {}),
-                visible_world=meta.get("disruption", {}),
-                success_conditions=[],
-                failure_conditions=[],
-                event_schedule=[],
-                viable_routes=[],
-                milestones=[],
-                horizon=meta.get("horizon", 30),
-                difficulty=meta.get("difficulty", 3)
-            )
+        # 3. Step Env
+        env = LifeStackEnv()
+        env.reset(task=task, conflict=meta.get("disruption", {}))
+        action = LifeStackAction(
+            action_type=data.get("action_type"),
+            target=data.get("target_domain"),
+            metric_changes=data.get("metric_changes", {}),
+            resource_cost=data.get("resource_cost", {}),
+            reasoning=data.get("reasoning", ""),
+            completion=completion,
+            actions_taken=1
+        )
+        obs = env.step(action)
+        
+        result = {
+            "reward": float(obs.reward),
+            "breakdown": obs.metadata.get("breakdown", {}),
+            "action": action
+        }
 
-            # 3. Instantiate and Reset Env
-            env.reset(task=task, conflict=meta.get("disruption", {}))
+        # 4. Global Logging
+        global _GLOBAL_REWARD_CALL_COUNT
+        _GLOBAL_REWARD_CALL_COUNT += 1
+        if _GLOBAL_REWARD_CALL_COUNT % LOG_INTERVAL == 0:
+            if not os.path.exists(LOG_DIR): os.makedirs(LOG_DIR)
+            log_entry = {
+                "step": _GLOBAL_REWARD_CALL_COUNT,
+                "prompt": prompt[:500] + "...",
+                "completion": completion,
+                "action": data,
+                "reward": result["reward"],
+                "breakdown": result["breakdown"]
+            }
+            with open(SAMPLE_LOG_PATH, "a") as f:
+                f.write(json.dumps(log_entry) + "\n")
 
-            # 4. Convert model output to LifeStackAction
-            # Legacy actions map target_domain to 'target' in ToolAction logic if not using execute
-            action = LifeStackAction(
-                action_type=data.get("action_type"),
-                target=data.get("target_domain"),
-                metric_changes=data.get("metric_changes", {}),
-                resource_cost=data.get("resource_cost", {}),
-                reasoning=data.get("reasoning", ""),
-                completion=completion,
-                actions_taken=1
-            )
+        _REWARD_CACHE[key] = result
+        return result
+        
+    except Exception:
+        return {"reward": -0.5, "breakdown": {}, "action": None}
 
-            # 5. Step and collect real reward
-            obs = env.step(action)
-            reward = float(obs.reward)
-            rewards.append(reward)
+def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("format_compliance", -0.5) for c, p in zip(completions, prompts)]
 
-            # 6. Sampled Logging
-            _GLOBAL_REWARD_CALL_COUNT += 1
-            if _GLOBAL_REWARD_CALL_COUNT % LOG_INTERVAL == 0:
-                if not os.path.exists(LOG_DIR):
-                    os.makedirs(LOG_DIR)
-                
-                log_entry = {
-                    "step": _GLOBAL_REWARD_CALL_COUNT,
-                    "prompt": prompt[:500] + "...", # Truncate for file size
-                    "completion": completion,
-                    "action": {
-                        "type": action.action_type,
-                        "target": action.target,
-                        "metrics": action.metric_changes,
-                        "costs": action.resource_cost
-                    },
-                    "verifier": obs.metadata.get("info", []),
-                    "breakdown": obs.metadata.get("breakdown", {}),
-                    "reward": reward,
-                    "suspicious": reward > 0.8 and not action.resource_cost
-                }
-                with open(SAMPLE_LOG_PATH, "a") as f:
-                    f.write(json.dumps(log_entry) + "\n")
+def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    return [1.0 if "PLAUSIBILITY_VIOLATION" not in get_lifestack_evaluation(c, p).get("breakdown", {}).get("penalties_fired", []) else -1.0 for c, p in zip(completions, prompts)]
 
-        except Exception as e:
-            # Invalid output = penalty
-            rewards.append(-0.5)
-
-    return rewards
+def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    return [get_lifestack_evaluation(c, p)["reward"] for c, p in zip(completions, prompts)]
 
 
 # ──────────────────────────────────────────────
@@ -284,7 +275,7 @@ def train_curriculum(n_stages=5, n_prompts_per_stage=100, output_dir="./lifestac
             learning_rate=5e-6,
             num_generations=4,
             bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
-            report_to="none"
+            report_to="tensorboard"
         )
         
         trainer = GRPOTrainer(
@@ -292,7 +283,11 @@ def train_curriculum(n_stages=5, n_prompts_per_stage=100, output_dir="./lifestac
             tokenizer=tokenizer,
             args=config,
             train_dataset=dataset,
-            reward_funcs=lifestack_reward_fn,
+            reward_funcs=[
+                reward_format_fn, 
+                reward_plausibility_fn,
+                reward_task_success_fn
+            ],
         )
         trainer.train()
         
