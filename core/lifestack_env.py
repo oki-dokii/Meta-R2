@@ -6,6 +6,7 @@ from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.metric_schema import normalize_metric_path
 from core.reward import compute_reward, compute_task_reward
 from core.task import Task, ExoEvent, Route, Milestone, FlightCrisisTask
+from core.verifier import LifeStackVerifier
 
 try:
     from openenv.core import Environment, Action, Observation, State
@@ -355,11 +356,6 @@ class LifeStackEnv(_EnvBase):
                         # Success: Apply route
                         self._internal_state.active_route_id = route.id
                         self._internal_state.world_state.update(route.consequences)
-                        for mid in route.milestones_unlocked:
-                            if mid not in self._internal_state.milestones_achieved:
-                                self._internal_state.milestones_achieved.append(mid)
-                                if self._internal_state.exo_events_seen > 0:
-                                    self._internal_state.milestones_after_event += 1
                         info_msgs.append(f"ROUTE_SUCCESS: {route.name}")
 
         # 3. Apply Metric and Cascade
@@ -381,18 +377,19 @@ class LifeStackEnv(_EnvBase):
             info_msgs.append("RESOURCE_DEPLETED_ACTION_PENALTY")
 
         # 5. Task Progression Check
-        success_mets = []
-        for cond in task.success_conditions:
-            val = self._internal_state.hidden_state.get(cond['key'], self._internal_state.world_state.get(cond['key']))
-            success_mets.append(val == cond['value'])
+        success_mets = LifeStackVerifier.check_success(task, self._internal_state.world_state, self._internal_state.hidden_state)
+        failure_mets = LifeStackVerifier.check_failure(task, self._internal_state.world_state, self._internal_state.hidden_state, self._internal_state.current_metrics.flatten())
         
-        failure_mets = []
-        for cond in task.failure_conditions:
-            val = self._internal_state.hidden_state.get(cond['key'], self._internal_state.world_state.get(cond['key']))
-            failure_mets.append(val == cond['value'])
+        # Check milestones dynamically
+        newly_met = LifeStackVerifier.check_new_milestones(task, self._internal_state.world_state, self._internal_state.hidden_state, self._internal_state.milestones_achieved)
+        for mid in newly_met:
+            self._internal_state.milestones_achieved.append(mid)
+            if self._internal_state.exo_events_seen > 0:
+                self._internal_state.milestones_after_event += 1
+            info_msgs.append(f"MILESTONE_UNLOCKED: {mid}")
 
         # 6. Reward Calculation (Task-Aware)
-        routes_rem = len([r for r in task.viable_routes if r.id not in self._internal_state.closed_route_ids])
+        routes_rem, _ = LifeStackVerifier.get_route_status(task, self._internal_state.closed_route_ids, self._internal_state.world_state, self._internal_state.hidden_state)
         
         # Determine cascade collapse: did world metrics drop significantly in aggregate?
         metrics_after = self._internal_state.current_metrics.flatten()
