@@ -284,6 +284,26 @@ def reward_timeout_check(step_count: int, max_steps: int, done: bool) -> float:
         return -0.20
     return 0.0
 
+def reward_reasoning_coherence(reasoning: str, conflict_domain: str) -> float:
+    """
+    Process-aware intermediate reward. 
+    Teaches the model to reflect on the relevant conflict domain in its reasoning.
+    """
+    if not reasoning:
+        return -0.10
+        
+    reasoning_lower = reasoning.lower()
+    
+    # Positive signal: mentions the core problem domain
+    if conflict_domain.lower() in reasoning_lower:
+        return 0.10
+        
+    # Negative signal: too shallow or empty reasoning
+    if len(reasoning.strip()) < 20:
+        return -0.10
+        
+    return 0.0
+
 def main():
     # Scenario setup
     print("--- TESTING REWARD SYSTEM ---")
