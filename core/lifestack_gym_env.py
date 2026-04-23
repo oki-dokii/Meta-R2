@@ -11,10 +11,9 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 import random, copy
-
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.metric_schema import normalize_metric_path
-from core.reward import compute_reward
+from core.reward import compute_reward, compute_task_reward
 from agent.conflict_generator import generate_conflict, ConflictEvent
 from intake.simperson import SimPerson
 
@@ -56,8 +55,13 @@ class LifeStackGymEnv(gym.Env):
         self.graph = DependencyGraph()
         self.state: LifeMetrics = None
         self.budget: ResourceBudget = None
+        self.task = task
         self.conflict: ConflictEvent = None
         self.person: SimPerson = None
+        self.milestones_achieved = []
+        self.exo_events_seen = 0
+        self.milestones_after_event = 0
+        self.closed_route_ids = []
         self.step_count = 0
         self.max_steps = getattr(task, 'horizon', max_steps) if task else max_steps
         self.last_reward = None
@@ -105,6 +109,10 @@ class LifeStackGymEnv(gym.Env):
             energy_units=self.conflict.resource_budget.get("energy", 100.0),
         )
         self.step_count = 0
+        self.milestones_achieved = []
+        self.exo_events_seen = 0
+        self.milestones_after_event = 0
+        self.closed_route_ids = []
         self.last_reward = None
         self.last_breakdown = None
 
@@ -156,10 +164,39 @@ class LifeStackGymEnv(gym.Env):
             energy=resource_cost.get("energy", 0.0),
         )
 
-        # Reward
-        reward, breakdown = compute_reward(
-            state_before, self.state, resource_cost, actions_taken=1
-        )
+        # Reward (Task-Aware if possible)
+        from core.verifier import LifeStackVerifier
+        success_mets = []
+        if self.task:
+            success_mets = LifeStackVerifier.check_success(self.task, {}, {}, self.state.flatten()) # simplified for gym
+            newly_met = LifeStackVerifier.check_new_milestones(self.task, {}, {}, self.milestones_achieved)
+            for mid in newly_met:
+                self.milestones_achieved.append(mid)
+            
+            routes_rem, _ = LifeStackVerifier.get_route_status(self.task, self.closed_route_ids, {}, {})
+            
+            reward, breakdown = compute_task_reward(
+                state_before=state_before,
+                state_after=self.state,
+                resources_used=resource_cost,
+                actions_taken=1,
+                milestones_achieved=self.milestones_achieved,
+                success_conditions_met=success_mets,
+                exo_events_seen=self.exo_events_seen,
+                milestones_after_event=self.milestones_after_event,
+                routes_remaining=routes_rem,
+                rollback_used=False,
+                cascade_collapse=False,
+                task=self.task,
+                conflict_domain=self.conflict.title if self.conflict else "",
+                step_count=self.step_count,
+                max_steps=self.max_steps
+            )
+        else:
+            reward, breakdown = compute_reward(
+                state_before, self.state, resource_cost, actions_taken=1,
+                metric_changes=scaled_changes
+            )
         self.last_reward = reward
         self.last_breakdown = breakdown
         self.step_count += 1

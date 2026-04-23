@@ -5,7 +5,14 @@ import re
 from core.life_state import LifeMetrics
 from core.task import Task
 
-def compute_reward(state_before: LifeMetrics, state_after: LifeMetrics, resources_used: dict, actions_taken: int) -> tuple[float, dict]:
+def compute_reward(
+    state_before: LifeMetrics, 
+    state_after: LifeMetrics, 
+    resources_used: dict, 
+    actions_taken: int,
+    metric_changes: dict = None,
+    completion: str = None
+) -> tuple[float, dict]:
     """
     Computes the reward for a life step based on changes in LifeMetrics and resource usage.
     
@@ -104,15 +111,30 @@ def compute_reward(state_before: LifeMetrics, state_after: LifeMetrics, resource
     if delta_rel < -20:
         penalties -= 0.15
         fired.append("RELATIONSHIP_COLLAPSE")
+
+    # [NEW] Plausibility Penalty
+    if metric_changes:
+        plaus = reward_plausibility_check(metric_changes, resources_used)
+        if plaus < 0:
+            penalties += plaus
+            fired.append("PLAUISIBILITY_VIOLATION")
+
+    # [NEW] Format Compliance (Only if raw completion provided)
+    comp_reward = 0.0
+    if completion:
+        comp_reward = reward_format_compliance(completion)
+        # Note: reward_format_compliance returns high magnitude values, 
+        # we can cap it or use it as-is.
         
-    final_reward = max(-1.0, min(1.0, base_reward + penalties))
+    final_reward = max(-1.0, min(1.0, base_reward + penalties + comp_reward))
     
     breakdown = {
         "components": {
             "outcome": outcome_score,
             "containment": cascade_containment_score,
             "efficiency": resource_efficiency_score,
-            "preservation": relationship_preservation_score
+            "preservation": relationship_preservation_score,
+            "format_compliance": comp_reward
         },
         "base_reward": base_reward,
         "penalties_total": penalties,
@@ -158,7 +180,12 @@ def compute_task_reward(
     routes_remaining: int,
     rollback_used: bool,
     cascade_collapse: bool,
-    task: Task
+    task: Task,
+    reasoning: str = "",
+    completion: str = "",
+    conflict_domain: str = "",
+    step_count: int = 0,
+    max_steps: int = 0
 ) -> tuple[float, dict]:
     # 1. Base local components via old logic
     local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken)
@@ -170,18 +197,25 @@ def compute_task_reward(
     replan_score = compute_replan_bonus(exo_events_seen, milestones_after_event)
     efficiency_score = local_breakdown["components"]["efficiency"]
     
+    # [NEW] Reasoning Coherence
+    reasoning_score = reward_reasoning_coherence(reasoning, conflict_domain)
+    
+    # [NEW] Timeout Penalty
+    timeout_pen = reward_timeout_check(step_count, max_steps, all(success_conditions_met) if success_conditions_met else False)
+
     # 3. Weighted aggregation
-    # 10% local metric delta, 40% milestone rewards, 30% task completion, 10% replan bonus, 10% efficiency
+    # 10% local metric delta, 40% milestone rewards, 30% task completion, 10% replan bonus, 10% efficiency, 10% reasoning
     base_reward = (
-        (0.10 * local_metric_delta_score) +
+        (0.05 * local_metric_delta_score) +
         (0.40 * milestone_score) +
-        (0.30 * completion_score) +
+        (0.25 * completion_score) +
         (0.10 * replan_score) +
-        (0.10 * efficiency_score)
+        (0.05 * efficiency_score) +
+        (0.15 * reasoning_score)
     )
     
     # 4. Penalties
-    penalties = 0.0
+    penalties = timeout_pen
     fired = []
     
     dead_end_pen = compute_dead_end_penalty(routes_remaining)
@@ -205,7 +239,9 @@ def compute_task_reward(
             "milestone": milestone_score,
             "completion": completion_score,
             "replan": replan_score,
-            "efficiency": efficiency_score
+            "efficiency": efficiency_score,
+            "reasoning": reasoning_score,
+            "timeout_penalty": timeout_pen
         },
         "base_reward": base_reward,
         "penalties_total": penalties,

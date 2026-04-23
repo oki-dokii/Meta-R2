@@ -460,7 +460,11 @@ class LifeStackEnv(_EnvBase):
                 routes_remaining=routes_rem,
                 rollback_used=self._internal_state.used_rollback,
                 cascade_collapse=collapse,
-                task=task
+                task=task,
+                reasoning=getattr(action, 'reasoning', ""),
+                conflict_domain=self._internal_state.conflict.title if self._internal_state.conflict else "",
+                step_count=self._internal_state.step_count,
+                max_steps=self.max_steps
             )
         else:
             reward, breakdown = compute_reward(
