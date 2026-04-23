@@ -234,10 +234,11 @@ All reference docs live in [`docs/`](docs/).
 
 ---
 
-## Team
+## Team: BholeChature
 
 **Team of 3 — Scaler School of Technology, Bangalore**
 
 ---
 
 *LifeStack: We built the gym. Now any model can train in it.*
+
