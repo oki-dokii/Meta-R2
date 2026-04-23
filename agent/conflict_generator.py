@@ -156,7 +156,54 @@ TEMPLATES = [
         decisions_required=["Request indefinite medical leave", "Disconnect all electronics", "Let it all burn and sleep"],
         resource_budget={"time": 40.0, "money": 2000.0, "energy": 0.0},
         difficulty=5
-    )
+    ),
+
+    # ── TRANSPORT SCENARIOS (difficulty 1–5, all modes) ──────────────────
+    ConflictEvent(
+        id="d1_flat_tyre",
+        title="Flat Tyre",
+        story="Your bike tyre went flat halfway to work. You're going to be late to a team standup.",
+        primary_disruption={"time.commute_burden": 20.0, "mental_wellbeing.stress_level": 10.0},
+        decisions_required=["Call a cab", "Lock the bike and walk", "Ask to dial into the standup"],
+        resource_budget={"time": 2.0, "money": 30.0, "energy": 15.0},
+        difficulty=1
+    ),
+    ConflictEvent(
+        id="d2_train_delay",
+        title="Train Delay",
+        story="Your morning train is delayed 90 minutes due to a signal failure. You have a 9 AM client meeting.",
+        primary_disruption={"time.commute_burden": 30.0, "career.workload": 15.0, "mental_wellbeing.stress_level": 15.0},
+        decisions_required=["Dial in remotely", "Take a rideshare", "Reschedule the meeting"],
+        resource_budget={"time": 3.0, "money": 80.0, "energy": 20.0},
+        difficulty=2
+    ),
+    ConflictEvent(
+        id="d3_car_breakdown",
+        title="Breakdown on the Highway",
+        story="Your car engine seized on the freeway during rush hour. Tow + rental = $400 minimum.",
+        primary_disruption={"finances.liquidity": -35.0, "time.commute_burden": 40.0, "mental_wellbeing.stress_level": 20.0},
+        decisions_required=["Rent a replacement car", "Rideshare all week", "Borrow from a friend"],
+        resource_budget={"time": 6.0, "money": 500.0, "energy": 30.0},
+        difficulty=3
+    ),
+    ConflictEvent(
+        id="d4_rideshare_surge",
+        title="Surge Pricing Nightmare",
+        story="A major event cancelled all transit. Rideshares are 9x surge. You're presenting in 2 hours.",
+        primary_disruption={"finances.liquidity": -50.0, "mental_wellbeing.stress_level": 30.0, "time.free_hours_per_week": -10.0},
+        decisions_required=["Pay the surge", "Organise a carpool", "Present remotely"],
+        resource_budget={"time": 4.0, "money": 200.0, "energy": 40.0},
+        difficulty=4
+    ),
+    ConflictEvent(
+        id="d5_transit_strike",
+        title="City-Wide Transit Strike",
+        story="All buses, trains, and rideshares are on indefinite strike. Your car is in the shop.",
+        primary_disruption={"time.commute_burden": 50.0, "finances.liquidity": -30.0, "career.workload": 20.0, "mental_wellbeing.stress_level": 25.0},
+        decisions_required=["Negotiate remote work for the week", "Rent an e-bike/scooter", "Crash at a colleague's place"],
+        resource_budget={"time": 15.0, "money": 400.0, "energy": 50.0},
+        difficulty=5
+    ),
 ]
 
 def generate_conflict(difficulty: int = None) -> ConflictEvent:
@@ -241,7 +288,9 @@ from core.task import Task, Route, ExoEvent, Milestone
 class TaskGenerator:
     def generate(self, domain: str = None, difficulty: int = None) -> Task:
         diff = difficulty or 3
-        if domain == "flight_crisis":
+        if domain == "transport_crisis":
+            return self.generate_transport_crisis(diff)
+        elif domain == "flight_crisis":          # kept as explicit sub-type
             return self.generate_flight_crisis(diff)
         elif domain == "code_merge_crisis":
             return self.generate_code_merge_crisis(diff)
@@ -258,7 +307,118 @@ class TaskGenerator:
         elif domain == "time":
             return self.generate_time(diff)
         else:
-            return self.generate_flight_crisis(diff)
+            return self.generate_transport_crisis(diff)
+
+    # ── TRANSPORT CRISIS: master dispatcher ──────────────────────────────
+    def generate_transport_crisis(self, difficulty: int) -> Task:
+        """Randomly choose one of 5 real-world transport disruption modes."""
+        return random.choice([
+            self.generate_flight_crisis,
+            self.generate_train_delay,
+            self.generate_car_breakdown,
+            self.generate_rideshare_surge,
+            self.generate_transit_strike,
+        ])(difficulty)
+
+    def generate_train_delay(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="dial_in",     name="Dial In Remotely",       description="Join the meeting via video call from the station.",          required_action_types=["communicate"],           preconditions={}, consequences={"meeting_attended": True},   closes_routes=["rideshare"],  milestones_unlocked=["m1"], final_reward=2.0),
+            Route(id="rideshare",   name="Take a Rideshare",        description="Pay for a cab/rideshare and make it there in time.",         required_action_types=["spend", "communicate"],  preconditions={}, consequences={"arrived_on_time": True},  closes_routes=["dial_in"],    milestones_unlocked=["m2"], final_reward=2.5),
+            Route(id="reschedule",  name="Reschedule the Meeting",  description="Negotiate a new meeting time with all parties.",            required_action_types=["communicate"],           preconditions={}, consequences={"meeting_rescheduled": True}, closes_routes=[],            milestones_unlocked=["m3"], final_reward=1.5),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Meeting attended on time remotely.",             condition_key="meeting_attended",    condition_value=True, reward=1.0),
+            Milestone(id="m2", description="Made it to the office despite the delay.",       condition_key="arrived_on_time",     condition_value=True, reward=1.5),
+            Milestone(id="m3", description="Meeting rescheduled without relationship cost.", condition_key="meeting_rescheduled", condition_value=True, reward=0.8),
+        ]
+        events = [
+            ExoEvent(step=2, probability=0.8, id="delay_extended",  description="Train delay extended by another 45 minutes.",      world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+            ExoEvent(step=4, probability=0.6, id="rideshare_surge", description="Rideshares now showing 3x surge pricing.",          world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+        ]
+        return Task(
+            id="train_delay_task", domain="transport_crisis", goal="Navigate Train Delay Crisis",
+            constraints={"budget_max": 150, "deadline_step": 8},
+            hidden_state={"platform_reassigned": False}, mutable_world={}, visible_world={},
+            success_conditions=[], failure_conditions=[],
+            event_schedule=events, viable_routes=routes, milestones=milestones,
+            horizon=12 + difficulty * 2, difficulty=difficulty,
+            domain_metadata={"story": "Signal failure has brought the entire line to a halt.", "transport_mode": "train"}
+        )
+
+    def generate_car_breakdown(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="rent_car",       name="Rent a Replacement Car",     description="Call a rental agency and get mobile again.",              required_action_types=["spend", "communicate"], preconditions={}, consequences={"mobile": True},            closes_routes=[],            milestones_unlocked=["m1"], final_reward=2.5),
+            Route(id="rideshare_week", name="Rideshare for the Week",      description="Use rideshares until the car is repaired.",               required_action_types=["spend"],               preconditions={}, consequences={"transport_sorted": True}, closes_routes=["rent_car"],  milestones_unlocked=["m2"], final_reward=1.5),
+            Route(id="borrow_car",     name="Borrow a Friend's Car",       description="Call around and borrow a vehicle.",                        required_action_types=["communicate"],          preconditions={}, consequences={"borrowed": True},         closes_routes=[],            milestones_unlocked=["m3"], final_reward=2.0),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Replacement vehicle secured.",               condition_key="mobile",            condition_value=True, reward=1.5),
+            Milestone(id="m2", description="Transport plan for the week sorted.",        condition_key="transport_sorted",  condition_value=True, reward=1.0),
+            Milestone(id="m3", description="Vehicle borrowed without relationship cost.", condition_key="borrowed",          condition_value=True, reward=1.2),
+        ]
+        events = [
+            ExoEvent(step=2, probability=1.0, id="repair_estimate",   description="Mechanic confirms repair takes 3–5 days, not 1.",       world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+            ExoEvent(step=5, probability=0.7, id="rental_shortage",   description="Rental agencies report no compact cars available.",    world_mutation={}, hidden_state_mutation={}, closes_routes=["rent_car"]),
+        ]
+        return Task(
+            id="car_breakdown_task", domain="transport_crisis", goal="Recover from Car Breakdown",
+            constraints={"budget_max": 500, "deadline_step": 10},
+            hidden_state={"tow_dispatched": False}, mutable_world={}, visible_world={},
+            success_conditions=[], failure_conditions=[],
+            event_schedule=events, viable_routes=routes, milestones=milestones,
+            horizon=14 + difficulty * 2, difficulty=difficulty,
+            domain_metadata={"story": "Engine seized on the highway. Car is in the shop for days.", "transport_mode": "car"}
+        )
+
+    def generate_rideshare_surge(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="pay_surge",  name="Pay the Surge Price",       description="Absorb the cost and get there on time.",                     required_action_types=["spend"],                          preconditions={}, consequences={"arrived": True},         closes_routes=["remote"], milestones_unlocked=["m1"], final_reward=2.0),
+            Route(id="carpool",    name="Organise a Carpool",         description="Find colleagues or strangers going the same way.",           required_action_types=["communicate", "negotiate"],       preconditions={}, consequences={"carpooled": True},        closes_routes=[],         milestones_unlocked=["m2"], final_reward=3.0),
+            Route(id="remote",     name="Present Remotely",           description="Negotiate to dial in instead of attending in person.",       required_action_types=["communicate"],                    preconditions={}, consequences={"remote_approved": True},  closes_routes=["pay_surge"], milestones_unlocked=["m3"], final_reward=1.5),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Arrived at venue on time.",            condition_key="arrived",         condition_value=True, reward=1.5),
+            Milestone(id="m2", description="Carpool arranged — zero cost.",         condition_key="carpooled",       condition_value=True, reward=2.0),
+            Milestone(id="m3", description="Remote attendance approved.",           condition_key="remote_approved", condition_value=True, reward=1.0),
+        ]
+        events = [
+            ExoEvent(step=1, probability=1.0, id="surge_spike",        description="Surge jumped to 12x. All buses cancelled.",         world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+            ExoEvent(step=3, probability=0.9, id="meeting_reminder",   description="Organiser sends a 30-minute warning.",               world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+        ]
+        return Task(
+            id="rideshare_surge_task", domain="transport_crisis", goal="Get to the Presentation on Time",
+            constraints={"budget_max": 200, "deadline_step": 6},
+            hidden_state={}, mutable_world={}, visible_world={},
+            success_conditions=[], failure_conditions=[],
+            event_schedule=events, viable_routes=routes, milestones=milestones,
+            horizon=8 + difficulty * 2, difficulty=difficulty,
+            domain_metadata={"story": "A major city event caused city-wide rideshare surge on your big presentation day.", "transport_mode": "rideshare"}
+        )
+
+    def generate_transit_strike(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="wfh_negotiate",  name="Negotiate Full Remote Week",   description="Get manager approval to WFH for the strike duration.",   required_action_types=["communicate", "negotiate"], preconditions={}, consequences={"wfh_approved": True},        closes_routes=[],                  milestones_unlocked=["m1"], final_reward=3.0),
+            Route(id="micromobility",  name="Rent E-Bike / Scooter",         description="Use micro-mobility for the week.",                        required_action_types=["spend"],                    preconditions={}, consequences={"transport_secured": True}, closes_routes=[],                  milestones_unlocked=["m2"], final_reward=2.0),
+            Route(id="colleague_crash",name="Crash at a Colleague's Place",  description="Stay near the office temporarily.",                       required_action_types=["communicate"],              preconditions={}, consequences={"accommodation_sorted": True}, closes_routes=[],             milestones_unlocked=["m3"], final_reward=1.5),
+        ]
+        milestones = [
+            Milestone(id="m1", description="WFH approved for the strike period.",  condition_key="wfh_approved",        condition_value=True, reward=2.0),
+            Milestone(id="m2", description="Micro-mobility solution in place.",     condition_key="transport_secured",   condition_value=True, reward=1.0),
+            Milestone(id="m3", description="Temporary accommodation sorted.",       condition_key="accommodation_sorted",condition_value=True, reward=0.8),
+        ]
+        events = [
+            ExoEvent(step=2, probability=0.9, id="strike_extended",   description="Union announces the strike could last 2 weeks.",         world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+            ExoEvent(step=5, probability=0.7, id="scooter_shortage",  description="E-bike rental companies sold out in your area.",         world_mutation={}, hidden_state_mutation={}, closes_routes=["micromobility"]),
+        ]
+        return Task(
+            id="transit_strike_task", domain="transport_crisis", goal="Survive City-Wide Transit Strike",
+            constraints={"budget_max": 400, "deadline_step": 14},
+            hidden_state={}, mutable_world={}, visible_world={},
+            success_conditions=[], failure_conditions=[],
+            event_schedule=events, viable_routes=routes, milestones=milestones,
+            horizon=18 + difficulty * 2, difficulty=difficulty,
+            domain_metadata={"story": "All public transport workers walked off the job. The city is gridlocked.", "transport_mode": "transit_strike"}
+        )
 
     def generate_flight_crisis(self, difficulty: int) -> Task:
         routes = [
