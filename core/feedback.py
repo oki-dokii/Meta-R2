@@ -17,28 +17,36 @@ class OutcomeFeedback:
     # Time to resolution (hours)
     resolution_time_hours: float = 0.0
 
-def compute_human_feedback_reward(predicted_obs: LifeStackObservation, feedback: OutcomeFeedback) -> float:
+def compute_human_feedback_reward(initial_metrics: dict, predicted_obs: LifeStackObservation, feedback: OutcomeFeedback) -> float:
     """
     Computes a reward score (0.0 to 1.0) based on how well the environment's 
     predicted outcomes match the human's reported reality.
     """
-    # 1. Domain Alignment Score
-    # We look at which domains improved in the predicted metrics
-    # Note: predicted_obs.metrics is a flat dict of "domain.submetric": value (delta or final?)
-    # Usually in Step rewards, we look at the DELTA. However, compute_human_feedback_reward 
-    # likely compares the END OF EPISODE predicted state vs reality.
+    # Metrics where a decrease is an improvement
+    inverted = {"stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"}
     
-    # If predicted_obs represents the final state, we should compare it to the initial state.
-    # For now, we assume metrics here are deltas or final levels > threshold.
-    # Let's assume positive values in predicted_obs.metrics represent improvements if they are deltas.
-    # Actually, in LifeStackEnv, obs.metrics is the final value. 
-    # To find improvement, we'd need the initial state.
-    
-    # But wait, the user's snippet says:
-    # predicted_improved = set(k.split('.')[0] for k, v in predicted_obs.metrics.items() if v > 0)
-    # This implies v > 0 means improvement (delta logic).
-    
-    predicted_improved = set(k.split('.')[0] for k, v in predicted_obs.metrics.items() if v > 0)
+    predicted_improved = set()
+    for key, final_val in predicted_obs.metrics.items():
+        if key not in initial_metrics:
+            continue
+            
+        initial_val = initial_metrics[key]
+        delta = final_val - initial_val
+        submetric = key.split('.')[-1]
+        domain = key.split('.')[0]
+        
+        # Determine if this specific change is an "improvement"
+        is_improvement = False
+        if submetric in inverted:
+            if delta < -1.0: # Significant decrease in negative metric
+                is_improvement = True
+        else:
+            if delta > 1.0:  # Significant increase in positive metric
+                is_improvement = True
+                
+        if is_improvement:
+            predicted_improved.add(domain)
+
     actual_improved = set(feedback.domains_improved)
 
     union = predicted_improved | actual_improved
