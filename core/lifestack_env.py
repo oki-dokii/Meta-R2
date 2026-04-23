@@ -228,7 +228,9 @@ class LifeStackEnv(_EnvBase):
 
         return self._get_obs()
 
-    def _get_obs(self, done: bool = False, reward: Optional[float] = None) -> LifeStackObservation:
+    def _get_obs(self, done: bool = False, reward: Optional[float] = None,
+                 success: bool = False, failure: bool = False,
+                 failure_reason: str = "", routes_remaining: int = 0) -> LifeStackObservation:
         revealed_world = PartialObsFilter.filter(
             self._internal_state.current_task, 
             self._internal_state.world_state, 
@@ -250,7 +252,11 @@ class LifeStackEnv(_EnvBase):
                 "goal": self._internal_state.current_task.goal,
                 "active_route": self._internal_state.active_route_id,
                 "milestones": self._internal_state.milestones_achieved,
-                "events": self._internal_state.fired_event_ids
+                "events": self._internal_state.fired_event_ids,
+                "success": success,
+                "failure": failure,
+                "failure_reason": failure_reason,
+                "routes_remaining": routes_remaining
             }
         )
 
@@ -414,13 +420,34 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.step_count += 1
         
         # 7. End Conditions
-        terminated = any(val == True for val in failure_mets) or any(v <= 0 for v in metrics_after.values())
+        is_success = all(val == True for val in success_mets) if success_mets else False
+        is_task_failure = any(val == True for val in failure_mets)
+        metric_death = any(v <= 0 for v in metrics_after.values())
+        
+        failure_reason = ""
+        if is_task_failure:
+            reasons = [cond['key'] for i, cond in enumerate(task.failure_conditions) if failure_mets[i]]
+            failure_reason = f"Condition failed: {', '.join(reasons)}"
+        elif metric_death:
+            dead_metrics = [k for k, v in metrics_after.items() if v <= 0]
+            failure_reason = f"Metrics hit zero: {', '.join(dead_metrics)}"
+        elif routes_rem == 0 and not is_success:
+            failure_reason = "Dead end: No reachable routes left."
+
+        terminated = is_task_failure or metric_death
         truncated = self._internal_state.step_count >= self.max_steps
-        if success_mets and all(val == True for val in success_mets):
+        if is_success:
             truncated = True
         done = terminated or truncated
 
-        observation = self._get_obs(done, reward)
+        observation = self._get_obs(
+            done, 
+            reward, 
+            success=is_success, 
+            failure=terminated, 
+            failure_reason=failure_reason, 
+            routes_remaining=routes_rem
+        )
         observation.metadata["breakdown"] = breakdown
         observation.metadata["info"] = info_msgs
         return observation
