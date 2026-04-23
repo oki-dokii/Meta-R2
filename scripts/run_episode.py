@@ -2,9 +2,9 @@
 run_episode.py — LifeStack Full Episode Runner
 
 Orchestrates a complete episode:
-  1. Generate a conflict
+  1. Generate a Task (with correct horizon from task.horizon) and a ConflictEvent
   2. Initialize environment, agent, person, and memory
-  3. Loop up to 5 steps: agent decides → action applied → reward computed → memory updated
+  3. Loop up to task.horizon steps: agent decides → action applied → reward computed → memory updated
   4. Print a rich episode summary at the end
 """
 
@@ -14,11 +14,13 @@ from core.life_state import LifeMetrics, ResourceBudget
 from core.lifestack_env import LifeStackEnv, LifeStackAction
 from agent.agent import LifeStackAgent
 from intake.simperson import SimPerson
-from agent.conflict_generator import generate_conflict, escalate_conflict, adaptive_escalate
+from agent.conflict_generator import generate_conflict, escalate_conflict, adaptive_escalate, TaskGenerator
 from core.action_space import apply_action, validate_action
 from agent.memory import LifeStackMemory
 from core.reward import compute_reward
 import copy
+
+_TASK_GENERATOR = TaskGenerator()
 
 
 def run_episode(
@@ -45,7 +47,6 @@ def run_episode(
     # --------------------------------------------------
     # 1. SETUP
     # --------------------------------------------------
-    env = LifeStackEnv(max_steps=5)
     if agent is None:
         agent = LifeStackAgent()
     if memory is None:
@@ -63,12 +64,21 @@ def run_episode(
     ]
     person = random.choice(person_pool)
 
-    # Generate starting conflict
+    # --- FIX: Generate a Task object so task.horizon is respected ---
+    # Determine domain from difficulty: easy conflicts → flight_crisis, harder → code_merge_crisis
+    domain = "flight_crisis" if (difficulty or 2) <= 3 else "code_merge_crisis"
+    task = _TASK_GENERATOR.generate(domain=domain, difficulty=difficulty or random.randint(1, 3))
+
+    # Generate starting conflict (legacy ConflictEvent for disruption/budget)
     conflict = generate_conflict(difficulty)
     initial_conflict_id = conflict.id
 
-    # Apply initial disruption to env
-    obs = env.reset(conflict=conflict, budget=conflict.resource_budget, person=person, agent_history=agent_history)
+    # --- FIX: Create env with task so max_steps = task.horizon (NOT hardcoded 5) ---
+    env = LifeStackEnv(task=task)
+
+    # Apply initial disruption to env; pass task= so reset() uses task.horizon
+    obs = env.reset(task=task, conflict=conflict, budget=conflict.resource_budget,
+                    person=person, agent_history=agent_history)
     done = obs.done
 
     # --------------------------------------------------

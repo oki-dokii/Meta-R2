@@ -474,6 +474,167 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
 # ENTRY POINT
 # ──────────────────────────────────────────────
 
+# ──────────────────────────────────────────────
+# 6. POST-TRAINING VALIDATION
+# ──────────────────────────────────────────────
+
+MIN_MODEL_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB — a placeholder will always be < this
+
+def validate_saved_model(output_dir: str = "./lifestack_model"):
+    """
+    Validates that a real model was saved (not a placeholder).
+    Raises RuntimeError if pytorch_model.bin or model.safetensors is missing / too small.
+    """
+    import glob
+    weight_files = (
+        glob.glob(os.path.join(output_dir, "*.bin")) +
+        glob.glob(os.path.join(output_dir, "*.safetensors")) +
+        glob.glob(os.path.join(output_dir, "**", "*.safetensors"), recursive=True) +
+        glob.glob(os.path.join(output_dir, "**", "*.bin"), recursive=True)
+    )
+    # Deduplicate
+    weight_files = list(set(weight_files))
+
+    if not weight_files:
+        raise RuntimeError(
+            f"[VALIDATION FAIL] No weight files found in {output_dir}.\n"
+            "Real training never completed — run train_trl.py on a GPU instance."
+        )
+
+    total_bytes = sum(os.path.getsize(f) for f in weight_files)
+    if total_bytes < MIN_MODEL_SIZE_BYTES:
+        raise RuntimeError(
+            f"[VALIDATION FAIL] Total weight size = {total_bytes} bytes ({total_bytes/1e6:.2f} MB).\n"
+            f"Expected > {MIN_MODEL_SIZE_BYTES/1e6:.0f} MB for a real model.\n"
+            f"Found files: {weight_files}\n"
+            "This looks like a placeholder. Run full training on a GPU."
+        )
+
+    print(f"[VALIDATION PASS] Model saved correctly.")
+    print(f"  Weight files : {len(weight_files)}")
+    print(f"  Total size   : {total_bytes / 1e6:.1f} MB")
+    return total_bytes
+
+
+# ──────────────────────────────────────────────
+# 7. DRY-RUN MODE (validates pipeline without GPU)
+# ──────────────────────────────────────────────
+
+def dry_run(output_dir: str = "./lifestack_model_dryrun"):
+    """
+    Runs a single GRPO training step on a minimal dataset (4 prompts).
+    Verifies the entire pipeline: dataset → prompt → reward → trainer.train() → save.
+    Does NOT require a GPU.  Saved weights will be small (< 50 MB) — that is expected.
+
+    Use this to confirm:
+    - All imports resolve
+    - Reward functions are callable
+    - Trainer.train() completes without error
+    - model.save_pretrained() writes real weight files
+    """
+    print("=" * 60)
+    print("🧪 LIFESTACK DRY-RUN (1 step, CPU, tiny dataset)")
+    print("=" * 60)
+
+    model, tokenizer = load_model()
+
+    dataset = generate_dataset(n_prompts=4, difficulty=1)
+    print(f"  Dataset size : {len(dataset)} prompts")
+
+    config = GRPOConfig(
+        output_dir=output_dir,
+        num_train_epochs=1,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        learning_rate=1e-5,
+        num_generations=2,
+        max_steps=1,          # ONE step — just proves the pipeline works
+        bf16=False,
+        fp16=False,
+        report_to="none",     # No tensorboard for dry-run
+        logging_steps=1,
+    )
+
+    trainer = GRPOTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        args=config,
+        train_dataset=dataset,
+        reward_funcs=[
+            reward_plausibility_fn,
+            reward_task_success_fn,
+        ],
+    )
+
+    print("  Running 1 training step...")
+    trainer.train()
+    print("  ✅ trainer.train() completed.")
+
+    trainer.save_model(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    print(f"  ✅ model.save_pretrained() → {output_dir}")
+
+    # Check something real was saved
+    import glob
+    weight_files = (
+        glob.glob(os.path.join(output_dir, "*.bin")) +
+        glob.glob(os.path.join(output_dir, "*.safetensors")) +
+        glob.glob(os.path.join(output_dir, "**", "*.safetensors"), recursive=True)
+    )
+    weight_files = list(set(weight_files))
+    total_bytes = sum(os.path.getsize(f) for f in weight_files)
+
+    print(f"\n  Weight files saved : {len(weight_files)}")
+    for f in weight_files:
+        print(f"    {f}  ({os.path.getsize(f)/1e6:.2f} MB)")
+    print(f"  Total weight size  : {total_bytes/1e6:.2f} MB")
+
+    if total_bytes == 0:
+        raise RuntimeError("[DRY-RUN FAIL] No bytes written. save_pretrained() did not produce weights.")
+    if total_bytes <= 100:  # 17 bytes = placeholder
+        raise RuntimeError(
+            f"[DRY-RUN FAIL] Only {total_bytes} bytes written — this is a placeholder, not real weights."
+        )
+
+    print("\n  ✅ DRY-RUN PASSED — full training pipeline is wired correctly.")
+    print("  → Run train_curriculum() on a GPU for a production model (> 50 MB).")
+    return trainer
+
+
+# ──────────────────────────────────────────────
+# ENTRY POINT
+# ──────────────────────────────────────────────
+
 if __name__ == "__main__":
-    trainer = train_curriculum(n_stages=5, n_prompts_per_stage=100)
-    evaluate_and_plot()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="LifeStack GRPO Training")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Run 1 training step on 4 prompts to validate the full pipeline (no GPU required)."
+    )
+    parser.add_argument(
+        "--stages", type=int, default=5,
+        help="Number of curriculum stages (default: 5)."
+    )
+    parser.add_argument(
+        "--prompts-per-stage", type=int, default=100,
+        help="Prompts per curriculum stage (default: 100)."
+    )
+    parser.add_argument(
+        "--output-dir", type=str, default="./lifestack_model",
+        help="Directory to save the trained model."
+    )
+    args = parser.parse_args()
+
+    if args.dry_run:
+        dry_run(output_dir="./lifestack_model_dryrun")
+    else:
+        trainer = train_curriculum(
+            n_stages=args.stages,
+            n_prompts_per_stage=args.prompts_per_stage,
+            output_dir=args.output_dir,
+        )
+        # Validate real weights were saved
+        validate_saved_model(args.output_dir)
+        evaluate_and_plot(args.output_dir)
