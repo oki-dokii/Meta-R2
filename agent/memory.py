@@ -4,6 +4,7 @@ import uuid
 import math
 from datetime import datetime
 from collections import defaultdict
+from typing import Optional
 
 
 class LifeStackMemory:
@@ -263,7 +264,7 @@ class LifeStackMemory:
         return {
             "total_memories": total,
             "average_reward": round(avg_reward, 3),
-            "by_route_start": dict(by_route)
+            "by_action_type": dict(by_route)
         }
 
 

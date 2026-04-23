@@ -272,7 +272,7 @@ def animate_cascade(primary_disruption: dict, metrics: LifeMetrics) -> list[dict
     frames.append({'flat': dict(f2_flat), 'status': f2_status})
 
     # Frame 3 — second-order cascade effects
-    f3 = copy.deepcopy(f2)
+    f3 = _cp.deepcopy(f2)
     second_order_keys = set()
     for src_path, src_mag in queue_next:
         if src_path in graph.edges:
