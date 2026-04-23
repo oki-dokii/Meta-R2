@@ -1,0 +1,12 @@
+[
+  {"id": "holdout_0",  "seed": 9000, "domain": "flight_crisis"},
+  {"id": "holdout_1",  "seed": 9001, "domain": "flight_crisis"},
+  {"id": "holdout_2",  "seed": 9002, "domain": "code_merge_crisis"},
+  {"id": "holdout_3",  "seed": 9003, "domain": "flight_crisis"},
+  {"id": "holdout_4",  "seed": 9004, "domain": "code_merge_crisis"},
+  {"id": "holdout_5",  "seed": 9005, "domain": "flight_crisis"},
+  {"id": "holdout_6",  "seed": 9006, "domain": "code_merge_crisis"},
+  {"id": "holdout_7",  "seed": 9007, "domain": "flight_crisis"},
+  {"id": "holdout_8",  "seed": 9008, "domain": "code_merge_crisis"},
+  {"id": "holdout_9",  "seed": 9009, "domain": "flight_crisis"}
+]

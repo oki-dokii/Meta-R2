@@ -167,6 +167,65 @@ def run_eval(n_episodes: int, domain: str | None, verbose: bool) -> None:
     )
 
 
+# Alias used by train_trl.py
+run_evaluation = run_eval
+
+
+# ---------------------------------------------------------------------------
+# Holdout evaluation — fixed task seeds not used during training
+# ---------------------------------------------------------------------------
+
+def run_holdout_eval(n_episodes: int = 10, verbose: bool = False) -> dict:
+    """Run evaluation on a fixed holdout set for generalization measurement."""
+    import json as _json
+
+    holdout_path = os.path.join(os.path.dirname(__file__), "..", "data", "holdout_tasks.json")
+    try:
+        with open(holdout_path) as fh:
+            holdout_configs = _json.load(fh)
+    except FileNotFoundError:
+        print(f"[holdout] No holdout file at {holdout_path}; falling back to random tasks.")
+        holdout_configs = [{"id": f"fallback_{i}", "seed": 9000 + i} for i in range(n_episodes)]
+
+    generator = TaskGenerator()
+    env = LifeStackEnv()
+    results = []
+
+    print(f"\n  {'─'*60}")
+    print(f"  HOLDOUT EVALUATION ({len(holdout_configs)} fixed tasks)")
+    print(f"  {'─'*60}")
+
+    for cfg in holdout_configs[:n_episodes]:
+        seed = cfg.get("seed", 9000)
+        domain = cfg.get("domain", "flight_crisis")
+        task = generator.generate(domain=domain)
+
+        obs = env.reset(task=task, seed=seed, episode_id=cfg["id"])
+        total_reward = 0.0
+        steps = 0
+        success = False
+
+        while not obs.done:
+            action = _random_action(env.state.current_task)
+            obs = env.step(action)
+            total_reward += obs.reward or 0.0
+            steps += 1
+            if verbose:
+                print(f"    step={steps:>3}  reward={obs.reward:+.3f}  action={action.action_type}")
+            if obs.metadata.get("success"):
+                success = True
+
+        results.append({"id": cfg["id"], "total_reward": total_reward, "steps": steps, "success": success})
+        print(f"  {cfg['id']:<20}  reward={total_reward:>8.4f}  steps={steps:>4}  {'✓' if success else '✗'}")
+
+    n = len(results)
+    mean_reward = sum(r["total_reward"] for r in results) / n if n else 0.0
+    success_rate = sum(1 for r in results if r["success"]) / n if n else 0.0
+    print(f"\n  Holdout Mean Reward  : {mean_reward:.4f}")
+    print(f"  Holdout Success Rate : {success_rate:.1%}\n")
+    return {"mean_reward": mean_reward, "success_rate": success_rate, "results": results}
+
+
 # ---------------------------------------------------------------------------
 # CLI entry-point
 # ---------------------------------------------------------------------------
