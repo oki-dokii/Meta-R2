@@ -418,13 +418,15 @@ class LifeStackEnv(_EnvBase):
         
         # 7. End Conditions
         terminated = any(val == True for val in failure_mets) or any(v <= 0 for v in metrics_after.values())
-        truncated = self._internal_state.step_count >= self.max_steps or all(val == True for val in success_mets) if success_mets else False
+        truncated = self._internal_state.step_count >= self.max_steps
+        if success_mets and all(val == True for val in success_mets):
+            truncated = True
         done = terminated or truncated
 
         observation = self._get_obs(done, reward)
         observation.metadata["breakdown"] = breakdown
         observation.metadata["info"] = info_msgs
-        return observationon
+        return observation
 
     def render(self):
         """Vibrant status report of the current state and task progress."""

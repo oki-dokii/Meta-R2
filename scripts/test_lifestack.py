@@ -15,7 +15,7 @@ from agent.memory import LifeStackMemory
 
 
 passed = 0
-total  = 10
+total  = 11
 
 
 def report(name, ok, detail=""):
@@ -162,8 +162,13 @@ def test_memory_threshold():
 
 # ─── 9. Episode Termination Test ─────────────────────────────────────────────
 def test_episode_termination():
-    env = LifeStackEnv(max_steps=5)
-    obs = env.reset()
+    from core.task import Task
+    t = Task(id="test", domain="test", goal="test", constraints={}, hidden_state={}, 
+             mutable_world={}, visible_world={}, success_conditions=[], 
+             failure_conditions=[], event_schedule=[], viable_routes=[], 
+             milestones=[], horizon=5, difficulty=1, domain_metadata={})
+    env = LifeStackEnv()
+    obs = env.reset(task=t)
 
     done = False
     for _ in range(5):
@@ -174,12 +179,46 @@ def test_episode_termination():
         ))
         done = obs.done
 
-    report("Episode terminates after 5 steps",
+    report("Episode terminates after horizon steps",
            done is True,
            f"done = {done} after {env.state.step_count} steps")
 
 
-# ─── 10. Full Episode Smoke Test ─────────────────────────────────────────────
+# ─── 10. Task-Driven Smoke Test ──────────────────────────────────────────────
+def test_task_driven_smoke():
+    from core.task import FlightCrisisTask
+    from core.action_space import ToolActionType
+    env = LifeStackEnv()
+    task = FlightCrisisTask()
+    obs = env.reset(task=task)
+    
+    # 1. Inspect hidden state
+    obs = env.step(LifeStackAction(
+        action_type="inspect",
+        target="card_available",
+        reasoning="Need to know if I can rebook"
+    ))
+    
+    revealed = obs.metadata.get("world_state", {})
+    inspect_ok = "card_available" in revealed or "ERROR" not in str(obs.metadata.get("info"))
+    
+    # 2. Execute route
+    # Note: FlightCrisisTask has Route(id="rebook_premium", ...)
+    obs = env.step(LifeStackAction(
+        action_type="execute",
+        target="rebook_premium",
+        reasoning="Try rebooking"
+    ))
+    
+    info = obs.metadata.get("info", [])
+    route_ok = any("ROUTE_SUCCESS" in msg for msg in info)
+    
+    report("Task-driven episode (Inspect + Route)",
+           route_ok,
+           f"info: {info}")
+
+
+# ─── 11. Full Episode Smoke Test ─────────────────────────────────────────────
 def test_full_episode_smoke():
     test_dir = "./test_episode_memory_tmp"
     if os.path.exists(test_dir):
@@ -215,6 +254,7 @@ if __name__ == "__main__":
     test_simperson_uptake_bounds()
     test_memory_threshold()
     test_episode_termination()
+    test_task_driven_smoke()
     test_full_episode_smoke()
 
     print("\n" + "=" * 60)
