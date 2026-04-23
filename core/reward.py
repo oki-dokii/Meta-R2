@@ -1,5 +1,7 @@
 import math
 import copy
+import json
+import re
 from core.life_state import LifeMetrics
 from core.task import Task
 
@@ -212,6 +214,50 @@ def compute_task_reward(
     }
     
     return final_reward, breakdown
+
+def reward_format_compliance(completion: str) -> float:
+    """
+    Scores the completion based on its format (JSON validity and required fields).
+    
+    Returns:
+        +1.0: Valid JSON with all required fields (action_type, metric_changes, resource_cost, reasoning)
+        +0.5: Valid JSON but missing one or more required fields
+        -0.5: Invalid JSON / unparseable
+        -1.0: Empty strings or refusal content
+    """
+    if not completion or len(completion.strip()) < 10:
+        return -1.0
+        
+    # Potential refusal indicators
+    if any(x in completion.lower() for x in ["i cannot", "i'm sorry", "as an ai"]):
+        return -1.0
+
+    # Extract JSON content from markdown code blocks if present
+    json_str = completion.strip()
+    if "```json" in json_str:
+        json_str = json_str.split("```json")[-1].split("```")[0].strip()
+    elif "```" in json_str:
+        json_str = json_str.split("```")[-1].split("```")[0].strip()
+        
+    try:
+        data = json.loads(json_str)
+        required = ["action_type", "metric_changes", "resource_cost", "reasoning"]
+        if all(k in data for k in required):
+            return 1.0
+        return 0.5
+    except json.JSONDecodeError:
+        # Final attempt: try to find anything between { and }
+        match = re.search(r'\{.*\}', json_str, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+                required = ["action_type", "metric_changes", "resource_cost", "reasoning"]
+                if all(k in data for k in required):
+                    return 1.0
+                return 0.5
+            except:
+                pass
+        return -0.5
 
 def main():
     # Scenario setup
