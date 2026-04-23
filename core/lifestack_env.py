@@ -44,6 +44,7 @@ class LifeStackAction(Action):
     metric_changes: Dict[str, float] = Field(default_factory=dict, description="Metric adjustment deltas")
     resource_cost: Dict[str, float] = Field(default_factory=dict, description="Time, money, and energy costs")
     actions_taken: int = Field(default=0, description="Number of atomic actions taken")
+    inspect_target: Optional[str] = Field(default=None, description="Optional hidden state key to inspect")
 
 class LifeStackObservation(Observation):
     """Observation returned by LifeStack."""
@@ -60,6 +61,7 @@ class LifeStackState(State):
     budget: ResourceBudget = Field(default_factory=ResourceBudget)
     episode_id: Optional[str] = None
     step_count: int = 0
+    inspected_keys: list = Field(default_factory=list)
 
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""
@@ -121,6 +123,7 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.episode_id = episode_id
         self._internal_state.step_count = 0
         self._internal_state.current_metrics = LifeMetrics()
+        self._internal_state.inspected_keys = []
         
         # Scale budgets proportionally and check task constraints
         self.max_steps = kwargs.get('horizon', getattr(self, 'max_steps', 5))
@@ -175,6 +178,17 @@ class LifeStackEnv(_EnvBase):
         resource_cost = action.resource_cost
         
         info_msgs = []
+        
+        # 0. Inspect Anti-Cheat Logic
+        inspect_penalty = 0.0
+        if getattr(action, 'inspect_target', None):
+            target = action.inspect_target
+            if target in self._internal_state.inspected_keys:
+                inspect_penalty = -0.30
+                info_msgs.append(f"REWARD_HACKING: Repeat inspection on {target}")
+            else:
+                self._internal_state.inspected_keys.append(target)
+                info_msgs.append(f"INSPECTED: {target}")
 
         # 1. Cascade logic
         sig_changes = {}
@@ -203,6 +217,7 @@ class LifeStackEnv(_EnvBase):
         # 3. Reward calculation
         reward, breakdown = compute_reward(state_before, self._internal_state.current_metrics, resource_cost, action.actions_taken)
         reward += budget_penalty
+        reward += inspect_penalty
         
         self._internal_state.step_count += 1
 
