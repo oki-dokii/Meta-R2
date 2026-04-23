@@ -6,6 +6,7 @@ import copy
 # A disruption propagates at full strength to immediate neighbors,
 # 60% strength to second-order nodes, 36% to third-order, etc.
 CASCADE_DAMPENING_DEFAULT = 0.6
+METRIC_FLOOR = 10.0
 
 @dataclass
 class CareerMetrics:
@@ -173,8 +174,8 @@ class DependencyGraph:
         domain = getattr(metrics, domain_name, None)
         if domain is None or not hasattr(domain, sub_name):
             return
-        # Ensure values stay within 0-100 range
-        clamped_val = max(0.0, min(100.0, val))
+        # Ensure values stay within METRIC_FLOOR - 100 range
+        clamped_val = max(METRIC_FLOOR, min(100.0, val))
         setattr(domain, sub_name, clamped_val)
 
     def cascade(self, metrics: LifeMetrics, primary_disruption: dict, dampening: float = CASCADE_DAMPENING_DEFAULT) -> LifeMetrics:
@@ -218,15 +219,21 @@ class DependencyGraph:
             self._set_val(new_metrics, path, old_val + amount)
             queue.append((path, amount))
 
+        cascaded_metrics = set()
+
         while queue:
             source_path, source_magnitude = queue.pop(0)
             
             if source_path in self.edges:
                 for target_path, weight in self.edges[source_path]:
+                    if target_path not in cascaded_metrics and len(cascaded_metrics) >= 3:
+                        continue  # Cap at max 3 metrics affected per step during cascade
+                        
                     impact = source_magnitude * weight * dampening
                     if abs(impact) >= 0.05:
                         old_target_val = self._get_val(new_metrics, target_path)
                         self._set_val(new_metrics, target_path, old_target_val + impact)
+                        cascaded_metrics.add(target_path)
                         queue.append((target_path, impact))
         
         return new_metrics
