@@ -67,6 +67,7 @@ class LifeStackAction(Action):
             metric_changes=primary.metric_changes,
             resource_cost=primary.resource_cost,
             reasoning=agent_action.reasoning,
+            completion=getattr(agent_action, 'raw_completion', ""),
             actions_taken=1
         )
 
@@ -464,7 +465,7 @@ class LifeStackEnv(_EnvBase):
                 task=task,
                 reasoning=getattr(action, 'reasoning', ""),
                 completion=getattr(action, 'completion', ""),
-                conflict_domain=self._internal_state.conflict.title if self._internal_state.conflict else "",
+                conflict_domain=getattr(self._internal_state.current_conflict, 'title', "") if self._internal_state.current_conflict else "",
                 step_count=self._internal_state.step_count,
                 max_steps=self.max_steps
             )
@@ -474,7 +475,7 @@ class LifeStackEnv(_EnvBase):
                 state_after=self._internal_state.current_metrics,
                 resources_used=resource_cost,
                 actions_taken=action.actions_taken,
-                metric_changes=scaled_changes,
+                metric_changes=metric_changes,
                 completion=getattr(action, 'completion', "")
             )
 

@@ -232,16 +232,78 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         return result
         
     except Exception:
-        return {"reward": -0.5, "breakdown": {}, "action": None}
+        return {"reward": -0.5, "breakdown": {}, "action": None, "initial_metrics": meta.get("disruption", {}) if 'meta' in locals() else {}}
 
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Scores JSON format compliance."""
     return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("format_compliance", -0.5) for c, p in zip(completions, prompts)]
 
 def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Penalize zero-cost metric changes."""
     return [1.0 if "PLAUSIBILITY_VIOLATION" not in get_lifestack_evaluation(c, p).get("breakdown", {}).get("penalties_fired", []) else -1.0 for c, p in zip(completions, prompts)]
 
 def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Core outcome reward."""
     return [get_lifestack_evaluation(c, p)["reward"] for c, p in zip(completions, prompts)]
+
+def reward_milestone_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Monitor progress through logical bottlenecks."""
+    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("milestone", 0.0) for c, p in zip(completions, prompts)]
+
+def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Evaluate planning coherence."""
+    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("reasoning", 0.0) for c, p in zip(completions, prompts)]
+
+def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """
+    Rewards actions that align with past human outcome feedback.
+    This effectively uses the 'Real-World Verification' data for training.
+    """
+    from core.feedback import OutcomeFeedback, compute_human_feedback_reward
+    from agent.memory import LifeStackMemory
+    memo = LifeStackMemory(silent=True)
+    
+    rewards = []
+    for c, p in zip(completions, prompts):
+        eval_res = get_lifestack_evaluation(c, p)
+        action = eval_res.get("action")
+        if not action:
+            rewards.append(0.0)
+            continue
+            
+        # Retrieve similar past human feedback
+        # (Simplified: we search by the action's target domain/reasoning)
+        similar_fb_list = memo.feedback_collection.query(
+            query_texts=[action.reasoning],
+            n_results=1
+        ).get('metadatas', [[]])[0]
+        
+        if not similar_fb_list:
+            rewards.append(0.0)
+            continue
+            
+        fb_meta = similar_fb_list[0]
+        # Reconstruct feedback object
+        fb = OutcomeFeedback(
+            episode_id=fb_meta["episode_id"],
+            overall_effectiveness=fb_meta["effectiveness"],
+            domains_improved=json.loads(fb_meta["domains_improved"]),
+            domains_worsened=json.loads(fb_meta["domains_worsened"])
+        )
+        
+        # Predicted observation from our env run
+        # We need to wrap it in LifeStackObservation for the helper
+        from core.lifestack_env import LifeStackObservation
+        obs = LifeStackObservation(metrics=eval_res["breakdown"].get("local_breakdown", {}).get("metrics_after", {}))
+        
+        # The initial metrics are needed to see if improvement was predicted correctly
+        # Extract from prompt metadata (fallback to default)
+        init_metrics = eval_res.get("initial_metrics", {})
+        
+        fb_reward = compute_human_feedback_reward(init_metrics, obs, fb)
+        rewards.append(fb_reward)
+        
+    return rewards
 
 
 # ──────────────────────────────────────────────
@@ -286,7 +348,10 @@ def train_curriculum(n_stages=5, n_prompts_per_stage=100, output_dir="./lifestac
             reward_funcs=[
                 reward_format_fn, 
                 reward_plausibility_fn,
-                reward_task_success_fn
+                reward_task_success_fn,
+                reward_milestone_fn,
+                reward_reasoning_fn,
+                reward_human_feedback_fn
             ],
         )
         trainer.train()
@@ -369,7 +434,7 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
             )
 
         completion = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        r = lifestack_reward_fn([completion], [prompt])[0]
+        r = reward_task_success_fn([completion], [prompt])[0]
         rewards.append(r)
 
         if (ep + 1) % 10 == 0:

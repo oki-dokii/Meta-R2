@@ -197,7 +197,8 @@ SCHEMA:
             return AgentAction(
                 primary=primary,
                 communication=comm,
-                reasoning=data.get("reasoning", "Decided to rest due to high pressure.")
+                reasoning=data.get("reasoning", "Decided to rest due to high pressure."),
+                raw_completion=content
             )
             
         except Exception as e:

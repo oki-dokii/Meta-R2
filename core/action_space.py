@@ -33,6 +33,7 @@ class AgentAction:
     primary: PrimaryAction
     communication: CommunicationAction = None
     reasoning: str = ""
+    raw_completion: str = ""
 
 def validate_action(action: AgentAction, budget: ResourceBudget) -> tuple[bool, str]:
     cost = action.primary.resource_cost
@@ -42,8 +43,6 @@ def validate_action(action: AgentAction, budget: ResourceBudget) -> tuple[bool, 
         return False, f"Not enough money (Needs ${cost.get('money')}, has ${budget.money_dollars:.1f})"
     if budget.energy_units < cost.get('energy', 0.0):
         return False, f"Not enough energy (Needs {cost.get('energy')}u, has {budget.energy_units:.1f}u)"
-    return True, ""
-
     return True, ""
 
 def apply_action(action: AgentAction, metrics: LifeMetrics, budget: ResourceBudget, person: SimPerson) -> tuple[LifeMetrics, ResourceBudget, float]:
