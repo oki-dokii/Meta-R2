@@ -10,6 +10,7 @@ class LifeStackMemory:
     def __init__(self, silent: bool = False, path: str = "./lifestack_memory"):
         self.client = chromadb.PersistentClient(path=path)
         self.collection = self.client.get_or_create_collection(name='decisions')
+        self.traj_collection = self.client.get_or_create_collection(name='trajectories')
         self.silent = silent
         self.encoder = self._load_encoder()
         if not self.silent:
@@ -36,13 +37,49 @@ class LifeStackMemory:
         norm = math.sqrt(sum(v * v for v in buckets)) or 1.0
         return [v / norm for v in buckets]
 
-    def store_trajectory(
+    def store_decision(
         self,
         conflict_title: str,
-        route_taken: str,
-        total_reward: float,
-        metrics_diff_str: str,
-        reasoning: str
+        action_type: str,
+        target_domain: str,
+        reward: float,
+        metrics_snapshot: dict,
+        reasoning: str,
+        trajectory: list[dict] = None,
+        route_outcome: str = None
+    ) -> None:
+        """Stores individual decision if reward >= 0.5."""
+        if reward < 0.5:
+            return
+            
+        text = f"{conflict_title} Action: {action_type} Domain: {target_domain} Reward: {reward:.2f} {reasoning[:100]}"
+        embedding = self._embed_text(text)
+        
+        doc_id = str(uuid.uuid4())
+        self.collection.add(
+            ids=[doc_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{
+                "conflict_title": conflict_title,
+                "action_type": action_type,
+                "target_domain": target_domain,
+                "reward": float(reward),
+                "reasoning": reasoning,
+                "route_outcome": route_outcome or "",
+                "timestamp": datetime.now().isoformat()
+            }]
+        )
+
+    def store_trajectory(
+        self,
+        conflict_title: str = None,
+        route_taken: str = None,
+        total_reward: float = 0.0,
+        metrics_diff_str: str = None,
+        reasoning: str = None,
+        task_id: str = None,
+        trajectory_summary: dict = None
     ) -> None:
         """Stores a full trajectory summary (only if total reward >= 2.0)."""
         if total_reward < 2.0:
@@ -50,6 +87,28 @@ class LifeStackMemory:
                 print(f"Skipped (low total reward {total_reward:.2f}): {route_taken}")
             return
 
+        if trajectory_summary is not None and task_id is not None:
+            import json
+            text = f"Task: {task_id} Route: {route_taken} Reward: {total_reward:.2f} Hits: {len(trajectory_summary.get('milestones_hit', []))}"
+            embedding = self._embed_text(text)
+            doc_id = str(uuid.uuid4())
+            self.traj_collection.add(
+                ids=[doc_id],
+                embeddings=[embedding],
+                documents=[text],
+                metadatas=[{
+                    "task_id": task_id,
+                    "route_taken": route_taken,
+                    "reward": total_reward,
+                    "summary": json.dumps(trajectory_summary),
+                    "timestamp": datetime.now().isoformat()
+                }]
+            )
+            if not self.silent:
+                print(f"Stored task trajectory: {route_taken} (reward: {total_reward:.2f})")
+            return
+
+        # Fallback to older signature logic
         text = f"{conflict_title} Route: {route_taken} Diff: {metrics_diff_str} {reasoning[:100]}"
         embedding = self._embed_text(text)
 
@@ -68,7 +127,33 @@ class LifeStackMemory:
             }]
         )
         if not self.silent:
-            print(f"Stored trajectory: {route_taken} (reward: {total_reward:.2f})")
+            print(f"Stored trajectory fallback: {route_taken} (reward: {total_reward:.2f})")
+
+    def retrieve_similar_trajectories(self, task_domain: str, current_world: dict, n: int = 3) -> list[dict]:
+        """Retrieve similar trajectories based on task domain and current world state."""
+        import json
+        if self.traj_collection.count() == 0:
+            return []
+            
+        sorted_metrics = sorted(current_world.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0)
+        top_stressed = " ".join(f"{k}:{v}" for k, v in sorted_metrics[:3])
+        query_text = f"TaskDomain: {task_domain} {top_stressed}"
+        
+        query_embedding = self._embed_text(query_text)
+        results = self.traj_collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(n, self.traj_collection.count())
+        )
+        
+        output = []
+        for i, meta in enumerate(results['metadatas'][0]):
+            output.append({
+                "task_id": meta.get("task_id", ""),
+                "route_taken": meta.get("route_taken", ""),
+                "reward": meta.get("reward", 0.0),
+                "summary": json.loads(meta.get("summary", "{}")),
+            })
+        return output
 
     def retrieve_similar(self, conflict_title: str, current_metrics: dict, n: int = 3) -> list[dict]:
         """Retrieves the n most similar past high-reward decisions using semantic search."""
@@ -92,6 +177,8 @@ class LifeStackMemory:
             similarity = round(1.0 / (1.0 + distance), 4)
             output.append({
                 "route_taken": meta.get("route_taken", ""),
+                "action_type": meta.get("action_type", ""),
+                "target_domain": meta.get("target_domain", ""),
                 "metrics_diff": meta.get("metrics_diff", ""),
                 "reward": meta.get("reward", 0.0),
                 "reasoning": meta.get("reasoning", ""),
@@ -223,7 +310,7 @@ def main():
     stats = memory.get_stats()
     print(f"Total Memories : {stats['total_memories']}")
     print(f"Average Reward : {stats['average_reward']}")
-    print(f"By Action Type : {stats['by_action_type']}")
+    print(f"By Action Type : {stats.get('by_action_type', stats.get('by_route_start'))}")
 
 
 if __name__ == "__main__":

@@ -235,3 +235,58 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+from core.task import Task, Route, ExoEvent, Milestone
+
+class TaskGenerator:
+    def generate(self, domain: str = None, difficulty: int = None) -> Task:
+        diff = difficulty or 3
+        if domain == "flight_crisis":
+            return self.generate_flight_crisis(diff)
+        elif domain == "code_merge_crisis":
+            return self.generate_code_merge_crisis(diff)
+        else:
+            return self.generate_flight_crisis(diff)
+
+    def generate_flight_crisis(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="rebook_premium", name="Rebook Premium Option", description="Call agent and rebook on premium ticket", required_action_types=["communicate", "spend"], preconditions={}, consequences={}, closes_routes=["wait_lounge"], milestones_unlocked=["m1"], final_reward=2.5),
+            Route(id="wait_lounge", name="Accept Delay & Work", description="Stay at airport lounge and work on laptop", required_action_types=["rest", "delegate"], preconditions={}, consequences={}, closes_routes=["rebook_premium"], milestones_unlocked=["m2"], final_reward=1.8),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Successfully rebooked flight before deadline", condition_key="", condition_value=True, reward=1.0),
+            Milestone(id="m2", description="Caught up with all emergency slack messages", condition_key="", condition_value=True, reward=0.8),
+        ]
+        events = [
+            ExoEvent(step=2, probability=1.0, id="price_surge", description="Ticket prices sharply increased by $300.", world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+            ExoEvent(step=4, probability=1.0, id="lounge_full", description="The airport lounge is now at maximum capacity.", world_mutation={}, hidden_state_mutation={}, closes_routes=["wait_lounge"]),
+        ]
+        return Task(
+            id="flight_crisis_task", domain="flight_crisis", goal="Survive Airport Cancellation",
+            constraints={"budget_max": 800, "deadline_step": 10},
+            hidden_state={"lounge_capacity": 100}, mutable_world={}, visible_world={},
+            success_conditions=[], failure_conditions=[],
+            event_schedule=events, viable_routes=routes, milestones=milestones,
+            horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "A major storm grounded commercial flights."}
+        )
+
+    def generate_code_merge_crisis(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="revert_commit", name="Revert Commit", description="Quickly revert the broken merge to unblock the team.", required_action_types=["delegate", "communicate"], preconditions={}, consequences={}, closes_routes=["hotfix"], milestones_unlocked=["unblocked"], final_reward=1.5),
+            Route(id="hotfix", name="Patch Forward", description="Find the logic error and push a hotfix.", required_action_types=["communicate", "spend"], preconditions={}, consequences={}, closes_routes=["revert_commit"], milestones_unlocked=["fixed"], final_reward=3.0),
+        ]
+        milestones = [
+            Milestone(id="unblocked", description="CI pipeline is green again", condition_key="", condition_value=True, reward=1.0),
+            Milestone(id="fixed", description="Bug resolved without losing features", condition_key="", condition_value=True, reward=2.0),
+        ]
+        events = [
+            ExoEvent(step=3, probability=0.8, id="cto_ping", description="CTO asks for an ETA on the fix.", world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+        ]
+        return Task(
+            id="code_merge_task", domain="code_merge_crisis", goal="Resolve Production Outage",
+            constraints={"budget_max": 1000, "deadline_step": 8},
+            hidden_state={}, mutable_world={}, visible_world={},
+            success_conditions=[], failure_conditions=[],
+            event_schedule=events, viable_routes=routes, milestones=milestones,
+            horizon=10 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "A botched merge just took down the staging environment."}
+        )
