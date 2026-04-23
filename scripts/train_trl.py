@@ -39,7 +39,7 @@ def load_model():
     try:
         from unsloth import FastLanguageModel
         model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name="unsloth/Qwen2.5-3B-Instruct",
+            model_name="unsloth/Qwen2.5-1.5B-Instruct",
             max_seq_length=1024,
             dtype=None,  # auto-detect
             load_in_4bit=True,
@@ -58,7 +58,7 @@ def load_model():
     except ImportError:
         # Fallback: standard HF loading (slower, more VRAM)
         from transformers import AutoModelForCausalLM
-        model_name = "Qwen/Qwen2.5-3B-Instruct"
+        model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(
             model_name, torch_dtype=torch.float16, device_map="auto"
