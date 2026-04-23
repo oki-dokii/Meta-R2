@@ -11,7 +11,77 @@ LifeStack now supports complex, branching 20–50 step episodes with dynamic wor
 
 ---
 
-## Architecture
+## 🚀 Quickstart Guide
+
+### 1. Setup
+```bash
+git clone https://github.com/oki-dokii/LifeStack.git
+cd LifeStack
+python -y -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Test (Smoke Test)
+Verify the core simulation engine and metadata reporting.
+```bash
+python scripts/smoke_test.py
+```
+
+### 3. Train (Curriculum)
+Train the agent via Success-Based Curriculum (GRPO).
+```bash
+python scripts/train_trl.py
+```
+
+### 4. Evaluate (Benchmark)
+Run the professional benchmark suite and generate the `eval_results.json` judge report.
+```bash
+python scripts/eval.py --n 50 --verbose
+```
+
+### 5. Serve (Deployment)
+Run the interactive Gradio demo.
+```bash
+python app.py
+```
+
+---
+
+## 🐳 Docker Deployment
+
+For production-ready deployment:
+
+```bash
+docker build -t lifestack:latest .
+docker run -p 7860:7860 lifestack:latest
+```
+
+---
+
+## 🏗️ Architecture
+
+LifeStack uses a **Decoupled Simulation Engine**:
+- **WorldEngine**: Handles exogenous events & world state mutation.
+- **DependencyGraph**: Propagates second-order metric cascades using Starcke & Brand (2012) dampening.
+- **LifeStackVerifier**: Standalone engine for success/failure/milestone audits.
+- **Curriculum Trainer**: Adaptive GRPO stages that scale difficulty based on agent success rates.
+
+---
+
+## 📊 Analytics & Telemetry
+Observations now include a canonical truth schema:
+```json
+{
+  "success": true,
+  "failure": false,
+  "milestones": ["flight_rebooked"],
+  "failure_reason": "",
+  "routes_remaining": 2,
+  "event_log": ["price_surge"]
+}
+```
+All training generations are sampled to `training_logs/generations.jsonl` to prevent reward hacking.
 
 ```mermaid
 graph TD
