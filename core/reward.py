@@ -276,6 +276,14 @@ def reward_plausibility_check(metric_changes: dict, resource_cost: dict) -> floa
         return -0.10   # Highly suspicious efficiency
     return 0.0         # Plausible ratio
 
+def reward_timeout_check(step_count: int, max_steps: int, done: bool) -> float:
+    """
+    Penalizes episodes that end by reaching the step limit without being resolved.
+    """
+    if step_count >= max_steps and not done:
+        return -0.20
+    return 0.0
+
 def main():
     # Scenario setup
     print("--- TESTING REWARD SYSTEM ---")
