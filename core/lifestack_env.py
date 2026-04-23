@@ -122,14 +122,18 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.step_count = 0
         self._internal_state.current_metrics = LifeMetrics()
         
-        if budget:
-            self._internal_state.budget = ResourceBudget(
-                time_hours=budget.get("time", 20.0),
-                money_dollars=budget.get("money", 500.0),
-                energy_units=budget.get("energy", 100.0)
-            )
-        else:
-            self._internal_state.budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
+        # Scale budgets proportionally and check task constraints
+        self.max_steps = kwargs.get('horizon', getattr(self, 'max_steps', 5))
+        scale = self.max_steps / 5.0
+
+        constraints = kwargs.get('constraints', {})
+        budget_override = constraints.get('budget', budget if budget else {})
+        
+        self._internal_state.budget = ResourceBudget(
+            time_hours=budget_override.get("time", 20.0 * scale),
+            money_dollars=budget_override.get("money", 500.0 * scale),
+            energy_units=budget_override.get("energy", 100.0 * scale)
+        )
 
         if conflict:
             # Apply initial disruption via cascade
