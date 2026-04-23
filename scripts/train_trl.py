@@ -1,12 +1,17 @@
 """
 train_trl.py — LifeStack GRPO Training via HuggingFace TRL + Unsloth
 
-Trains a small LLM (Qwen2.5-3B or Llama-3.2-3B) to resolve life conflicts
-using Group Relative Policy Optimization.
+Trains a small LLM (Qwen2.5-1.5B-Instruct) to resolve daily-life conflicts
+across 8 domains using Group Relative Policy Optimization (GRPO).
 
-Usage (Colab):
+Supported domains:
+    career, finances, relationships, physical_health,
+    mental_wellbeing, time, flight_crisis, code_merge_crisis
+
+Usage (Colab / GPU):
     !pip install unsloth trl datasets transformers accelerate
-    !python train_trl.py
+    !python train_trl.py                       # full curriculum (5 stages)
+    !python train_trl.py --dry-run             # 1-step smoke test (CPU OK)
 """
 
 import json
@@ -107,34 +112,61 @@ def build_prompt_for_task(task, person, metrics, budget):
     )
 
 
+# All 8 TaskGenerator domains — covers the full daily-life action space.
+# transport_crisis randomly dispatches to: flight, train, car, rideshare, transit-strike
+ALL_DOMAINS = [
+    "career",
+    "finances",
+    "relationships",
+    "physical_health",
+    "mental_wellbeing",
+    "time",
+    "transport_crisis",   # ← was flight_crisis; now covers all 5 transport modes
+    "code_merge_crisis",
+]
+
 def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
-    """Generate n conflict prompts as a HuggingFace Dataset, with optional fixed difficulty."""
-    # ... (pool setup unchanged) ...
+    """
+    Generate n conflict prompts as a HuggingFace Dataset.
+
+    Samples evenly across ALL 8 daily-life domains (career, finances,
+    relationships, physical_health, mental_wellbeing, time,
+    transport_crisis [flight/train/car/rideshare/transit-strike], code_merge_crisis)
+    so GRPO learns a general life-management policy.
+
+    Args:
+        n_prompts: Total number of prompts to generate.
+        difficulty: If given, fix all prompts to this difficulty (1-5).
+                    If None, cycles evenly through levels 1-5.
+    """
     person_pool = [
-        SimPerson(name="Alex", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
+        SimPerson(name="Alex",  openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
         SimPerson(name="Chloe", openness=0.9, conscientiousness=0.2, extraversion=0.5, agreeableness=0.70, neuroticism=0.15),
-        SimPerson(name="Sam", openness=0.5, conscientiousness=0.6, extraversion=0.1, agreeableness=0.65, neuroticism=0.9),
+        SimPerson(name="Sam",   openness=0.5, conscientiousness=0.6, extraversion=0.1, agreeableness=0.65, neuroticism=0.90),
+        SimPerson(name="Jordan",openness=0.7, conscientiousness=0.5, extraversion=0.6, agreeableness=0.50, neuroticism=0.40),
+        SimPerson(name="Maya",  openness=0.8, conscientiousness=0.7, extraversion=0.3, agreeableness=0.80, neuroticism=0.60),
     ]
 
     generator = TaskGenerator()
     prompts = []
     for i in range(n_prompts):
         person = random.choice(person_pool)
-        domain = random.choice(["flight_crisis", "code_merge_crisis"])
-        # If difficulty is not provided, cycle through all 5 levels (legacy mode)
+        # Round-robin across all 8 domains — guarantees balanced coverage
+        domain = ALL_DOMAINS[i % len(ALL_DOMAINS)]
+        # Cycle difficulty 1-5 unless fixed
         curr_diff = difficulty if difficulty else (i % 5) + 1
-        
+
         task = generator.generate(domain=domain, difficulty=curr_diff)
-        
-        # Merge legacy conflict metrics for variety
+
+        # Overlay a matching legacy conflict disruption for richer metric seeding
         conflict = generate_conflict(curr_diff)
         task.mutable_world.update(conflict.primary_disruption)
         task.visible_world.update(conflict.primary_disruption)
-        
+
         metrics = LifeMetrics()
         graph = DependencyGraph()
         metrics = graph.cascade(metrics, task.mutable_world)
-        
+
         budget_dict = task.constraints.get("budget", {})
         budget = ResourceBudget(
             time_hours=budget_dict.get("time", 20.0),
@@ -142,7 +174,7 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
             energy_units=budget_dict.get("energy", 100.0),
         )
         prompt = build_prompt_for_task(task, person, metrics, budget)
-        prompts.append({"prompt": prompt, "difficulty": curr_diff})
+        prompts.append({"prompt": prompt, "difficulty": curr_diff, "domain": domain})
 
     return Dataset.from_list(prompts)
 
@@ -423,7 +455,8 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
     generator = TaskGenerator()
     for ep in range(50):
         difficulty = min(5, 1 + ep // 10)
-        domain = "flight_crisis" if ep % 2 == 0 else "code_merge_crisis"
+        # Cycle through all 8 domains during evaluation
+        domain = ALL_DOMAINS[ep % len(ALL_DOMAINS)]
         task = generator.generate(domain=domain, difficulty=difficulty)
         
         metrics = LifeMetrics()
