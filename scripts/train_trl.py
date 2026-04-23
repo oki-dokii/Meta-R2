@@ -155,10 +155,16 @@ def generate_dataset(n_prompts: int = 200) -> Dataset:
 # 3. REWARD FUNCTION for GRPO
 # ──────────────────────────────────────────────
 
+_GLOBAL_REWARD_CALL_COUNT = 0
+LOG_INTERVAL = 20  # Log every N completions
+LOG_DIR = "training_logs"
+SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
+
 def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """
     Score each LLM completion using the real LifeStackEnv.
     """
+    global _GLOBAL_REWARD_CALL_COUNT
     from core.lifestack_env import LifeStackEnv, LifeStackAction
     import re
     
@@ -217,7 +223,31 @@ def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) ->
 
             # 5. Step and collect real reward
             obs = env.step(action)
-            rewards.append(float(obs.reward))
+            reward = float(obs.reward)
+            rewards.append(reward)
+
+            # 6. Sampled Logging
+            _GLOBAL_REWARD_CALL_COUNT += 1
+            if _GLOBAL_REWARD_CALL_COUNT % LOG_INTERVAL == 0:
+                if not os.path.exists(LOG_DIR):
+                    os.makedirs(LOG_DIR)
+                
+                log_entry = {
+                    "step": _GLOBAL_REWARD_CALL_COUNT,
+                    "prompt": prompt[:500] + "...", # Truncate for file size
+                    "completion": completion,
+                    "action": {
+                        "type": action.action_type,
+                        "target": action.target,
+                        "metrics": action.metric_changes,
+                        "costs": action.resource_cost
+                    },
+                    "verifier": obs.metadata.get("info", []),
+                    "breakdown": obs.metadata.get("breakdown", {}),
+                    "reward": reward
+                }
+                with open(SAMPLE_LOG_PATH, "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
 
         except Exception as e:
             # Invalid output = penalty
