@@ -670,12 +670,14 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
     config = GRPOConfig(
         output_dir=output_dir,
         num_train_epochs=1,
-        per_device_train_batch_size=1,
+        # TRL 1.x has two hard rules:
+        #   1. num_generations >= 2  (needs ≥2 samples to compute advantages)
+        #   2. per_device_train_batch_size % num_generations == 0
+        # Minimum valid config: batch=2, num_generations=2
+        per_device_train_batch_size=2,
         gradient_accumulation_steps=1,
         learning_rate=1e-5,
-        # TRL 1.x rule: num_generations must divide per_device_train_batch_size
-        # batch=1 → num_generations must be 1
-        num_generations=1,
+        num_generations=2,
         max_steps=1,          # ONE step — just proves the pipeline works
         bf16=False,
         fp16=False,
