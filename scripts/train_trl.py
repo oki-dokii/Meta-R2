@@ -27,7 +27,7 @@ from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.reward import compute_reward
 from agent.conflict_generator import generate_conflict, TEMPLATES, TaskGenerator
 from intake.simperson import SimPerson
-from core.task import Task
+from core.task import Task, FlightCrisisTask
 
 
 # ──────────────────────────────────────────────
@@ -181,23 +181,9 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         
         meta = json.loads(m.group(1).strip())
         try:
-            task = Task(
-                id="grpo_eval",
-                domain="life_conflict",
-                goal=meta.get("goal", "Resolve Crisis"),
-                constraints={"budget": meta.get("budget", {})},
-                hidden_state={},
-                mutable_world=meta.get("disruption", {}),
-                visible_world=meta.get("disruption", {}),
-                success_conditions=[],
-                failure_conditions=[],
-                event_schedule=[],
-                viable_routes=[],
-                milestones=[],
-                horizon=meta.get("horizon", 30),
-                difficulty=meta.get("difficulty", 3),
-                domain_metadata={}
-            )
+            task = FlightCrisisTask()
+            task.mutable_world.update(meta.get("disruption", {}))
+            task.visible_world.update(meta.get("disruption", {}))
         except Exception as e:
             print(f"[reward] Task construction failed: {e}")
             return {"reward": -0.5, "breakdown": {"error": str(e)}}
@@ -242,10 +228,15 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
                 "completion": completion,
                 "action": data,
                 "reward": result["reward"],
-                "breakdown": result["breakdown"]
+                "breakdown": result["breakdown"],
+                "components": result["breakdown"].get("components", {})
             }
             with open(SAMPLE_LOG_PATH, "a") as f:
                 f.write(json.dumps(log_entry) + "\n")
+            components = result["breakdown"].get("components", {})
+            if components:
+                comp_str = " | ".join(f"{k}={v:.3f}" for k, v in components.items())
+                print(f"[step {_GLOBAL_REWARD_CALL_COUNT}] reward={result['reward']:.3f} | {comp_str}")
 
         _REWARD_CACHE[key] = result
         return result
@@ -365,7 +356,6 @@ def train_curriculum(n_stages=5, n_prompts_per_stage=100, output_dir="./lifestac
             args=config,
             train_dataset=dataset,
             reward_funcs=[
-                reward_format_fn, 
                 reward_plausibility_fn,
                 reward_task_success_fn,
                 reward_milestone_fn,
