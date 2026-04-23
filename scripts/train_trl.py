@@ -304,53 +304,58 @@ def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) ->
 
 def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """
-    Rewards actions that align with past human outcome feedback.
-    This effectively uses the 'Real-World Verification' data for training.
+    Rewards actions that align with past human outcome feedback (ChromaDB memory).
+
+    Requires chromadb + a pre-populated LifeStackMemory database.
+    Falls back silently to neutral 0.0 when:
+      - chromadb is not installed (e.g. fresh Kaggle / Colab session)
+      - the memory DB is empty or unreachable
+    Returns 0.0 (abstain) rather than penalising the model.
     """
-    from core.feedback import OutcomeFeedback, compute_human_feedback_reward
-    from agent.memory import LifeStackMemory
-    memo = LifeStackMemory(silent=True)
-    
+    # ── Guard: skip gracefully if chromadb / memory unavailable ──────────
+    try:
+        from core.feedback import OutcomeFeedback, compute_human_feedback_reward
+        from agent.memory import LifeStackMemory
+        memo = LifeStackMemory(silent=True)
+    except (ImportError, Exception) as e:
+        # chromadb not installed or DB init failed — neutral abstention
+        return [0.0] * len(completions)
+
     rewards = []
     for c, p in zip(completions, prompts):
-        eval_res = get_lifestack_evaluation(c, p)
-        action = eval_res.get("action")
-        if not action:
+        try:
+            eval_res = get_lifestack_evaluation(c, p)
+            action = eval_res.get("action")
+            if not action:
+                rewards.append(0.0)
+                continue
+
+            similar_fb_list = memo.feedback_collection.query(
+                query_texts=[action.reasoning],
+                n_results=1
+            ).get('metadatas', [[]])[0]
+
+            if not similar_fb_list:
+                rewards.append(0.0)
+                continue
+
+            fb_meta = similar_fb_list[0]
+            fb = OutcomeFeedback(
+                episode_id=fb_meta["episode_id"],
+                overall_effectiveness=fb_meta["effectiveness"],
+                domains_improved=json.loads(fb_meta["domains_improved"]),
+                domains_worsened=json.loads(fb_meta["domains_worsened"])
+            )
+
+            from core.lifestack_env import LifeStackObservation
+            obs = LifeStackObservation(metrics=eval_res.get("obs_metrics", {}))
+            init_metrics = eval_res.get("initial_metrics", {})
+            fb_reward = compute_human_feedback_reward(init_metrics, obs, fb)
+            rewards.append(fb_reward)
+
+        except Exception:
             rewards.append(0.0)
-            continue
-            
-        # Retrieve similar past human feedback
-        # (Simplified: we search by the action's target domain/reasoning)
-        similar_fb_list = memo.feedback_collection.query(
-            query_texts=[action.reasoning],
-            n_results=1
-        ).get('metadatas', [[]])[0]
-        
-        if not similar_fb_list:
-            rewards.append(0.0)
-            continue
-            
-        fb_meta = similar_fb_list[0]
-        # Reconstruct feedback object
-        fb = OutcomeFeedback(
-            episode_id=fb_meta["episode_id"],
-            overall_effectiveness=fb_meta["effectiveness"],
-            domains_improved=json.loads(fb_meta["domains_improved"]),
-            domains_worsened=json.loads(fb_meta["domains_worsened"])
-        )
-        
-        # Predicted observation from our env run
-        # We need to wrap it in LifeStackObservation for the helper
-        from core.lifestack_env import LifeStackObservation
-        obs = LifeStackObservation(metrics=eval_res.get("obs_metrics", {}))
-        
-        # The initial metrics are needed to see if improvement was predicted correctly
-        # Extract from prompt metadata (fallback to default)
-        init_metrics = eval_res.get("initial_metrics", {})
-        
-        fb_reward = compute_human_feedback_reward(init_metrics, obs, fb)
-        rewards.append(fb_reward)
-        
+
     return rewards
 
 
