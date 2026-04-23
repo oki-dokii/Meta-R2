@@ -473,7 +473,7 @@ def train_curriculum(
 
         trainer = GRPOTrainer(
             model=model,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,  # TRL 1.x: renamed from tokenizer=
             args=config,
             train_dataset=dataset if not resume_ckpt else generate_dataset(n_prompts_per_stage, difficulty=curr_diff),
             reward_funcs=[
@@ -687,7 +687,7 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
 
     trainer = GRPOTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,  # TRL 1.x: renamed from tokenizer=
         args=config,
         train_dataset=dataset,
         reward_funcs=[
