@@ -26,6 +26,7 @@ from agent.conflict_predictor import ConflictPredictor
 from agent.counterfactuals import generate_counterfactuals
 from scripts.longitudinal_demo import LongitudinalDemo
 from intake.gmail_intake import GmailIntake
+from core.task import Task, ExoEvent, Route, Milestone
 
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
@@ -127,6 +128,61 @@ def _init_env(conflict: ConflictEvent) -> LifeStackEnv:
     env = LifeStackEnv()
     env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
     return env
+
+
+def task_html(task: Task) -> str:
+    if not task:
+        return "<div style='color:#888; font-style:italic'>No active task</div>"
+    routes_html = "".join([f"<li style='margin-bottom:6px;'><b>{r.name}</b>: {r.description} <br><span style='font-size:11px;color:#aaa'>Req. Actions: {r.required_action_types} | Reward: +{r.final_reward}</span></li>" for r in task.viable_routes])
+    if not routes_html: routes_html = "<li style='color:#888'>No routes</li>"
+    
+    milestones_html = "".join([f"<li style='margin-bottom:6px;'><b>{m.id}</b>: {m.description} <br><span style='font-size:11px;color:#4ade80'>Reward: +{m.reward}</span></li>" for m in task.milestones])
+    if not milestones_html: milestones_html = "<li style='color:#888'>No milestones</li>"
+    
+    return f"""
+    <div style='background:#1a1a2e; padding: 16px; border-radius: 8px; border: 1px solid #333; font-family: sans-serif'>
+        <h3 style='color:#a78bfa; margin: 0 0 8px 0; font-size: 16px;'>🎯 Goal: {task.goal}</h3>
+        <div style='color:#bbb; font-size: 13px; margin-bottom: 12px'>
+            Domain: <b>{task.domain}</b> | Difficulty: <b>{task.difficulty}/5</b> | Horizon: <b>{task.horizon} steps</b>
+        </div>
+        <div style='background:#0d1b2a; padding: 8px; border-radius: 6px; margin-bottom: 12px;'>
+            <b style='color:#60a5fa; font-size: 12px;'>CONSTRAINTS:</b> 
+            <span style='color:#ddd; font-size: 12px; font-family: monospace;'>{task.constraints}</span>
+        </div>
+        <div style='display: flex; gap: 16px;'>
+            <div style='flex: 1; background:#1e1e2f; padding: 12px; border-radius: 6px;'>
+                <b style='color:#4ade80; font-size: 13px; border-bottom: 1px solid #333; display: block; padding-bottom: 4px; margin-bottom: 8px'>🛣️ Viable Routes</b>
+                <ul style='color:#ddd; padding-left: 20px; font-size: 12px; margin: 0;'>{routes_html}</ul>
+            </div>
+            <div style='flex: 1; background:#1e1e2f; padding: 12px; border-radius: 6px;'>
+                <b style='color:#fbbf24; font-size: 13px; border-bottom: 1px solid #333; display: block; padding-bottom: 4px; margin-bottom: 8px'>⭐ Milestones</b>
+                <ul style='color:#ddd; padding-left: 20px; font-size: 12px; margin: 0;'>{milestones_html}</ul>
+            </div>
+        </div>
+    </div>
+    """
+
+def event_log_html(events: list[ExoEvent]) -> str:
+    if not events:
+        return "<div style='color:#888; font-style:italic; padding: 12px;'>No events triggered yet.</div>"
+    rows = []
+    for e in events:
+        rows.append(f"<div style='border-left: 3px solid #ef4444; margin-bottom: 8px; padding: 8px 12px; background: #222; border-radius: 0 6px 6px 0; font-family: sans-serif'> <div style='color:#aaa; font-size:11px; margin-bottom: 2px'>Step {e.step}</div> <div style='color:#ddd; font-size: 13px;'><b style='color:#ef4444'>{e.id.upper()}</b>: {e.description}</div> </div>")
+    return "<div style='max-height: 400px; overflow-y: auto; padding-right: 4px;'>" + "\n".join(rows) + "</div>"
+
+def route_status_html(routes: list[Route], closed: set[str]) -> str:
+    if not routes:
+        return "<div style='color:#888; font-style:italic; padding: 12px;'>No routes configured.</div>"
+    rows = []
+    for r in routes:
+        if r.id in closed:
+            icon, color = "❌", "#f87171"
+            status = "CLOSED"
+        else:
+            icon, color = "✅", "#4ade80"
+            status = "OPEN"
+        rows.append(f"<div style='display:flex; justify-content:space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 8px; font-family: sans-serif;'> <div style='display:flex; align-items:center; gap: 8px'><span style='font-size: 16px'>{icon}</span> <span style='color:#ddd; font-size: 13px; font-weight: 500'>{r.name}</span></div> <span style='color:{color}; font-size:12px; font-weight:bold; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;'>{status}</span> </div>")
+    return "<div style='background:#1e1e2f; padding: 16px; border-radius: 8px; border: 1px solid #333;'>" + "\n".join(rows) + "</div>"
 
 
 def _normalize_action_metric_changes(action) -> None:
@@ -890,6 +946,54 @@ with gr.Blocks(
                 5. Click **Run Agent**.
                 6. **Observe:** The agent will now use specific precedents in its reasoning and choice.
                 """)
+
+        # ── Tab 5: Task Explorer ──────────────────────────────────────────────
+        with gr.Tab("🗺️ Task Explorer"):
+            gr.Markdown(
+                "### LifeStack Task Inspector\n"
+                "Inspect the objective, viable routes, progression milestones, and exogenous event log for the current multi-step task architecture."
+            )
+            
+            with gr.Row():
+                with gr.Column(scale=2):
+                    task_out = gr.HTML(label="Task Definition")
+                with gr.Column(scale=1):
+                    route_out = gr.HTML(label="Route Status")
+                    
+            event_out = gr.HTML(label="World Event Log")
+            
+            load_task_btn = gr.Button("🔄 Load Demonstration Task", variant="secondary")
+            
+            def load_demo_task():
+                # Generate a dummy task for demonstration purposes
+                dummy_routes = [
+                    Route(id="r1", name="Rebook Premium Option", description="Call agent and rebook on premium ticket", required_action_types=["communicate", "spend"], preconditions={}, consequences={}, closes_routes=["r2"], milestones_unlocked=["m1"], final_reward=2.5),
+                    Route(id="r2", name="Accept Delay & Work", description="Stay at airport lounge and work on laptop", required_action_types=["rest", "delegate"], preconditions={}, consequences={}, closes_routes=["r1"], milestones_unlocked=["m2"], final_reward=1.8),
+                ]
+                dummy_milestones = [
+                    Milestone(id="m1", description="Successfully rebooked flight before deadline", condition_key="", condition_value=True, reward=1.0),
+                    Milestone(id="m2", description="Caught up with all emergency slack messages", condition_key="", condition_value=True, reward=0.8),
+                ]
+                dummy_events = [
+                    ExoEvent(step=2, probability=1.0, id="price_surge", description="Ticket prices sharply increased by $300.", world_mutation={}, hidden_state_mutation={}, closes_routes=[]),
+                    ExoEvent(step=4, probability=1.0, id="lounge_full", description="The airport lounge is now at maximum capacity.", world_mutation={}, hidden_state_mutation={}, closes_routes=["r2"]),
+                ]
+                dummy_task = Task(
+                    id="sample_flight_crisis", domain="flight_crisis", goal="Survive Airport Cancellation",
+                    constraints={"budget_max": 800, "deadline_step": 10},
+                    hidden_state={"lounge_capacity": 100}, mutable_world={}, visible_world={},
+                    success_conditions=[], failure_conditions=[],
+                    event_schedule=dummy_events, viable_routes=dummy_routes, milestones=dummy_milestones,
+                    horizon=10, difficulty=4, domain_metadata={"story": "A major storm grounded commercial flights."}
+                )
+                
+                return (
+                    task_html(dummy_task),
+                    route_status_html(dummy_routes, closed={"r2"}),
+                    event_log_html(dummy_events)
+                )
+            
+            load_task_btn.click(fn=load_demo_task, outputs=[task_out, route_out, event_out])
 
     gr.HTML("""
     <div style='text-align:center;padding:16px;color:#444;font-size:11px;border-top:1px solid #222;margin-top:16px'>

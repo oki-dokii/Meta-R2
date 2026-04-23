@@ -10,7 +10,8 @@ observation_cls: "core.lifestack_env:LifeStackObservation"
 
 metadata:
   difficulty_range: [1, 5]
-  max_episode_steps: 5
+  max_episode_steps: 50
+  task_domains: [flight_crisis, code_merge_crisis]
   domains: ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
   resources: ["time", "money", "energy"]
   
