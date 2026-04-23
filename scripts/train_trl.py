@@ -25,7 +25,7 @@ import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspa
 # LifeStack imports
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.reward import compute_reward
-from agent.conflict_generator import generate_conflict, TEMPLATES
+from agent.conflict_generator import generate_conflict, TEMPLATES, TaskGenerator
 from intake.simperson import SimPerson
 from core.task import Task
 
@@ -121,35 +121,25 @@ def generate_dataset(n_prompts: int = 200) -> Dataset:
                   extraversion=0.4, agreeableness=0.4, neuroticism=0.55),
     ]
 
+    generator = TaskGenerator()
     prompts = []
-    for _ in range(n_prompts):
-        conflict = random.choice(TEMPLATES)
+    for i in range(n_prompts):
         person = random.choice(person_pool)
+        domain = random.choice(["flight_crisis", "code_merge_crisis"])
+        difficulty = (i % 5) + 1  # Distribute across difficulties
         
-        # Convert ConflictEvent to Task schema
-        budget_dict = conflict.resource_budget if hasattr(conflict, 'resource_budget') and conflict.resource_budget else {}
-        task = Task(
-            id=conflict.id,
-            domain="life_conflict",
-            goal=conflict.title,
-            constraints={"budget": budget_dict},
-            hidden_state={},
-            mutable_world=conflict.primary_disruption,
-            visible_world=conflict.primary_disruption,
-            success_conditions=[],
-            failure_conditions=[],
-            event_schedule=[],
-            viable_routes=[],
-            milestones=[],
-            horizon=30,
-            difficulty=conflict.difficulty,
-            domain_metadata={"story": conflict.story}
-        )
+        task = generator.generate(domain=domain, difficulty=difficulty)
+        
+        # Merge legacy conflict metrics into task.mutable_world for better initial variety
+        conflict = generate_conflict(difficulty)
+        task.mutable_world.update(conflict.primary_disruption)
+        task.visible_world.update(conflict.primary_disruption)
         
         metrics = LifeMetrics()
         graph = DependencyGraph()
         metrics = graph.cascade(metrics, task.mutable_world)
         
+        budget_dict = task.constraints.get("budget", {})
         budget = ResourceBudget(
             time_hours=budget_dict.get("time", 20.0),
             money_dollars=budget_dict.get("money", 500.0),
@@ -330,31 +320,24 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
     graph = DependencyGraph()
     rewards = []
 
+    generator = TaskGenerator()
     for ep in range(50):
-        conflict = generate_conflict(difficulty=min(5, 1 + ep // 10))
+        difficulty = min(5, 1 + ep // 10)
+        domain = "flight_crisis" if ep % 2 == 0 else "code_merge_crisis"
+        task = generator.generate(domain=domain, difficulty=difficulty)
+        
         metrics = LifeMetrics()
-        metrics = graph.cascade(metrics, conflict.primary_disruption)
-        budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
-        person = SimPerson(name="Eval")
-
-        budget_dict = conflict.resource_budget if hasattr(conflict, 'resource_budget') and conflict.resource_budget else {}
-        task = Task(
-            id=conflict.id,
-            domain="life_conflict",
-            goal=conflict.title,
-            constraints={"budget": budget_dict},
-            hidden_state={},
-            mutable_world=conflict.primary_disruption,
-            visible_world=conflict.primary_disruption,
-            success_conditions=[],
-            failure_conditions=[],
-            event_schedule=[],
-            viable_routes=[],
-            milestones=[],
-            horizon=30,
-            difficulty=conflict.difficulty,
-            domain_metadata={"story": conflict.story}
+        # Initial disruption from legacy templates
+        conflict = generate_conflict(difficulty)
+        metrics = graph.cascade(metrics, {**task.mutable_world, **conflict.primary_disruption})
+        
+        budget_dict = task.constraints.get("budget", {})
+        budget = ResourceBudget(
+            time_hours=budget_dict.get("time", 20.0),
+            money_dollars=budget_dict.get("money", 500.0),
+            energy_units=budget_dict.get("energy", 100.0),
         )
+        person = SimPerson(name="Eval")
 
         prompt = build_prompt_for_task(task, person, metrics, budget)
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
