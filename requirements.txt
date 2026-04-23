@@ -6,7 +6,7 @@ openai>=1.30.0
 pydantic>=2.7.0
 
 # OpenEnv — mandatory hackathon requirement
-openenv-core>=0.2.3
+openenv-core==0.1.0
 
 # RAG Memory
 chromadb>=0.5.0
