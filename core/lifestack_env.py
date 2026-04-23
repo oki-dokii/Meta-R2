@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List
 from pydantic import Field
 
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
@@ -88,7 +88,10 @@ class LifeStackState(State):
     exo_events_seen: int = 0
     milestones_after_event: int = 0
     closed_route_ids: set = Field(default_factory=set)
-
+    # Legacy / Personality fields
+    person: Optional[Any] = None
+    agent_history: List[tuple] = Field(default_factory=list)
+    current_conflict: Optional[Any] = None
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""
     def forward(self, action: LifeStackAction, observation: LifeStackObservation) -> float:
@@ -177,8 +180,9 @@ class LifeStackEnv(_EnvBase):
         return self._internal_state
 
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, 
-              task: Optional[Task] = None, conflict: Optional[dict] = None, 
-              budget: Optional[dict] = None, **kwargs) -> LifeStackObservation:
+              task: Optional[Task] = None, conflict: Optional[Any] = None, 
+              budget: Optional[dict] = None, person: Optional[Any] = None,
+              agent_history: Optional[List[tuple]] = None, **kwargs) -> LifeStackObservation:
         """Resets the environment. Seed and task/conflict can be provided."""
         if USING_MODERN_API and getattr(self, 'rubric', None):
             self.rubric.reset()
@@ -211,6 +215,10 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.milestones_after_event = 0
         self._internal_state.closed_route_ids = set()
         
+        self._internal_state.person = person
+        self._internal_state.agent_history = agent_history or []
+        self._internal_state.current_conflict = conflict
+        
         self.world_engine = WorldEngine(self._internal_state.current_task)
 
         # 3. Budget Scaling
@@ -224,7 +232,10 @@ class LifeStackEnv(_EnvBase):
 
         if conflict:
             # Legacy disruption support
-            self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, conflict)
+            disruption = conflict.primary_disruption if hasattr(conflict, 'primary_disruption') else conflict
+            self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, disruption)
+            if budget is None and hasattr(conflict, 'resource_budget'):
+                 self._internal_state.budget = ResourceBudget(**conflict.resource_budget)
 
         return self._get_obs()
 
@@ -280,7 +291,24 @@ class LifeStackEnv(_EnvBase):
         state_before = copy.deepcopy(self._internal_state.current_metrics)
         info_msgs = []
         
-        # 1. World Engine: Inject Events
+        # 0. Personality Drift & Legacy Escalation
+        if self._internal_state.person:
+            drift_event = self._internal_state.person.drift(self._internal_state.step_count)
+            if drift_event:
+                path = drift_event.get('metric', '')
+                delta = drift_event.get('delta', 0)
+                if path and '.' in path:
+                    self._update_metric(path, delta)
+                info_msgs.append(f"DRIFT: {drift_event['reason']}")
+
+        if self._internal_state.current_conflict and self._internal_state.step_count == 2:
+            from agent.conflict_generator import adaptive_escalate
+            conflict = self._internal_state.current_conflict
+            if hasattr(conflict, 'difficulty') and conflict.difficulty < 5:
+                new_conflict, reason = adaptive_escalate(conflict, self._internal_state.agent_history)
+                if new_conflict.id != conflict.id:
+                    self._internal_state.current_conflict = new_conflict
+                    info_msgs.append(f"ESCALATION: {reason} -> {new_conflict.title}")
         fired_events = self.world_engine.inject_events(
             self._internal_state.step_count, 
             self._internal_state.world_state,

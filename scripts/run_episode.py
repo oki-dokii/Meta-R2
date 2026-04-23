@@ -68,7 +68,7 @@ def run_episode(
     initial_conflict_id = conflict.id
 
     # Apply initial disruption to env
-    obs = env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    obs = env.reset(conflict=conflict, budget=conflict.resource_budget, person=person, agent_history=agent_history)
     done = obs.done
 
     # --------------------------------------------------
@@ -91,29 +91,6 @@ def run_episode(
 
     while not done:
         step = obs.step
-
-        # Personality drift every 5 steps
-        drift_event = person.drift(step)
-        if drift_event:
-            if verbose:
-                print(f"\n[DRIFT] {drift_event['reason']}")
-            # Apply drift event to metrics
-            path = drift_event.get('metric', '')
-            delta = drift_event.get('delta', 0)
-            if path and '.' in path:
-                dom, sub = path.split('.')
-                current = getattr(getattr(env.state.current_metrics, dom), sub)
-                setattr(getattr(env.state.current_metrics, dom), sub, max(0.0, min(100.0, current + delta)))
-
-        # Adaptive escalation on step 3 using agent history
-        if step == 2 and conflict.difficulty < 5:
-            new_conflict, reason = adaptive_escalate(conflict, agent_history)
-            if new_conflict.id != conflict.id:
-                conflict = new_conflict
-                conflicts_seen.append(conflict.title)
-                if verbose:
-                    print(f"\n🔥 ADAPTIVE ESCALATION: {reason}")
-                    print(f"   New conflict: {conflict.title}")
 
         # Inject few-shot context into agent memory
         few_shot = memory.build_few_shot_prompt(conflict.title, env.state.current_metrics.flatten())
@@ -182,6 +159,19 @@ def run_episode(
             if action.communication:
                 print(f"  💬 [{action.communication.recipient}] ({action.communication.tone}): {action.communication.content}")
             print(f"  Reward: {step_reward:.3f} | Penalties: {obs.metadata.get('breakdown', {}).get('penalties_fired') or 'none'}")
+            
+            # Print Drift/Escalation info from metadata.info
+            for msg in obs.metadata.get("info", []):
+                if msg.startswith("DRIFT:"):
+                    print(f"\n[DRIFT] {msg[6:]}")
+                if msg.startswith("ESCALATION:"):
+                    parts = msg[11:].split(" -> ")
+                    reason = parts[0]
+                    new_title = parts[1]
+                    conflicts_seen.append(new_title)
+                    print(f"\n🔥 ADAPTIVE ESCALATION: {reason}")
+                    print(f"   New conflict: {new_title}")
+                    
             env.render()
 
     # --------------------------------------------------
