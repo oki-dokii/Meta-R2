@@ -312,27 +312,31 @@ def reward_format_compliance(completion: str) -> float:
 
 def reward_plausibility_check(metric_changes: dict, resource_cost: dict) -> float:
     """
-    Anti-gaming check. Prevents the model from claiming large metric changes at zero or implausible cost.
-    Resources are normalized to their caps before comparison so units are commensurable.
+    Anti-gaming check. Prevents the model from claiming massive metric changes while spending 0 resources.
+    Resource cost is normalized to comparable units (time/20h, money/$500, energy/100pts).
     """
     total_delta = sum(abs(v) for v in metric_changes.values())
 
-    norm_time   = resource_cost.get('time', 0.0) / 20.0
-    norm_money  = resource_cost.get('money', 0.0) / 500.0
+    # Zero-cost shortcut: any non-trivial claim with no cost at all is implausible
+    # Also handles empty resource_cost.
+    if not resource_cost or all(v == 0 for v in resource_cost.values()):
+        if total_delta > 3.0:
+            return -0.30
+        return 0.0
+
+    # Normalize each resource dimension to [0,1] before summing
+    norm_time   = resource_cost.get('time', 0.0)   / 20.0
+    norm_money  = resource_cost.get('money', 0.0)  / 500.0
     norm_energy = resource_cost.get('energy', 0.0) / 100.0
-    total_cost_normalized = norm_time + norm_money + norm_energy
+    total_cost  = norm_time + norm_money + norm_energy
 
-    # Zero-cost gate: any non-trivial metric gain at zero declared cost is suspicious
-    if total_cost_normalized == 0.0 and total_delta > 3.0:
-        return -0.30
+    ratio = total_delta / max(0.01, total_cost)
 
-    ratio = total_delta / max(0.01, total_cost_normalized)
-
-    if ratio > 50:
-        return -0.30
-    if ratio > 25:
-        return -0.10
-    return 0.0
+    if ratio > 150:
+        return -0.30   # Claiming massive change for virtually free
+    if ratio > 80:
+        return -0.10   # Highly suspicious efficiency
+    return 0.0         # Plausible ratio
 
 def reward_timeout_check(step_count: int, max_steps: int, done: bool) -> float:
     """

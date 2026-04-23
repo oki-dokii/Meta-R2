@@ -78,6 +78,7 @@ def build_prompt_for_task(task, person, metrics, budget):
     # NEW: Store more task metadata for reconstruction
     metadata = {
         "goal": task.goal,
+        "domain": task.domain,
         "disruption": task.mutable_world,
         "difficulty": task.difficulty,
         "horizon": task.horizon,
@@ -181,7 +182,12 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         
         meta = json.loads(m.group(1).strip())
         try:
-            task = FlightCrisisTask()
+            # Use TaskGenerator so routes/milestones/success_conditions are populated.
+            from agent.conflict_generator import TaskGenerator
+            gen = TaskGenerator()
+            domain = meta.get("domain", "flight_crisis")
+            task = gen.generate(domain=domain, difficulty=meta.get("difficulty", 3))
+            # Overlay the actual disruption that was presented in the prompt
             task.mutable_world.update(meta.get("disruption", {}))
             task.visible_world.update(meta.get("disruption", {}))
         except Exception as e:

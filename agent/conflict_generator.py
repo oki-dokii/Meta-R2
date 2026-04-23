@@ -245,6 +245,18 @@ class TaskGenerator:
             return self.generate_flight_crisis(diff)
         elif domain == "code_merge_crisis":
             return self.generate_code_merge_crisis(diff)
+        elif domain == "career":
+            return self.generate_career(diff)
+        elif domain == "finances":
+            return self.generate_finances(diff)
+        elif domain == "relationships":
+            return self.generate_relationships(diff)
+        elif domain == "physical_health":
+            return self.generate_physical_health(diff)
+        elif domain == "mental_wellbeing":
+            return self.generate_mental_wellbeing(diff)
+        elif domain == "time":
+            return self.generate_time(diff)
         else:
             return self.generate_flight_crisis(diff)
 
@@ -289,4 +301,112 @@ class TaskGenerator:
             success_conditions=[], failure_conditions=[],
             event_schedule=events, viable_routes=routes, milestones=milestones,
             horizon=10 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "A botched merge just took down the staging environment."}
+        )
+
+    def generate_career(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="r1", name="Negotiate Workload", description="Discuss with manager to reduce workload.", required_action_types=["communicate"], preconditions={}, consequences={"workload_reduced": True}, closes_routes=["r2"], milestones_unlocked=["m1"], final_reward=2.0),
+            Route(id="r2", name="Find New Job", description="Start applying for new roles.", required_action_types=["spend", "communicate"], preconditions={}, consequences={"job_found": True}, closes_routes=["r1", "r3"], milestones_unlocked=["m2"], final_reward=3.0),
+            Route(id="r3", name="Delegate to Team", description="Push tasks to junior colleagues.", required_action_types=["delegate"], preconditions={}, consequences={"team_delegated": True}, closes_routes=["r2"], milestones_unlocked=["m3"], final_reward=1.5),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Manager agreed to reduce tasks.", condition_key="workload_reduced", condition_value=True, reward=1.0),
+            Milestone(id="m2", description="Interview secured.", condition_key="job_found", condition_value=True, reward=1.5),
+            Milestone(id="m3", description="Tasks successfully delegated.", condition_key="team_delegated", condition_value=True, reward=0.8),
+        ]
+        events = [
+            ExoEvent(step=3, probability=0.7, id="boss_asks", description="Boss asks for progress on current tasks.", world_mutation={}, hidden_state_mutation={}, closes_routes=[])
+        ]
+        return Task(
+            id="career_crisis", domain="career", goal="Manage Career Overload", constraints={"budget_max": 500, "deadline_step": 12}, hidden_state={}, mutable_world={}, visible_world={}, success_conditions=[], failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Severe workload is threatening your career stability."}
+        )
+
+    def generate_finances(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="r1", name="Emergency Fund", description="Dip into savings.", required_action_types=["spend"], preconditions={}, consequences={"used_emergency": True}, closes_routes=[], milestones_unlocked=["m1"], final_reward=1.0),
+            Route(id="r2", name="Negotiate Payment Plan", description="Call the creditor to delay payments.", required_action_types=["communicate"], preconditions={}, consequences={"payment_plan": True}, closes_routes=["r1"], milestones_unlocked=["m2"], final_reward=2.5),
+            Route(id="r3", name="Sell Asset", description="Liquidate an asset for quick cash.", required_action_types=["communicate", "spend"], preconditions={}, consequences={"asset_sold": True}, closes_routes=["r2"], milestones_unlocked=["m3"], final_reward=1.5),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Emergency fund accessed.", condition_key="used_emergency", condition_value=True, reward=0.5),
+            Milestone(id="m2", description="Favorable payment plan negotiated.", condition_key="payment_plan", condition_value=True, reward=1.0),
+            Milestone(id="m3", description="Asset successfully sold.", condition_key="asset_sold", condition_value=True, reward=0.8),
+        ]
+        events = [
+            ExoEvent(step=2, probability=0.9, id="late_fee", description="A late fee was applied to the balance.", world_mutation={}, hidden_state_mutation={}, closes_routes=[])
+        ]
+        return Task(
+            id="finance_crisis", domain="finances", goal="Resolve Financial Pressure", constraints={"budget_max": 1000, "deadline_step": 10}, hidden_state={}, mutable_world={}, visible_world={}, success_conditions=[], failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "An unexpected expense has caused financial strain."}
+        )
+
+    def generate_relationships(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="r1", name="Couples Therapy", description="Book a session with a therapist.", required_action_types=["spend", "communicate"], preconditions={}, consequences={"therapy_scheduled": True}, closes_routes=["r3"], milestones_unlocked=["m1"], final_reward=3.0),
+            Route(id="r2", name="Honest Conversation", description="Sit down and talk through issues.", required_action_types=["communicate"], preconditions={}, consequences={"had_conversation": True}, closes_routes=[], milestones_unlocked=["m2"], final_reward=2.0),
+            Route(id="r3", name="Give Space", description="Take some time apart.", required_action_types=["rest"], preconditions={}, consequences={"giving_space": True}, closes_routes=["r1", "r2"], milestones_unlocked=["m3"], final_reward=1.0),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Therapy session completed.", condition_key="therapy_scheduled", condition_value=True, reward=1.5),
+            Milestone(id="m2", description="A productive conversation occurred.", condition_key="had_conversation", condition_value=True, reward=1.0),
+            Milestone(id="m3", description="Space given without escalation.", condition_key="giving_space", condition_value=True, reward=0.5),
+        ]
+        events = [
+            ExoEvent(step=4, probability=0.6, id="partner_escalates", description="Partner sends an emotional text msg.", world_mutation={}, hidden_state_mutation={}, closes_routes=[])
+        ]
+        return Task(
+            id="relationship_crisis", domain="relationships", goal="Repair Relationship Friction", constraints={"budget_max": 800, "deadline_step": 14}, hidden_state={}, mutable_world={}, visible_world={}, success_conditions=[], failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Growing distance and recent conflicts demand attention."}
+        )
+
+    def generate_physical_health(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="r1", name="Medical Leave", description="Request time off to recover.", required_action_types=["communicate", "rest"], preconditions={}, consequences={"on_leave": True}, closes_routes=[], milestones_unlocked=["m1"], final_reward=2.5),
+            Route(id="r2", name="See Specialist", description="Pay for a top-tier medical consultation.", required_action_types=["spend", "communicate"], preconditions={}, consequences={"saw_doctor": True}, closes_routes=[], milestones_unlocked=["m2"], final_reward=2.0),
+            Route(id="r3", name="Lifestyle Change", description="Commit to better diet and sleep.", required_action_types=["rest"], preconditions={}, consequences={"lifestyle_changed": True}, closes_routes=["r1"], milestones_unlocked=["m3"], final_reward=1.5),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Leave approved.", condition_key="on_leave", condition_value=True, reward=1.0),
+            Milestone(id="m2", description="Clear diagnosis received.", condition_key="saw_doctor", condition_value=True, reward=1.0),
+            Milestone(id="m3", description="First week of new habits complete.", condition_key="lifestyle_changed", condition_value=True, reward=0.5),
+        ]
+        events = [
+            ExoEvent(step=3, probability=0.8, id="doctor_call", description="The clinic calls with test results.", world_mutation={}, hidden_state_mutation={}, closes_routes=[])
+        ]
+        return Task(
+            id="health_crisis", domain="physical_health", goal="Address Health Warning", constraints={"budget_max": 1500, "deadline_step": 15}, hidden_state={}, mutable_world={}, visible_world={}, success_conditions=[], failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Physical symptoms are becoming impossible to ignore."}
+        )
+
+    def generate_mental_wellbeing(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="r1", name="Professional Therapy", description="Start regular therapy sessions.", required_action_types=["spend", "communicate"], preconditions={}, consequences={"therapy_started": True}, closes_routes=[], milestones_unlocked=["m1"], final_reward=3.0),
+            Route(id="r2", name="Disconnect", description="Take a full digital detox break.", required_action_types=["rest"], preconditions={}, consequences={"disconnected": True}, closes_routes=["r3"], milestones_unlocked=["m2"], final_reward=1.5),
+            Route(id="r3", name="Medication Evaluation", description="See a psychiatrist for options.", required_action_types=["spend"], preconditions={}, consequences={"medication_taken": True}, closes_routes=["r2"], milestones_unlocked=["m3"], final_reward=2.0),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Meaningful breakthrough in therapy.", condition_key="therapy_started", condition_value=True, reward=1.5),
+            Milestone(id="m2", description="Successfully unplugged for 48 hours.", condition_key="disconnected", condition_value=True, reward=0.8),
+            Milestone(id="m3", description="Prescription acquired.", condition_key="medication_taken", condition_value=True, reward=1.0),
+        ]
+        events = [
+            ExoEvent(step=2, probability=0.5, id="panic_attack", description="A sudden wave of severe anxiety hits.", world_mutation={}, hidden_state_mutation={}, closes_routes=[])
+        ]
+        return Task(
+            id="mental_crisis", domain="mental_wellbeing", goal="Avert Total Burnout", constraints={"budget_max": 600, "deadline_step": 12}, hidden_state={}, mutable_world={}, visible_world={}, success_conditions=[], failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Complete exhaustion and loss of motivation."}
+        )
+
+    def generate_time(self, difficulty: int) -> Task:
+        routes = [
+            Route(id="r1", name="Reprioritize", description="Restructure calendar and say 'no'.", required_action_types=["communicate"], preconditions={}, consequences={"priorities_reset": True}, closes_routes=[], milestones_unlocked=["m1"], final_reward=2.0),
+            Route(id="r2", name="Delegate", description="Pay someone or ask for help with chores.", required_action_types=["spend", "delegate"], preconditions={}, consequences={"tasks_delegated": True}, closes_routes=[], milestones_unlocked=["m2"], final_reward=1.5),
+            Route(id="r3", name="Cancel Commitments", description="Drop out of major upcoming events.", required_action_types=["communicate"], preconditions={}, consequences={"commitments_cancelled": True}, closes_routes=["r1"], milestones_unlocked=["m3"], final_reward=1.0),
+        ]
+        milestones = [
+            Milestone(id="m1", description="Calendar cleared of non-essentials.", condition_key="priorities_reset", condition_value=True, reward=1.0),
+            Milestone(id="m2", description="Help secured for daily tasks.", condition_key="tasks_delegated", condition_value=True, reward=0.8),
+            Milestone(id="m3", description="Social obligations cancelled.", condition_key="commitments_cancelled", condition_value=True, reward=0.5),
+        ]
+        events = [
+            ExoEvent(step=3, probability=0.9, id="new_request", description="A friend asks for an 'urgent' favor.", world_mutation={}, hidden_state_mutation={}, closes_routes=[])
+        ]
+        return Task(
+            id="time_crisis", domain="time", goal="Regain Time Control", constraints={"budget_max": 300, "deadline_step": 10}, hidden_state={}, mutable_world={}, visible_world={}, success_conditions=[], failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "You are double-booked and drowning in obligations."}
         )

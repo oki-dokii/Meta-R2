@@ -89,6 +89,7 @@ class LifeStackState(State):
     inspected_keys: list = Field(default_factory=list) # revealed keys
     consecutive_waits: int = 0
     used_rollback: bool = Field(default=False)
+    rollback_penalty_charged: bool = Field(default=False)
     previous_metrics: Optional[LifeMetrics] = None
     previous_budget: Optional[ResourceBudget] = None
 
@@ -224,6 +225,7 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.inspected_keys = []
         self._internal_state.consecutive_waits = 0
         self._internal_state.used_rollback = False
+        self._internal_state.rollback_penalty_charged = False
         self._internal_state.previous_metrics = None
         self._internal_state.previous_budget = None
         self._internal_state.rollback_penalty_charged = False
@@ -371,7 +373,8 @@ class LifeStackEnv(_EnvBase):
             self._internal_state.current_metrics = copy.deepcopy(self._internal_state.previous_metrics)
             self._internal_state.budget = copy.deepcopy(self._internal_state.previous_budget)
             self._internal_state.used_rollback = True
-            return self._get_obs(reward=0.0)
+            self._internal_state.rollback_penalty_charged = True  # Penalty baked into the -0.1 return above
+            return self._get_obs(reward=-0.1)
 
         # Save state for future rollback
         self._internal_state.previous_metrics = copy.deepcopy(self._internal_state.current_metrics)
@@ -425,15 +428,15 @@ class LifeStackEnv(_EnvBase):
                         self._internal_state.world_state.update(route.consequences)
                         info_msgs.append(f"ROUTE_SUCCESS: {route.name}")
 
-        # 3. Resource Deduction (before applying metrics — prevents free gains on budget failure)
+        # 3. Resource Deduction (must happen BEFORE metric changes to prevent budget-bypass exploit)
         deduct_ok = self._internal_state.budget.deduct(
             time=resource_cost.get('time', 0.0),
             money=resource_cost.get('money', 0.0),
             energy=resource_cost.get('energy', 0.0)
         )
         if not deduct_ok:
-            info_msgs.append("BUDGET_EXCEEDED_ACTION_BLOCKED")
-            metric_changes = {}
+            info_msgs.append("RESOURCE_DEPLETED_ACTION_BLOCKED")
+            metric_changes = {}  # Discard changes — agent can't afford this action
 
         # 4. Apply Metric and Cascade
         sig_changes = {k: v for k, v in metric_changes.items() if abs(v) > 5.0}
@@ -458,7 +461,7 @@ class LifeStackEnv(_EnvBase):
 
         # 6. Reward Calculation (Task-Aware)
         routes_rem, _ = LifeStackVerifier.get_route_status(task, self._internal_state.closed_route_ids, self._internal_state.world_state, self._internal_state.hidden_state)
-        
+
         # Determine cascade collapse
         metrics_after = self._internal_state.current_metrics.flatten()
         metrics_before = state_before.flatten()
@@ -469,6 +472,17 @@ class LifeStackEnv(_EnvBase):
         if rel_keys_cum:
             step_rel_delta = sum(metrics_after[k] - metrics_before[k] for k in rel_keys_cum) / len(rel_keys_cum)
             self._internal_state.cumulative_rel_delta += step_rel_delta
+
+        # Increment step_count BEFORE reward so timeout_check fires correctly
+        self._internal_state.step_count += 1
+
+        # Rollback penalty fires only once per episode
+        rollback_this_step = self._internal_state.used_rollback and not self._internal_state.rollback_penalty_charged
+        if rollback_this_step:
+            self._internal_state.rollback_penalty_charged = True
+
+        # conflict_domain from task.domain (not conflict.title) to prevent empty-string bypass
+        conflict_domain = task.domain if task and hasattr(task, 'domain') else ""
 
         if task:
             reward, breakdown = compute_task_reward(
@@ -481,13 +495,13 @@ class LifeStackEnv(_EnvBase):
                 exo_events_seen=self._internal_state.exo_events_seen,
                 milestones_after_event=self._internal_state.milestones_after_event,
                 routes_remaining=routes_rem,
-                rollback_used=(self._internal_state.used_rollback and not self._internal_state.rollback_penalty_charged),
+                rollback_used=rollback_this_step,
                 cascade_collapse=collapse,
                 task=task,
                 reasoning=getattr(action, 'reasoning', ""),
                 completion=getattr(action, 'completion', ""),
-                conflict_domain=self._internal_state.current_task.domain if self._internal_state.current_task else "",
-                step_count=self._internal_state.step_count + 1,
+                conflict_domain=conflict_domain,
+                step_count=self._internal_state.step_count,
                 max_steps=self.max_steps,
                 metric_changes=metric_changes,
                 cumulative_rel_delta=self._internal_state.cumulative_rel_delta
@@ -504,8 +518,6 @@ class LifeStackEnv(_EnvBase):
                 metric_changes=metric_changes,
                 completion=getattr(action, 'completion', "")
             )
-
-        self._internal_state.step_count += 1
         
         # 7. End Conditions
         is_success = all(val == True for val in success_mets) if success_mets else False
