@@ -2,7 +2,7 @@
 title: LifeStack
 emoji: 🪐
 colorFrom: indigo
-colorTo: slate
+colorTo: gray
 sdk: gradio
 sdk_version: 5.6.0
 app_file: app.py
