@@ -11,6 +11,7 @@ class LifeStackMemory:
         self.client = chromadb.PersistentClient(path=path)
         self.collection = self.client.get_or_create_collection(name='decisions')
         self.traj_collection = self.client.get_or_create_collection(name='trajectories')
+        self.feedback_collection = self.client.get_or_create_collection(name='feedback') # New for OutcomeFeedback
         self.silent = silent
         self.encoder = self._load_encoder()
         if not self.silent:
@@ -128,6 +129,45 @@ class LifeStackMemory:
         )
         if not self.silent:
             print(f"Stored trajectory fallback: {route_taken} (reward: {total_reward:.2f})")
+
+    def store_feedback(self, feedback) -> None:
+        """Stores OutcomeFeedback linked to a specific episode."""
+        import json
+        text = f"Episode: {feedback.episode_id} Effectiveness: {feedback.overall_effectiveness} Resolution: {feedback.resolution_time_hours}h"
+        embedding = self._embed_text(text)
+        
+        doc_id = f"fb_{feedback.episode_id}"
+        self.feedback_collection.add(
+            ids=[doc_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{
+                "episode_id": feedback.episode_id,
+                "effectiveness": feedback.overall_effectiveness,
+                "domains_improved": json.dumps(feedback.domains_improved),
+                "domains_worsened": json.dumps(feedback.domains_worsened),
+                "unexpected_effects": feedback.unexpected_effects,
+                "resolution_time": feedback.resolution_time_hours,
+                "timestamp": feedback.submitted_at.isoformat()
+            }]
+        )
+        if not self.silent:
+            print(f"Stored human feedback for episode {feedback.episode_id}")
+
+    def retrieve_feedback(self, episode_id: str) -> Optional[dict]:
+        """Retrieves feedback for a specific episode."""
+        import json
+        doc_id = f"fb_{episode_id}"
+        results = self.feedback_collection.get(ids=[doc_id])
+        
+        if not results['metadatas']:
+            return None
+            
+        meta = results['metadatas'][0]
+        # Deserialize lists
+        meta["domains_improved"] = json.loads(meta["domains_improved"])
+        meta["domains_worsened"] = json.loads(meta["domains_worsened"])
+        return meta
 
     def retrieve_similar_trajectories(self, task_domain: str, current_world: dict, n: int = 3) -> list[dict]:
         """Retrieve similar trajectories based on task domain and current world state."""
