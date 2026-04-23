@@ -259,6 +259,23 @@ def reward_format_compliance(completion: str) -> float:
                 pass
         return -0.5
 
+def reward_plausibility_check(metric_changes: dict, resource_cost: dict) -> float:
+    """
+    Anti-gaming check. Prevents the model from claiming massive metric changes while spending 0 resources.
+    The ratio of absolute metric changes to resource units spent should be reasonable.
+    """
+    total_delta = sum(abs(v) for v in metric_changes.values())
+    total_cost = sum(abs(v) for v in resource_cost.values())
+    
+    # ratio: how many points of metric change per unit of resource
+    ratio = total_delta / max(1, total_cost)
+    
+    if ratio > 15:
+        return -0.30   # Claiming massive change for free
+    if ratio > 8:
+        return -0.10   # Highly suspicious efficiency
+    return 0.0         # Plausible ratio
+
 def main():
     # Scenario setup
     print("--- TESTING REWARD SYSTEM ---")
