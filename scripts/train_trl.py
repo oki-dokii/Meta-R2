@@ -355,76 +355,162 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
 
 
 # ──────────────────────────────────────────────
-# 4. TRAINING LOOP
+# 4. CHECKPOINT HELPERS
 # ──────────────────────────────────────────────
 
-def train_curriculum(n_stages=5, n_prompts_per_stage=100, output_dir="./lifestack_model"):
+def find_latest_checkpoint(stage_dir: str) -> str | None:
     """
-    Implements an adaptive curriculum: Progress through difficulties 1-5 
-    only when success rate on the current level exceeds 70%.
+    Scan a stage output directory for the most recent Trainer checkpoint.
+    Returns the checkpoint path, or None if none exist.
+    """
+    import glob
+    checkpoints = sorted(
+        glob.glob(os.path.join(stage_dir, "checkpoint-*")),
+        key=lambda p: int(p.split("-")[-1])
+    )
+    return checkpoints[-1] if checkpoints else None
+
+
+_CURRICULUM_STATE_FILE = "curriculum_state.json"
+
+def save_stage_state(output_dir: str, stage: int, curr_diff: int):
+    """Persist curriculum progress so we can resume after a session cut."""
+    path = os.path.join(output_dir, _CURRICULUM_STATE_FILE)
+    os.makedirs(output_dir, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"completed_stage": stage, "next_difficulty": curr_diff}, f)
+    print(f"  [ckpt] Curriculum state saved → stage={stage}, next_diff={curr_diff}")
+
+
+def load_stage_state(output_dir: str) -> tuple[int, int]:
+    """
+    Returns (start_stage, curr_diff) from a previous run.
+    Falls back to (1, 1) if no state file exists.
+    """
+    path = os.path.join(output_dir, _CURRICULUM_STATE_FILE)
+    if os.path.exists(path):
+        with open(path) as f:
+            state = json.load(f)
+        start_stage = state["completed_stage"] + 1
+        curr_diff   = state["next_difficulty"]
+        print(f"  [ckpt] Resuming from stage {start_stage}, difficulty {curr_diff}")
+        return start_stage, curr_diff
+    return 1, 1
+
+
+# ──────────────────────────────────────────────
+# 5. TRAINING LOOP  (checkpoint-aware)
+# ──────────────────────────────────────────────
+
+def train_curriculum(
+    n_stages=5,
+    n_prompts_per_stage=100,
+    output_dir="./lifestack_model",
+    resume=False,
+    start_stage=None,
+):
+    """
+    Curriculum training with automatic checkpoint saving and resume.
+
+    Each stage saves a checkpoint every 25 steps and persists curriculum
+    state to curriculum_state.json.  If the session is killed mid-stage,
+    re-run with --resume and the trainer will pick up from the last
+    saved checkpoint automatically.
+
+    Args:
+        resume:      If True, read curriculum_state.json to find the last
+                     completed stage and continue from there.
+        start_stage: Override the starting stage (1-indexed). Useful for
+                     manual restart (e.g. --start-stage 3).
     """
     print("=" * 60)
     print("🚀 LIFESTACK SUCCESS-BASED CURRICULUM TRAINING")
     print("=" * 60)
 
     model, tokenizer = load_model()
-    curr_diff = 1
-    
-    for stage in range(1, n_stages + 1):
-        print(f"\n[STAGE {stage}] Training on Difficulty {curr_diff}...")
-        
-        # 1. Generate data for this difficulty
-        dataset = generate_dataset(n_prompts_per_stage, difficulty=curr_diff)
-        
-        # 2. Configure and Train
+
+    # ── Determine where to start ────────────────────────────────────────
+    if resume:
+        first_stage, curr_diff = load_stage_state(output_dir)
+    elif start_stage:
+        first_stage = start_stage
+        curr_diff   = 1          # difficulty resets; user can edit state file for fine control
+    else:
+        first_stage, curr_diff = 1, 1
+
+    for stage in range(first_stage, n_stages + 1):
+        print(f"\n[STAGE {stage}/{n_stages}] Difficulty={curr_diff}")
+
+        stage_dir = f"{output_dir}/stage_{stage}"
+
+        # ── Check for a mid-stage checkpoint from a previous session ─────
+        resume_ckpt = find_latest_checkpoint(stage_dir) if resume else None
+        if resume_ckpt:
+            print(f"  [ckpt] Resuming mid-stage from: {resume_ckpt}")
+        else:
+            # Generate fresh data only for a clean start of the stage
+            dataset = generate_dataset(n_prompts_per_stage, difficulty=curr_diff)
+
+        # ── GRPOConfig with checkpoint cadence ───────────────────────────
         config = GRPOConfig(
-            output_dir=f"{output_dir}/stage_{stage}",
-            num_train_epochs=1, # Fast iteration for curriculum
+            output_dir=stage_dir,
+            num_train_epochs=1,
             per_device_train_batch_size=2,
             gradient_accumulation_steps=4,
             learning_rate=5e-6,
             num_generations=4,
             bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
-            report_to="tensorboard"
+            # ── Checkpoint settings ──────────────────────────────────────
+            save_strategy="steps",
+            save_steps=25,          # checkpoint every 25 optimiser steps
+            save_total_limit=3,     # keep only the 3 most recent checkpoints
+            load_best_model_at_end=False,  # GRPO has no eval loop
+            # ── Logging ─────────────────────────────────────────────────
+            logging_steps=5,
+            report_to="tensorboard",
         )
-        
+
         trainer = GRPOTrainer(
             model=model,
             tokenizer=tokenizer,
             args=config,
-            train_dataset=dataset,
+            train_dataset=dataset if not resume_ckpt else generate_dataset(n_prompts_per_stage, difficulty=curr_diff),
             reward_funcs=[
                 reward_plausibility_fn,
                 reward_task_success_fn,
                 reward_milestone_fn,
                 reward_reasoning_fn,
-                reward_human_feedback_fn
+                reward_human_feedback_fn,
             ],
         )
-        trainer.train()
-        
-        # 3. EVALUATE: Decide whether to progress
-        from scripts.eval import run_evaluation
-        # We need a temp save for the eval script to load
-        eval_path = f"{output_dir}/curr_model"
-        trainer.save_model(eval_path)
-        tokenizer.save_pretrained(eval_path)
-        
-        print(f"\nComparing performance for Curriculum Progression...")
-        # (Internal eval call or simple metric check)
-        # For simplicity in this script, we'll check the avg_reward from the last log
-        avg_reward = trainer.state.log_history[-1].get("reward", 0.0) if trainer.state.log_history else 0.0
-        
-        # Logic: If avg reward is healthy, bump difficulty
+
+        # Pass the checkpoint path — Trainer will reload weights + optimizer state
+        trainer.train(resume_from_checkpoint=resume_ckpt)
+
+        # ── Save completed stage model ───────────────────────────────────
+        trainer.save_model(stage_dir)
+        tokenizer.save_pretrained(stage_dir)
+        print(f"  ✅ Stage {stage} model saved → {stage_dir}")
+
+        # ── Curriculum progression logic ─────────────────────────────────
+        avg_reward = (
+            trainer.state.log_history[-1].get("reward", 0.0)
+            if trainer.state.log_history else 0.0
+        )
         if avg_reward > 0.6 and curr_diff < 5:
-            print(f"✅ Stage Success (Reward: {avg_reward:.3f})! Increasing difficulty to {curr_diff + 1}.")
+            print(f"  ✅ Reward {avg_reward:.3f} > 0.6 — advancing to difficulty {curr_diff + 1}")
             curr_diff += 1
         else:
-            print(f"⚠️  Holding at Difficulty {curr_diff} (Reward: {avg_reward:.3f}) for next stage.")
+            print(f"  ⚠️  Reward {avg_reward:.3f} — holding at difficulty {curr_diff}")
 
-    # Final Save
+        # ── Persist curriculum state AFTER each stage ────────────────────
+        # This is what lets us resume correctly on next session
+        save_stage_state(output_dir, stage, curr_diff)
+
+    # ── Final model save ─────────────────────────────────────────────────
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
+    print(f"\n🏁 Training complete. Final model → {output_dir}")
     return trainer
 
 
@@ -647,7 +733,24 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="LifeStack GRPO Training")
+    parser = argparse.ArgumentParser(
+        description="LifeStack GRPO Training",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Smoke test (CPU, no GPU needed)
+  python train_trl.py --dry-run
+
+  # Fresh full run
+  python train_trl.py --stages 5 --prompts-per-stage 200
+
+  # Resume after Colab / Kaggle session cut
+  python train_trl.py --resume
+
+  # Manually restart from stage 3
+  python train_trl.py --start-stage 3
+        """
+    )
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Run 1 training step on 4 prompts to validate the full pipeline (no GPU required)."
@@ -664,6 +767,14 @@ if __name__ == "__main__":
         "--output-dir", type=str, default="./lifestack_model",
         help="Directory to save the trained model."
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Resume from the last saved checkpoint + curriculum_state.json."
+    )
+    parser.add_argument(
+        "--start-stage", type=int, default=None,
+        help="Force-start from a specific stage number (1-indexed). Ignores curriculum_state.json."
+    )
     args = parser.parse_args()
 
     if args.dry_run:
@@ -673,7 +784,8 @@ if __name__ == "__main__":
             n_stages=args.stages,
             n_prompts_per_stage=args.prompts_per_stage,
             output_dir=args.output_dir,
+            resume=args.resume,
+            start_stage=args.start_stage,
         )
-        # Validate real weights were saved
         validate_saved_model(args.output_dir)
         evaluate_and_plot(args.output_dir)
