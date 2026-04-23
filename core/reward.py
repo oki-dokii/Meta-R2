@@ -126,7 +126,7 @@ def compute_reward(
         # Note: reward_format_compliance returns high magnitude values, 
         # we can cap it or use it as-is.
         
-    final_reward = max(-1.0, min(1.0, base_reward + penalties + comp_reward))
+    final_reward = max(-1.0, min(1.0, base_reward + penalties))
     
     breakdown = {
         "components": {
@@ -169,9 +169,9 @@ def compute_dead_end_penalty(routes_remaining: int) -> float:
     return -0.5 if routes_remaining <= 0 else 0.0
 
 def compute_task_reward(
-    state_before: LifeMetrics, 
-    state_after: LifeMetrics, 
-    resources_used: dict, 
+    state_before: LifeMetrics,
+    state_after: LifeMetrics,
+    resources_used: dict,
     actions_taken: int,
     milestones_achieved: list[str],
     success_conditions_met: list[bool],
@@ -186,55 +186,67 @@ def compute_task_reward(
     conflict_domain: str = "",
     step_count: int = 0,
     max_steps: int = 0,
-    metric_changes: dict = None
+    metric_changes: dict = None,
+    cumulative_rel_delta: float = 0.0
 ) -> tuple[float, dict]:
-    # 1. Base local components via old logic
+    # 1. Base local components
     local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken,
-                                                    metric_changes=metric_changes, completion=completion)
-    
-    # 2. Get orchestrator components
+                                                   metric_changes=metric_changes, completion=completion)
+
+    # 2. Orchestrator components
     local_metric_delta_score = local_reward
     milestone_score = compute_milestone_reward(milestones_achieved, task)
     completion_score = compute_task_completion_reward(success_conditions_met, task)
     replan_score = compute_replan_bonus(exo_events_seen, milestones_after_event)
     efficiency_score = local_breakdown["components"]["efficiency"]
-    
-    # [NEW] Reasoning Coherence
+    # Format compliance lives here (not in compute_reward) to avoid double-counting
+    format_score = local_breakdown["components"].get("format_compliance", 0.0)
     reasoning_score = reward_reasoning_coherence(reasoning, conflict_domain)
-    
-    # [NEW] Timeout Penalty
     timeout_pen = reward_timeout_check(step_count, max_steps, all(success_conditions_met) if success_conditions_met else False)
 
     # 3. Weighted aggregation
-    # 10% local metric delta, 40% milestone rewards, 30% task completion, 10% replan bonus, 10% efficiency, 10% reasoning
+    # Weights: 5% local delta, 35% milestone, 25% completion, 10% replan,
+    #          5% efficiency, 10% reasoning coherence, 10% format compliance
+    # Sum: 0.05+0.35+0.25+0.10+0.05+0.10+0.10 = 1.00
     base_reward = (
         (0.05 * local_metric_delta_score) +
-        (0.40 * milestone_score) +
+        (0.35 * milestone_score) +
         (0.25 * completion_score) +
         (0.10 * replan_score) +
         (0.05 * efficiency_score) +
-        (0.15 * reasoning_score)
+        (0.10 * reasoning_score) +
+        (0.10 * format_score)
     )
-    
+
     # 4. Penalties
     penalties = timeout_pen
     fired = []
-    
+
     dead_end_pen = compute_dead_end_penalty(routes_remaining)
     if dead_end_pen < 0:
         penalties += dead_end_pen
         fired.append("DEAD_END")
-        
+
     if rollback_used:
         penalties += -0.1
         fired.append("ROLLBACK_USED")
-        
+
     if cascade_collapse:
         penalties += -0.3
         fired.append("CASCADE_COLLAPSE")
-        
+
+    # Direct inaction penalty — not diluted by the 0.05 local weight
+    if actions_taken == 0:
+        penalties += -0.20
+        fired.append("TASK_INACTION_PENALTY")
+
+    # Cumulative relationship erosion across the episode
+    if cumulative_rel_delta < -20:
+        penalties += -0.15
+        fired.append("CUMULATIVE_RELATIONSHIP_EROSION")
+
     final_reward = max(-1.0, min(1.0, base_reward + penalties))
-    
+
     breakdown = {
         "components": {
             "local_metric_delta": local_metric_delta_score,
@@ -243,6 +255,7 @@ def compute_task_reward(
             "replan": replan_score,
             "efficiency": efficiency_score,
             "reasoning": reasoning_score,
+            "format_compliance": format_score,
             "timeout_penalty": timeout_pen
         },
         "base_reward": base_reward,
@@ -250,7 +263,7 @@ def compute_task_reward(
         "penalties_fired": fired,
         "local_breakdown": local_breakdown
     }
-    
+
     return final_reward, breakdown
 
 def reward_format_compliance(completion: str) -> float:
@@ -299,20 +312,27 @@ def reward_format_compliance(completion: str) -> float:
 
 def reward_plausibility_check(metric_changes: dict, resource_cost: dict) -> float:
     """
-    Anti-gaming check. Prevents the model from claiming massive metric changes while spending 0 resources.
-    The ratio of absolute metric changes to resource units spent should be reasonable.
+    Anti-gaming check. Prevents the model from claiming large metric changes at zero or implausible cost.
+    Resources are normalized to their caps before comparison so units are commensurable.
     """
     total_delta = sum(abs(v) for v in metric_changes.values())
-    total_cost = sum(abs(v) for v in resource_cost.values())
-    
-    # ratio: how many points of metric change per unit of resource
-    ratio = total_delta / max(1, total_cost)
-    
-    if ratio > 15:
-        return -0.30   # Claiming massive change for free
-    if ratio > 8:
-        return -0.10   # Highly suspicious efficiency
-    return 0.0         # Plausible ratio
+
+    norm_time   = resource_cost.get('time', 0.0) / 20.0
+    norm_money  = resource_cost.get('money', 0.0) / 500.0
+    norm_energy = resource_cost.get('energy', 0.0) / 100.0
+    total_cost_normalized = norm_time + norm_money + norm_energy
+
+    # Zero-cost gate: any non-trivial metric gain at zero declared cost is suspicious
+    if total_cost_normalized == 0.0 and total_delta > 3.0:
+        return -0.30
+
+    ratio = total_delta / max(0.01, total_cost_normalized)
+
+    if ratio > 50:
+        return -0.30
+    if ratio > 25:
+        return -0.10
+    return 0.0
 
 def reward_timeout_check(step_count: int, max_steps: int, done: bool) -> float:
     """
@@ -324,22 +344,20 @@ def reward_timeout_check(step_count: int, max_steps: int, done: bool) -> float:
 
 def reward_reasoning_coherence(reasoning: str, conflict_domain: str) -> float:
     """
-    Process-aware intermediate reward. 
-    Teaches the model to reflect on the relevant conflict domain in its reasoning.
+    Process-aware intermediate reward.
+    Requires a non-empty domain AND non-empty reasoning — empty domain would match every string.
     """
-    if not reasoning:
+    if not conflict_domain or not reasoning:
         return -0.10
-        
+
     reasoning_lower = reasoning.lower()
-    
-    # Positive signal: mentions the core problem domain
+
     if conflict_domain.lower() in reasoning_lower:
         return 0.10
-        
-    # Negative signal: too shallow or empty reasoning
+
     if len(reasoning.strip()) < 20:
         return -0.10
-        
+
     return 0.0
 
 def main():
