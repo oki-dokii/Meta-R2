@@ -4,7 +4,8 @@ from pydantic import Field
 
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.metric_schema import normalize_metric_path
-from core.reward import compute_reward
+from core.reward import compute_reward, compute_task_reward
+from core.task import Task, ExoEvent, Route, Milestone, FlightCrisisTask
 
 try:
     from openenv.core import Environment, Action, Observation, State
@@ -44,8 +45,16 @@ class LifeStackAction(Action):
     metric_changes: Dict[str, float] = Field(default_factory=dict, description="Metric adjustment deltas")
     resource_cost: Dict[str, float] = Field(default_factory=dict, description="Time, money, and energy costs")
     actions_taken: int = Field(default=0, description="Number of atomic actions taken")
+    
+    # ToolAction fields (Long-horizon)
+    action_type: Optional[str] = Field(default=None, description="inspect, plan, execute, etc.")
+    target: Optional[str] = Field(default=None, description="e.g. route_id or hidden_key")
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    reasoning: Optional[str] = Field(default=None)
+
+    # Legacy fields (maintained for backward compat)
     inspect_target: Optional[str] = Field(default=None, description="Optional hidden state key to inspect")
-    is_rollback: bool = Field(default=False, description="Set true to rollback the previous action. Can only be used once per route.")
+    is_rollback: bool = Field(default=False, description="Set true to rollback the previous action.")
 
 class LifeStackObservation(Observation):
     """Observation returned by LifeStack."""
@@ -62,11 +71,22 @@ class LifeStackState(State):
     budget: ResourceBudget = Field(default_factory=ResourceBudget)
     episode_id: Optional[str] = None
     step_count: int = 0
-    inspected_keys: list = Field(default_factory=list)
+    inspected_keys: list = Field(default_factory=list) # revealed keys
     consecutive_waits: int = 0
     used_rollback: bool = Field(default=False)
     previous_metrics: Optional[LifeMetrics] = None
     previous_budget: Optional[ResourceBudget] = None
+
+    # New task fields
+    current_task: Optional[Task] = None
+    active_route_id: Optional[str] = None
+    milestones_achieved: list = Field(default_factory=list)
+    world_state: dict = Field(default_factory=dict)
+    hidden_state: dict = Field(default_factory=dict)
+    fired_event_ids: list = Field(default_factory=list)
+    exo_events_seen: int = 0
+    milestones_after_event: int = 0
+    closed_route_ids: set = Field(default_factory=set)
 
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""
@@ -74,6 +94,46 @@ class LifeStackRubric(Rubric):
         # In LifeStack, reward is usually computed inside step() for state-transition access.
         # This rubric provides a hook for external reward evaluation if needed.
         return observation.reward if observation.reward is not None else 0.0
+
+class PartialObsFilter:
+    @staticmethod
+    def filter(task: Task, world: dict, revealed_keys: list) -> dict:
+        """Returns only visible_world + revealed fields."""
+        obs_world = copy.deepcopy(task.visible_world)
+        if not world:
+            return obs_world
+        for k in revealed_keys:
+            if k in world:
+                obs_world[k] = world[k]
+        return obs_world
+
+class WorldEngine:
+    def __init__(self, task: Task):
+        self.task = task
+        self.closed_routes = set()
+
+    def inject_events(self, step: int, world: dict, hidden: dict) -> list[ExoEvent]:
+        import random
+        fired = []
+        for event in self.task.event_schedule:
+            fire = False
+            if event.step == step:
+                fire = True
+            elif event.step == -1:
+                if random.random() < event.probability:
+                    fire = True
+            
+            if fire:
+                fired.append(event)
+                # Apply mutations
+                world.update(event.world_mutation)
+                hidden.update(event.hidden_state_mutation)
+                for rid in event.closes_routes:
+                    self.closed_routes.add(rid)
+        return fired
+
+    def get_closed_routes(self) -> set[str]:
+        return self.closed_routes
 
 _EnvBase = Environment[LifeStackAction, LifeStackObservation, LifeStackState] if USING_MODERN_API else Environment
 
@@ -116,8 +176,9 @@ class LifeStackEnv(_EnvBase):
         return self._internal_state
 
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, 
-              conflict: Optional[dict] = None, budget: Optional[dict] = None, **kwargs) -> LifeStackObservation:
-        """Resets the environment. Seed and conflict can be provided."""
+              task: Optional[Task] = None, conflict: Optional[dict] = None, 
+              budget: Optional[dict] = None, **kwargs) -> LifeStackObservation:
+        """Resets the environment. Seed and task/conflict can be provided."""
         if USING_MODERN_API and getattr(self, 'rubric', None):
             self.rubric.reset()
         
@@ -125,7 +186,11 @@ class LifeStackEnv(_EnvBase):
             import random
             random.seed(seed)
 
-        # Reset state
+        # 1. Initialize Task
+        self._internal_state.current_task = task or FlightCrisisTask()
+        self.max_steps = getattr(self._internal_state.current_task, 'horizon', 30)
+        
+        # 2. Reset State
         self._internal_state.episode_id = episode_id
         self._internal_state.step_count = 0
         self._internal_state.current_metrics = LifeMetrics()
@@ -135,29 +200,40 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.previous_metrics = None
         self._internal_state.previous_budget = None
         
-        # Scale budgets proportionally and check task constraints
-        task = kwargs.get('task')
-        current_max = getattr(self, 'max_steps', 30)
-        task_horizon = getattr(task, 'horizon', current_max) if task else current_max
-        self.max_steps = kwargs.get('horizon', task_horizon)
-        scale = max(1.0, self.max_steps / 5.0)
-
-        constraints = kwargs.get('constraints', {})
-        budget_override = constraints.get('budget', budget if budget else {})
+        # Task state
+        self._internal_state.world_state = copy.deepcopy(self._internal_state.current_task.mutable_world)
+        self._internal_state.hidden_state = copy.deepcopy(self._internal_state.current_task.hidden_state)
+        self._internal_state.milestones_achieved = []
+        self._internal_state.active_route_id = None
+        self._internal_state.fired_event_ids = []
+        self._internal_state.exo_events_seen = 0
+        self._internal_state.milestones_after_event = 0
+        self._internal_state.closed_route_ids = set()
         
+        self.world_engine = WorldEngine(self._internal_state.current_task)
+
+        # 3. Budget Scaling
+        scale = max(1.0, self.max_steps / 5.0)
+        constraints = self._internal_state.current_task.constraints
         self._internal_state.budget = ResourceBudget(
-            time_hours=budget_override.get("time", 20.0 * scale),
-            money_dollars=budget_override.get("money", 500.0 * scale),
-            energy_units=budget_override.get("energy", 100.0 * scale)
+            time_hours=budget.get("time", constraints.get("time", 20.0 * scale)) if budget else constraints.get("time", 20.0 * scale),
+            money_dollars=budget.get("money", constraints.get("money", 500.0 * scale)) if budget else constraints.get("money", 500.0 * scale),
+            energy_units=budget.get("energy", constraints.get("energy", 100.0 * scale)) if budget else constraints.get("energy", 100.0 * scale)
         )
 
         if conflict:
-            # Apply initial disruption via cascade
+            # Legacy disruption support
             self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, conflict)
 
         return self._get_obs()
 
     def _get_obs(self, done: bool = False, reward: Optional[float] = None) -> LifeStackObservation:
+        revealed_world = PartialObsFilter.filter(
+            self._internal_state.current_task, 
+            self._internal_state.world_state, 
+            self._internal_state.inspected_keys
+        )
+        
         return LifeStackObservation(
             metrics=self._internal_state.current_metrics.flatten(),
             resources={
@@ -167,7 +243,14 @@ class LifeStackEnv(_EnvBase):
             },
             step=self._internal_state.step_count,
             done=done,
-            reward=reward
+            reward=reward,
+            metadata={
+                "world_state": revealed_world,
+                "goal": self._internal_state.current_task.goal,
+                "active_route": self._internal_state.active_route_id,
+                "milestones": self._internal_state.milestones_achieved,
+                "events": self._internal_state.fired_event_ids
+            }
         )
 
     def _update_metric(self, path: str, delta: float):
@@ -182,124 +265,182 @@ class LifeStackEnv(_EnvBase):
             setattr(domain, sub_name, max(0.0, min(100.0, val + delta)))
 
     def step(self, action: LifeStackAction, timeout_s: Optional[float] = None, **kwargs) -> LifeStackObservation:
-        """Executes one step in the environment using LifeStackAction."""
-        if isinstance(action, dict): # Backward compatibility for old calls
+        """Executes one step in the environment using LifeStackAction logic."""
+        if isinstance(action, dict):
             action = LifeStackAction(**action)
 
+        task = self._internal_state.current_task
         state_before = copy.deepcopy(self._internal_state.current_metrics)
-        metric_changes = action.metric_changes
-        resource_cost = action.resource_cost
-        
         info_msgs = []
         
-        # -2. Rollback Logic
-        if getattr(action, 'is_rollback', False):
-            self._internal_state.step_count += 1
-            done = self._internal_state.step_count >= self.max_steps
-            if self._internal_state.used_rollback:
-                info_msgs.append("REWARD_HACKING: Rollback already used this episode.")
-                obs = self._get_obs(done=done, reward=-0.50)
-                obs.metadata["info"] = info_msgs
-                return obs
-            elif not self._internal_state.previous_metrics:
-                info_msgs.append("ROLLBACK_FAILED: No previous state available.")
-                obs = self._get_obs(done=done, reward=0.0)
-                obs.metadata["info"] = info_msgs
-                return obs
-            else:
-                self._internal_state.current_metrics = copy.deepcopy(self._internal_state.previous_metrics)
-                self._internal_state.budget = copy.deepcopy(self._internal_state.previous_budget)
-                self._internal_state.used_rollback = True
-                info_msgs.append("ROLLBACK_SUCCESS: Reverted to previous state.")
-                obs = self._get_obs(done=done, reward=0.0)
-                obs.metadata["info"] = info_msgs
-                return obs
+        # 1. World Engine: Inject Events
+        fired_events = self.world_engine.inject_events(
+            self._internal_state.step_count, 
+            self._internal_state.world_state,
+            self._internal_state.hidden_state
+        )
+        if fired_events:
+            self._internal_state.exo_events_seen += len(fired_events)
+            for e in fired_events:
+                self._internal_state.fired_event_ids.append(e.id)
+                info_msgs.append(f"EVENT_FIRED: {e.description}")
+        
+        self._internal_state.closed_route_ids.update(self.world_engine.get_closed_routes())
 
-        # Save previous state before normal action mutates it
+        # 2. Tool Logic & Metric Changes
+        tool_type = action.action_type or (
+            "rollback" if action.is_rollback else 
+            "inspect" if action.inspect_target else 
+            "execute"
+        )
+        
+        metric_changes = copy.deepcopy(action.metric_changes)
+        resource_cost = copy.deepcopy(action.resource_cost)
+        
+        # Handle Rollback
+        if tool_type == "rollback":
+            self._internal_state.step_count += 1
+            if self._internal_state.used_rollback:
+                info_msgs.append("ROLLBACK_DENIED: Already used once.")
+                return self._get_obs(reward=-0.1)
+            if not self._internal_state.previous_metrics:
+                return self._get_obs(reward=0.0)
+            self._internal_state.current_metrics = copy.deepcopy(self._internal_state.previous_metrics)
+            self._internal_state.budget = copy.deepcopy(self._internal_state.previous_budget)
+            self._internal_state.used_rollback = True
+            return self._get_obs(reward=0.0)
+
+        # Save state for future rollback
         self._internal_state.previous_metrics = copy.deepcopy(self._internal_state.current_metrics)
         self._internal_state.previous_budget = copy.deepcopy(self._internal_state.budget)
+
+        # Handle Inspect
+        if tool_type == "inspect":
+            target = action.target or action.inspect_target
+            if target:
+                if target in self._internal_state.inspected_keys:
+                    info_msgs.append(f"INSPECT_REDUNDANT: {target}")
+                else:
+                    self._internal_state.inspected_keys.append(target)
+                    info_msgs.append(f"INSPECT_REVEALED: {target}")
         
-        # -1. Wait Loop Anti-Cheat Logic
-        is_wait = len(metric_changes) == 0 and not getattr(action, 'inspect_target', None)
-        if is_wait:
+        # Handle Wait
+        if tool_type == "wait":
             self._internal_state.consecutive_waits += 1
+            if self._internal_state.consecutive_waits >= 4:
+                metric_changes["mental_wellbeing.stress_level"] = metric_changes.get("mental_wellbeing.stress_level", 0) + 15.0
+                info_msgs.append("WAIT_CAP_EXCEEDED: Forced stress applied.")
         else:
             self._internal_state.consecutive_waits = 0
 
-        forced_escalation_penalty = 0.0
-        if self._internal_state.consecutive_waits >= 4:
-            # Trigger forced escalate on 4th consecutive wait
-            metric_changes["mental_wellbeing.stress_level"] = 15.0
-            metric_changes["career.workload"] = 15.0
-            metric_changes["physical_health.energy"] = -15.0
-            forced_escalation_penalty = -0.50
-            info_msgs.append("Wait Cap Exceeded: FORCED ESCALATE applied.")
-        
-        # 0. Inspect Anti-Cheat Logic
-        inspect_penalty = 0.0
-        if getattr(action, 'inspect_target', None):
-            target = action.inspect_target
-            if target in self._internal_state.inspected_keys:
-                inspect_penalty = -0.30
-                info_msgs.append(f"REWARD_HACKING: Repeat inspection on {target}")
-            else:
-                self._internal_state.inspected_keys.append(target)
-                info_msgs.append(f"INSPECTED: {target}")
+        # Handle Route Execution
+        if tool_type == "execute" and action.target:
+            route = next((r for r in task.viable_routes if r.id == action.target), None)
+            if route:
+                # Check closed
+                if route.id in self._internal_state.closed_route_ids:
+                    info_msgs.append(f"ROUTE_BLOCKED: {route.name}")
+                else:
+                    # Check preconditions
+                    pre_ok = True
+                    for k, v in route.preconditions.items():
+                        current_v = self._internal_state.hidden_state.get(k, self._internal_state.world_state.get(k))
+                        if current_v != v:
+                            pre_ok = False
+                            break
+                    
+                    if not pre_ok:
+                        info_msgs.append(f"PRECONDITIONS_FAILED for {route.name}")
+                    else:
+                        # Success: Apply route
+                        self._internal_state.active_route_id = route.id
+                        self._internal_state.world_state.update(route.consequences)
+                        for mid in route.milestones_unlocked:
+                            if mid not in self._internal_state.milestones_achieved:
+                                self._internal_state.milestones_achieved.append(mid)
+                                if self._internal_state.exo_events_seen > 0:
+                                    self._internal_state.milestones_after_event += 1
+                        info_msgs.append(f"ROUTE_SUCCESS: {route.name}")
 
-        # 1. Cascade logic
-        sig_changes = {}
-        for path, delta in metric_changes.items():
-            path = normalize_metric_path(path)
-            if abs(delta) > 5:
-                sig_changes[path] = delta
-            else:
-                self._update_metric(path, delta)
+        # 3. Apply Metric and Cascade
+        sig_changes = {k: v for k, v in metric_changes.items() if abs(v) > 5.0}
+        for k, v in metric_changes.items():
+            if k not in sig_changes:
+                self._update_metric(k, v)
         
         if sig_changes:
             self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, sig_changes)
 
-        # 2. Resource deduction
-        deduct_success = self._internal_state.budget.deduct(
+        # 4. Resource Deduction
+        deduct_ok = self._internal_state.budget.deduct(
             time=resource_cost.get('time', 0.0),
             money=resource_cost.get('money', 0.0),
             energy=resource_cost.get('energy', 0.0)
         )
-        
-        budget_penalty = 0.0
-        if not deduct_success:
-            budget_penalty = -0.20
-            info_msgs.append("INSUFFICIENT_RESOURCES")
+        if not deduct_ok:
+            info_msgs.append("RESOURCE_DEPLETED_ACTION_PENALTY")
 
-        # 3. Reward calculation
-        reward, breakdown = compute_reward(state_before, self._internal_state.current_metrics, resource_cost, action.actions_taken)
-        reward += budget_penalty
-        reward += inspect_penalty
-        reward += forced_escalation_penalty
+        # 5. Task Progression Check
+        success_mets = []
+        for cond in task.success_conditions:
+            val = self._internal_state.hidden_state.get(cond['key'], self._internal_state.world_state.get(cond['key']))
+            success_mets.append(val == cond['value'])
         
+        failure_mets = []
+        for cond in task.failure_conditions:
+            val = self._internal_state.hidden_state.get(cond['key'], self._internal_state.world_state.get(cond['key']))
+            failure_mets.append(val == cond['value'])
+
+        # 6. Reward Calculation (Task-Aware)
+        routes_rem = len([r for r in task.viable_routes if r.id not in self._internal_state.closed_route_ids])
+        
+        # Determine cascade collapse: did world metrics drop significantly in aggregate?
+        metrics_after = self._internal_state.current_metrics.flatten()
+        metrics_before = state_before.flatten()
+        collapse = any(metrics_after[k] < 20 and metrics_before[k] >= 20 for k in metrics_after)
+
+        reward, breakdown = compute_task_reward(
+            state_before=state_before,
+            state_after=self._internal_state.current_metrics,
+            resources_used=resource_cost,
+            actions_taken=action.actions_taken,
+            milestones_achieved=self._internal_state.milestones_achieved,
+            success_conditions_met=success_mets,
+            exo_events_seen=self._internal_state.exo_events_seen,
+            milestones_after_event=self._internal_state.milestones_after_event,
+            routes_remaining=routes_rem,
+            rollback_used=self._internal_state.used_rollback,
+            cascade_collapse=collapse,
+            task=task
+        )
+
         self._internal_state.step_count += 1
-
-        # 4. End conditions
-        metrics_flat = self._internal_state.current_metrics.flatten()
-        any_hit_zero = any(v <= 0.0 for v in metrics_flat.values())
-        resources_dead = (self._internal_state.budget.time_hours <= 0 and 
-                          self._internal_state.budget.money_dollars <= 0 and 
-                          self._internal_state.budget.energy_units <= 0)
         
-        terminated = any_hit_zero or resources_dead
-        truncated = self._internal_state.step_count >= self.max_steps
+        # 7. End Conditions
+        terminated = any(val == True for val in failure_mets) or any(v <= 0 for v in metrics_after.values())
+        truncated = self._internal_state.step_count >= self.max_steps or all(val == True for val in success_mets) if success_mets else False
         done = terminated or truncated
-        
+
         observation = self._get_obs(done, reward)
         observation.metadata["breakdown"] = breakdown
         observation.metadata["info"] = info_msgs
-        
-        return observation
+        return observationon
 
     def render(self):
-        """Vibrant status report of the current LifeMetrics state."""
-        print("\n" + "═"*60)
-        print(f"STEP: {self._internal_state.step_count} | ⏳ TIME: {self._internal_state.budget.time_hours:.1f}h | 💵 MONEY: ${self._internal_state.budget.money_dollars:.1f} | ⚡ ENERGY: {self._internal_state.budget.energy_units:.1f}")
+        """Vibrant status report of the current state and task progress."""
+        task = self._internal_state.current_task
+        print("\n" + "═"*70)
+        print(f"🎯 GOAL: {task.goal} | Horizon: {self._internal_state.step_count}/{self.max_steps}")
+        print(f"⌛ TIME: {self._internal_state.budget.time_hours:.1f}h | 💵 MONEY: ${self._internal_state.budget.money_dollars:.1f} | ⚡ ENERGY: {self._internal_state.budget.energy_units:.1f}")
         
+        if self._internal_state.active_route_id:
+            print(f"🛣️ ACTIVE ROUTE: {self._internal_state.active_route_id}")
+        
+        print(f"⭐ MILESTONES: {', '.join(self._internal_state.milestones_achieved) or 'None'}")
+        
+        if self._internal_state.fired_event_ids:
+            print(f"🚨 EVENTS: {', '.join(self._internal_state.fired_event_ids)}")
+
         flat = self._internal_state.current_metrics.flatten()
         domain_labels = {
             "career": "💼 CAREER",
@@ -319,7 +460,7 @@ class LifeStackEnv(_EnvBase):
                 icon = ("🔴" if val > 70 else "🟢") if short in inverted else ("🟢" if val > 70 else "🔴")
                 if 40 <= val <= 70: icon = "🟡"
                 print(f"  {icon} {short:20} : {val:5.2f}")
-        print("═"*60)
+        print("═"*70)
 
 
 def main():

@@ -1,7 +1,24 @@
 import copy
 from dataclasses import dataclass, field
 from core.life_state import LifeMetrics, ResourceBudget
+from enum import Enum
 from intake.simperson import SimPerson
+
+class ToolActionType(str, Enum):
+    INSPECT = "inspect"
+    PLAN = "plan"
+    EXECUTE = "execute"
+    COMMUNICATE = "communicate"
+    WAIT = "wait"
+    ROLLBACK = "rollback"
+    ESCALATE = "escalate"
+
+@dataclass
+class ToolAction:
+    action_type: ToolActionType
+    target: str = ""          # inspect target, execute target, communicate recipient, etc.
+    parameters: dict = field(default_factory=dict)
+    reasoning: str = ""
 
 @dataclass
 class PrimaryAction:
@@ -32,6 +49,26 @@ def validate_action(action: AgentAction, budget: ResourceBudget) -> tuple[bool, 
         return False, f"Not enough money (Needs ${cost.get('money')}, has ${budget.money_dollars:.1f})"
     if budget.energy_units < cost.get('energy', 0.0):
         return False, f"Not enough energy (Needs {cost.get('energy')}u, has {budget.energy_units:.1f}u)"
+    return True, ""
+
+def validate_tool_action(action: ToolAction, env_state: dict) -> tuple[bool, str]:
+    """
+    Checks logic for tool actions.
+    env_state should contain: inspected_keys (list), consecutive_waits (int), used_rollback (bool)
+    """
+    atype = action.action_type
+    if atype == ToolActionType.INSPECT:
+        if action.target in env_state.get('inspected_keys', []):
+            return False, f"Already inspected {action.target}."
+    
+    if atype == ToolActionType.WAIT:
+        if env_state.get('consecutive_waits', 0) >= 3:
+            return False, "Max consecutive waits (3) reached. Must act or escalate."
+            
+    if atype == ToolActionType.ROLLBACK:
+        if env_state.get('used_rollback', False):
+            return False, "Rollback already used in this episode."
+            
     return True, ""
 
 def apply_action(action: AgentAction, metrics: LifeMetrics, budget: ResourceBudget, person: SimPerson) -> tuple[LifeMetrics, ResourceBudget, float]:
