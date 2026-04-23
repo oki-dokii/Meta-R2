@@ -235,7 +235,12 @@ class LifeStackEnv(_EnvBase):
             disruption = conflict.primary_disruption if hasattr(conflict, 'primary_disruption') else conflict
             self._internal_state.current_metrics = self.graph.cascade(self._internal_state.current_metrics, disruption)
             if budget is None and hasattr(conflict, 'resource_budget'):
-                 self._internal_state.budget = ResourceBudget(**conflict.resource_budget)
+                 rb = conflict.resource_budget
+                 self._internal_state.budget = ResourceBudget(
+                     time_hours=rb.get("time", 20.0),
+                     money_dollars=rb.get("money", 500.0),
+                     energy_units=rb.get("energy", 100.0)
+                 )
 
         return self._get_obs()
 
@@ -425,25 +430,33 @@ class LifeStackEnv(_EnvBase):
         # 6. Reward Calculation (Task-Aware)
         routes_rem, _ = LifeStackVerifier.get_route_status(task, self._internal_state.closed_route_ids, self._internal_state.world_state, self._internal_state.hidden_state)
         
-        # Determine cascade collapse: did world metrics drop significantly in aggregate?
+        # Determine cascade collapse
         metrics_after = self._internal_state.current_metrics.flatten()
         metrics_before = state_before.flatten()
         collapse = any(metrics_after[k] < 20 and metrics_before[k] >= 20 for k in metrics_after)
 
-        reward, breakdown = compute_task_reward(
-            state_before=state_before,
-            state_after=self._internal_state.current_metrics,
-            resources_used=resource_cost,
-            actions_taken=action.actions_taken,
-            milestones_achieved=self._internal_state.milestones_achieved,
-            success_conditions_met=success_mets,
-            exo_events_seen=self._internal_state.exo_events_seen,
-            milestones_after_event=self._internal_state.milestones_after_event,
-            routes_remaining=routes_rem,
-            rollback_used=self._internal_state.used_rollback,
-            cascade_collapse=collapse,
-            task=task
-        )
+        if task:
+            reward, breakdown = compute_task_reward(
+                state_before=state_before,
+                state_after=self._internal_state.current_metrics,
+                resources_used=resource_cost,
+                actions_taken=action.actions_taken,
+                milestones_achieved=self._internal_state.milestones_achieved,
+                success_conditions_met=success_mets,
+                exo_events_seen=self._internal_state.exo_events_seen,
+                milestones_after_event=self._internal_state.milestones_after_event,
+                routes_remaining=routes_rem,
+                rollback_used=self._internal_state.used_rollback,
+                cascade_collapse=collapse,
+                task=task
+            )
+        else:
+            reward, breakdown = compute_reward(
+                state_before=state_before,
+                state_after=self._internal_state.current_metrics,
+                resources_used=resource_cost,
+                actions_taken=action.actions_taken
+            )
 
         self._internal_state.step_count += 1
         
