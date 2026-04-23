@@ -4,7 +4,46 @@
 
 ---
 
-LifeStack is the first OpenEnv-compatible environment that trains agents to resolve cascading real-life conflicts across 6 interconnected domains simultaneously, under finite resource constraints, with Pareto-optimal reward shaping.
+LifeStack is the first OpenEnv-compatible environment that trains agents to resolve cascading real-life conflicts across 6 interconnected domains simultaneously, under finite resource constraints, with Pareto-optimal reward shaping. 
+
+**v2.0 Update: Long-Horizon Challenge**
+LifeStack now supports complex, branching 20–50 step episodes with dynamic world events, hidden state variables, and partial observability — moving beyond simple linear conflict resolution to true strategic life planning.
+
+---
+
+## Architecture
+
+```mermaid
+graph TD
+    subgraph "LifeStack Long-Horizon Environment (v2.0)"
+        Env["LifeStackEnv"]
+        WE["World Engine"]
+        POF["Partial Obs Filter"]
+        DG["Dependency Graph (BFS Cascade)"]
+        RT["Route Manager"]
+        RE["Reward Orchestrator"]
+    end
+
+    subgraph "External Control"
+        Task["Task Generator / Schema"]
+        Agent["RL Agent / LLM"]
+        Mem["ChromaDB Memory (Trajectories)"]
+    end
+
+    Task -->|provides Task object| Env
+    Env -->|current state/step| WE
+    WE -->|injects ExoEvents| Env
+    Env -->|action| RT
+    RT -->|validates route| Env
+    Env -->|disruptions| DG
+    DG -->|propagates| Env
+    Env -->|filtered view| POF
+    POF -->|observation| Agent
+    Agent -->|LifeStackAction| Env
+    Env -->|metrics/success| RE
+    RE -->|complex reward| Env
+    Env -->|total outcome| Mem
+```
 
 ---
 
@@ -16,67 +55,51 @@ cd Meta-R2
 bash setup.sh
 source .venv/bin/activate
 python app.py          # Launch Gradio demo  →  http://127.0.0.1:7860
-python scripts/train.py        # Run 50-episode curriculum training
+python scripts/train_trl.py   # Run long-horizon GRPO training
 ```
 
 > **Verify openenv installed:** `pip3 show openenv-core` — should show `Version: 0.2.3`  
-> **Note:** For compatibility with older environments, LifeStack supports both `openenv.core` and `openenv.env` import paths.
+> **Note:** LifeStack is built on the `Task` schema — define a crisis, routes, and milestones inside `core/task.py`.
 
 ---
 
-## Environment
+## Environment v2.0 Overview
 
-| Item | Detail |
-|---|---|
-| **Python** | 3.9+ |
-| **RL Environment** | `openenv-core >= 0.2.3` — `LifeStackEnv` targets the OpenEnv-style `reset()` / `step()` / `render()` API |
-| **LLM Backend** | Groq Cloud API (`llama-3.1-8b-instant`) via OpenAI-compatible client |
-| **Vector Memory** | ChromaDB + `sentence-transformers/all-MiniLM-L6-v2` |
-| **Demo UI** | Gradio 4.x — 3-tab interface |
-| **Training Notebook** | Google Colab T4 GPU (`LifeStack_Training.ipynb`) |
+The environment has transitioned from short, linear conflicts to a **Long-Horizon Strategy Engine**:
 
-> **API Key:** Store your `GROQ_API_KEY` as an env variable or in a `.env` file in the project root. The agent reads it automatically on startup.
+1.  **Task System**: Episodes are driven by a serialized `Task` object. Each task defines a goal, a horizon (20–50 steps), a budget, and a branching set of **Routes**.
+2.  **World Engine & Exogenous Events**: The environment is no longer static. Random or deterministic `ExoEvents` (e.g., a ticket price surge or a sudden illness) can mutate the world state and close off specific routes mid-episode.
+3.  **Partial Observability**: The agent no longer sees the full internal state. It must use `inspect` actions to reveal `HiddenStateField` values, balancing the cost of information gathering against the clock.
+4.  **Route Branching**: Instead of just adjusting metrics, agents select and execute `Routes`. Each route has `preconditions` (checks against world/hidden state) and `consequences` (mutations on success).
+5.  **Trajectory Memory**: ChromaDB now stores full **episodic trajectories**, allowing agents to retrieve entire successful strategies (chain of thoughts + route paths) based on domain similarity.
 
 ---
 
-## Environment Overview
+## Advanced Reward System (Orchestrator)
 
-LifeStack models human life as a directed dependency graph spanning 6 domains — **career, finances, relationships, physical health, mental wellbeing, and time** — connected by 20 weighted edges that propagate impact across nodes using a dampened BFS traversal. 
-
-1.  **OpenEnv Core**: Inherits from `openenv.core.Environment` with Pydantic-based action and observation schemas.
-2.  **Cascade Engine**: A graph-based propagator using BFS traversal with distance-decay to model how a "work crisis" bleeds into relationships or health.
-3.  **Rubric Reward**: Normalized `LifeStackRubric` computing rewards in the [0.0, 1.0] range with hard-floor penalty triggers. 
-
-When a crisis disrupts one domain (e.g. a sudden workload spike), the cascade engine propagates secondary effects through connected nodes (stress rises, sleep degrades, motivation falls, career growth slows). The agent operates under hard resource constraints: time, money, and finite energy units that cannot be manufactured — only managed. Each episode runs for up to 5 steps, during which the agent must find a sequence of actions that resolves the crisis without triggering critical collapses (any metric hitting zero terminates the episode with a severe penalty).
-
----
-
-## Reward Function
+The reward function now incentivizes long-term success over immediate metric gains:
 
 ```
-reward = (0.40 × outcome_score)
-       + (0.25 × cascade_containment)
-       + (0.20 × resource_efficiency)
-       + (0.15 × relationship_preservation)
+reward = (0.10 × metric_delta)       # Local step improvement
+       + (0.40 × milestone_reward)   # Reaching key progress markers
+       + (0.30 × completion_reward)  # Final goal achievement
+       + (0.10 × replan_bonus)       # Ability to recover from ExoEvents
+       + (0.10 × efficiency)         # Resource preservation
        + penalties
 ```
 
-| Component | Description |
+| New Penalties | Description |
 |---|---|
-| `outcome_score` | Weighted improvement across all 23 sub-metrics relative to the state before the action |
-| `cascade_containment` | Bonus for preventing negative cascade spread into domains not targeted by the action |
-| `resource_efficiency` | Reward scaled by how much of the resource budget was preserved after the action |
-| `relationship_preservation` | Additional weight on maintaining social and romantic metrics, which degrade silently |
+| `-0.50` Dead End | Applied if all viable routes are closed (failure to plan) |
+| `-0.10` Rollback | Small cost for undoing an action (discourages brute force) |
+| `-0.30` Cascade Collapse | Applied if any metric drops from a safe zone (>20) to critical (<10) |
+| `-0.50` Wait Cap | Triggered if agent waits 4 times consecutively without acting |
 
-**Penalties applied when:**
-- Any metric drops below the critical floor (< 20) — `CRITICAL_FLOOR` penalty
-- The agent takes an action with insufficient resources — `INSUFFICIENT_RESOURCES` penalty
-- No meaningful action is taken (inaction on a high-severity conflict) — `INACTION` penalty
-- Relationship metrics fall by more than 15 points in a single step — `RELATIONSHIP_COLLAPSE` penalty
+---
 
 ## Deployment (OpenEnv Native)
 
-LifeStack is now a fully qualified OpenEnv project. You can serve it as an environment service or manage it via the OpenEnv CLI.
+LifeStack is a fully qualified OpenEnv project. Use the environment service to interact with agents via MCP or REST.
 
 **Launch Environment Service:**
 ```bash
@@ -84,58 +107,7 @@ python3 server.py      # Starts the environment server on port 8000
 ```
 - **Web Interface:** `http://localhost:8000/web`
 - **MCP Tool List:** `http://localhost:8000/mcp`
-- **EnvClient Target:** `sync_client = SyncEnvClient("http://localhost:8000")`
-
-**CLI Manifest:** See [openenv.yaml](file:///Users/sohambanerjee/meta/openenv.yaml) for integration details.
-
----
-
-## Key Features
-
-- **SimPerson — OCEAN Personality Model:** Each episode samples a person from a diverse personality pool. The Big Five trait scores directly modulate action uptake — how effectively an action's metric changes translate into real outcomes. An anxious introvert (high neuroticism, low extraversion) responds poorly to delegation; a highly agreeable person responds well to communication-based actions.
-
-- **Conflict Generator — 15 Templates × 5 Difficulty Levels:** Conflicts are drawn from a structured template library spanning career, financial, relationship, health, and time crises. Templates support escalation mid-episode: a manageable workload crunch can become a compounded crisis by step 3, forcing the agent to adapt dynamically.
-
-- **RAG Memory — ChromaDB Persistent Store:** Every high-quality decision (reward > threshold) is embedded using `sentence-transformers` and stored in ChromaDB. On each new episode, semantically similar past decisions are retrieved and injected into the agent's prompt as few-shot context. The agent genuinely improves across sessions — not from weight updates, but from retrieved experience.
-
-- **Multimodal Action Space:** The agent outputs both a primary action (type, target domain, metric changes, resource cost) and an optional communication action (recipient, tone, message content). This models how real life conflict resolution requires both internal action and external communication simultaneously.
-
-- **Pareto-Optimal Planning:** The reward structure makes single-metric exploitation impossible. An agent cannot dump all resources into one metric without paying a cascade containment penalty and a resource efficiency penalty simultaneously. It must find balanced resolutions.
-
----
-
-## Results
-
-| Phase | Episodes | Avg Reward |
-|---|---|---|
-| Early | 1–15 | 2.438 |
-| Mid | 16–35 | 2.533 |
-| Late | 36–50 | 2.443 |
-| **Overall** | **1–50** | **2.478** |
-
-Memory growth: **0 → 928 decisions** stored across 50 training episodes.  
-Best single episode reward: **2.579** (Episode 7).  
-Memory advantage: agents with retrieval-augmented memory outperform blind agents on compound difficulty-5 crises.
-
----
-
-## Research Foundations
-
-| Paper | Influence |
-|---|---|
-| Russell & Norvig — *Constraint Satisfaction* | Informed the resource budget system and hard constraint enforcement during validation |
-| Roijers et al. (2013) — *Multi-Objective RL Survey* | Foundation for the multi-component reward function and Pareto-optimality framing |
-| Wang et al. (2024) — *Pareto-Optimal Treatment Under Conflicting Outcomes* | Shaped the cascade containment and relationship preservation reward components |
-| Mullainathan & Shafir (2013) — *Scarcity: Why Having Too Little Means So Much* | Grounded the resource-constraint design and the stress-amplification penalty system |
-
----
-
-## OpenEnv Compliance
-
-- Uses **OpenEnv v0.2.3** when installed (`pip install openenv-core`)
-- `LifeStackEnv` exposes the standard `reset()` / `step()` / `render()` API and falls back to a local shim if OpenEnv is unavailable
-- Training script: **`LifeStack_Training.ipynb`** — runs end-to-end on Colab T4 GPU, Unsloth/TRL compatible
-- HuggingFace blog post: [BLOG.md](./BLOG.md)
+- **CLI Manifest:** See `openenv.yaml` for integration details.
 
 ---
 
@@ -143,18 +115,13 @@ Memory advantage: agents with retrieval-augmented memory outperform blind agents
 
 | File | Description |
 |---|---|
-| `lifestack_env.py` | Core OpenEnv environment — `reset()`, `step()`, `render()` with cascade propagation |
-| `life_state.py` | 6-domain, 23-sub-metric `LifeMetrics` dataclass + `DependencyGraph` with 20 edges |
-| `reward.py` | 4-component reward function with Pareto weighting and hard penalties |
-| `agent.py` | LLM-powered agent (Groq / llama-3.1-8b) with retry logic and JSON action parsing |
-| `conflict_generator.py` | 15 conflict templates across 5 difficulty levels with mid-episode escalation |
-| `action_space.py` | `AgentAction` / `PrimaryAction` / `CommunicationAction` dataclasses + `apply_action()` |
-| `simperson.py` | OCEAN personality model with `respond_to_action()` uptake scoring and drift |
-| `memory.py` | ChromaDB RAG memory — stores high-reward decisions, retrieves few-shot context |
-| `run_episode.py` | Full episode orchestrator — conflict → agent → apply → reward → memory loop |
-| `train.py` | 50-episode curriculum trainer with `training_log.json` and `reward_curve.png` output |
-| `app.py` | 3-tab Gradio demo — Live Demo, Try Your Situation, Training Results |
-| `LifeStack_Training.ipynb` | Google Colab notebook — full training pipeline, runs on free T4 GPU |
+| `core/task.py` | **NEW:** Dataclass schema for Tasks, ExoEvents, Routes, and Milestones |
+| `core/lifestack_env.py` | **UPDATED:** Logic for WorldEngine, PartialObsFilter, and Long-Horizon Step processing |
+| `core/reward.py` | **UPDATED:** Task-aware reward orchestrator with completion bonuses |
+| `agent/conflict_generator.py` | **NEW:** `TaskGenerator` class for automated crisis scenario building |
+| `agent/memory.py` | **UPDATED:** Trajectory storage and retrieval for episode-level learning |
+| `core/life_state.py` | Dependency graph with `METRIC_FLOOR` and BFS cascade bounding |
+| `app.py` | Gradio interface including the **Task Explorer** tab for real-time visualization |
 
 ---
 
