@@ -22,7 +22,7 @@ class LifeStackVerifier:
             val = hidden_state.get(cond['key'], world_state.get(cond['key']))
             results.append(val == cond['value'])
         # 2. Metric death
-        if any(v <= 0 for v in metrics_flat.values()):
+        if any(v <= 10 for v in metrics_flat.values()):
             results.append(True)
         return results
 
