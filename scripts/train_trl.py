@@ -227,7 +227,9 @@ def train(n_prompts=200, n_epochs=3, output_dir="./lifestack_model"):
         max_completion_length=256,
         num_generations=4,          # 4 completions per prompt
         logging_steps=10,
+        save_strategy="steps",
         save_steps=50,
+        save_total_limit=3,        # Keep last 3 checkpoints to prevent disk exhaustion
         report_to="none",          # Disable wandb for hackathon
         bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
         fp16=not (torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False),
@@ -243,7 +245,17 @@ def train(n_prompts=200, n_epochs=3, output_dir="./lifestack_model"):
 
     # Train
     print("\n[4/4] Training...")
-    trainer.train()
+    # Auto-resume from checkpoint to survive Colab limits
+    import os
+    from transformers.trainer_utils import get_last_checkpoint
+    
+    last_checkpoint = None
+    if os.path.exists(output_dir):
+        last_checkpoint = get_last_checkpoint(output_dir)
+        if last_checkpoint:
+            print(f"Resuming training from {last_checkpoint}")
+
+    trainer.train(resume_from_checkpoint=last_checkpoint)
 
     # Save
     trainer.save_model(output_dir)
