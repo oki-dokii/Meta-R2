@@ -239,7 +239,8 @@ def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) ->
                     },
                     "verifier": obs.metadata.get("info", []),
                     "breakdown": obs.metadata.get("breakdown", {}),
-                    "reward": reward
+                    "reward": reward,
+                    "suspicious": reward > 0.8 and not action.resource_cost
                 }
                 with open(SAMPLE_LOG_PATH, "a") as f:
                     f.write(json.dumps(log_entry) + "\n")
