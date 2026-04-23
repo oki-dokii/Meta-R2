@@ -14,13 +14,6 @@ class ToolActionType(str, Enum):
     ESCALATE = "escalate"
 
 @dataclass
-class ToolAction:
-    action_type: ToolActionType
-    target: str          # inspect target, execute target, communicate recipient, etc.
-    parameters: dict     # action-specific params
-    reasoning: str
-
-@dataclass
 class PrimaryAction:
     action_type: str  # reschedule, delegate, negotiate, spend, communicate, rest, deprioritize
     target_domain: str
@@ -51,24 +44,6 @@ def validate_action(action: AgentAction, budget: ResourceBudget) -> tuple[bool, 
         return False, f"Not enough energy (Needs {cost.get('energy')}u, has {budget.energy_units:.1f}u)"
     return True, ""
 
-def validate_tool_action(action: ToolAction, env_state: dict) -> tuple[bool, str]:
-    """
-    Checks logic for tool actions.
-    env_state should contain: inspected_keys (list), consecutive_waits (int), used_rollback (bool)
-    """
-    atype = action.action_type
-    if atype == ToolActionType.INSPECT:
-        if action.target in env_state.get('inspected_keys', []):
-            return False, f"Already inspected {action.target}."
-    
-    if atype == ToolActionType.WAIT:
-        if env_state.get('consecutive_waits', 0) >= 3:
-            return False, "Max consecutive waits (3) reached. Must act or escalate."
-            
-    if atype == ToolActionType.ROLLBACK:
-        if env_state.get('used_rollback', False):
-            return False, "Rollback already used in this episode."
-            
     return True, ""
 
 def apply_action(action: AgentAction, metrics: LifeMetrics, budget: ResourceBudget, person: SimPerson) -> tuple[LifeMetrics, ResourceBudget, float]:
