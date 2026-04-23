@@ -25,5 +25,5 @@ COPY . .
 # Expose port for Gradio/FastAPI
 EXPOSE 7860
 
-# Default command: run the demo app
-CMD ["python", "app.py"]
+# Default command: run the Flask demo app
+CMD ["python", "app_flask.py"]
