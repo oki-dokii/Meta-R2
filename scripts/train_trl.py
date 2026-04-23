@@ -196,6 +196,7 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
                 milestones=[],
                 horizon=meta.get("horizon", 30),
                 difficulty=meta.get("difficulty", 3),
+                domain_metadata={}
             )
         except Exception as e:
             print(f"[reward] Task construction failed: {e}")
@@ -210,6 +211,7 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         # 3. Step Env
         env = LifeStackEnv()
         env.reset(task=task, conflict=meta.get("disruption", {}))
+        initial_metrics = dict(env.state.current_metrics.flatten())
         action = LifeStackAction(
             action_type=data.get("action_type"),
             target=data.get("target_domain"),
@@ -220,11 +222,13 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             actions_taken=1
         )
         obs = env.step(action)
-        
+
         result = {
             "reward": float(obs.reward),
             "breakdown": obs.metadata.get("breakdown", {}),
-            "action": action
+            "action": action,
+            "obs_metrics": dict(obs.metrics),
+            "initial_metrics": initial_metrics
         }
 
         # 4. Global Logging
@@ -309,7 +313,7 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
         # Predicted observation from our env run
         # We need to wrap it in LifeStackObservation for the helper
         from core.lifestack_env import LifeStackObservation
-        obs = LifeStackObservation(metrics=eval_res["breakdown"].get("local_breakdown", {}).get("metrics_after", {}))
+        obs = LifeStackObservation(metrics=eval_res.get("obs_metrics", {}))
         
         # The initial metrics are needed to see if improvement was predicted correctly
         # Extract from prompt metadata (fallback to default)

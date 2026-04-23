@@ -477,7 +477,8 @@ class LifeStackEnv(_EnvBase):
                 completion=getattr(action, 'completion', ""),
                 conflict_domain=getattr(self._internal_state.current_conflict, 'title', "") if self._internal_state.current_conflict else "",
                 step_count=self._internal_state.step_count,
-                max_steps=self.max_steps
+                max_steps=self.max_steps,
+                metric_changes=action.metric_changes
             )
         else:
             reward, breakdown = compute_reward(

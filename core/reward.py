@@ -117,7 +117,7 @@ def compute_reward(
         plaus = reward_plausibility_check(metric_changes, resources_used)
         if plaus < 0:
             penalties += plaus
-            fired.append("PLAUISIBILITY_VIOLATION")
+            fired.append("PLAUSIBILITY_VIOLATION")
 
     # [NEW] Format Compliance (Only if raw completion provided)
     comp_reward = 0.0
@@ -185,10 +185,12 @@ def compute_task_reward(
     completion: str = "",
     conflict_domain: str = "",
     step_count: int = 0,
-    max_steps: int = 0
+    max_steps: int = 0,
+    metric_changes: dict = None
 ) -> tuple[float, dict]:
     # 1. Base local components via old logic
-    local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken)
+    local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken,
+                                                    metric_changes=metric_changes, completion=completion)
     
     # 2. Get orchestrator components
     local_metric_delta_score = local_reward
