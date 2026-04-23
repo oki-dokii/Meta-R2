@@ -36,22 +36,21 @@ class LifeStackMemory:
         norm = math.sqrt(sum(v * v for v in buckets)) or 1.0
         return [v / norm for v in buckets]
 
-    def store_decision(
+    def store_trajectory(
         self,
         conflict_title: str,
-        action_type: str,
-        target_domain: str,
-        reward: float,
-        metrics_snapshot: dict,
+        route_taken: str,
+        total_reward: float,
+        metrics_diff_str: str,
         reasoning: str
     ) -> None:
-        """Only stores high-reward decisions (reward >= 0.5) for good example learning."""
-        if reward < 0.5:
+        """Stores a full trajectory summary (only if total reward >= 2.0)."""
+        if total_reward < 2.0:
             if not self.silent:
-                print(f"Skipped (low reward {reward:.2f}): {action_type} → {target_domain}")
+                print(f"Skipped (low total reward {total_reward:.2f}): {route_taken}")
             return
 
-        text = f"{conflict_title} {action_type} {target_domain} {reasoning[:100]}"
+        text = f"{conflict_title} Route: {route_taken} Diff: {metrics_diff_str} {reasoning[:100]}"
         embedding = self._embed_text(text)
 
         doc_id = str(uuid.uuid4())
@@ -61,15 +60,15 @@ class LifeStackMemory:
             documents=[text],
             metadatas=[{
                 "conflict_title": conflict_title,
-                "action_type": action_type,
-                "target_domain": target_domain,
-                "reward": reward,
+                "route_taken": route_taken,
+                "metrics_diff": metrics_diff_str,
+                "reward": total_reward,
                 "reasoning": reasoning,
                 "timestamp": datetime.now().isoformat()
             }]
         )
         if not self.silent:
-            print(f"Stored decision: {action_type} → {target_domain} (reward: {reward:.2f})")
+            print(f"Stored trajectory: {route_taken} (reward: {total_reward:.2f})")
 
     def retrieve_similar(self, conflict_title: str, current_metrics: dict, n: int = 3) -> list[dict]:
         """Retrieves the n most similar past high-reward decisions using semantic search."""
@@ -92,10 +91,10 @@ class LifeStackMemory:
             distance = results['distances'][0][i]
             similarity = round(1.0 / (1.0 + distance), 4)
             output.append({
-                "action_type": meta["action_type"],
-                "target_domain": meta["target_domain"],
-                "reward": meta["reward"],
-                "reasoning": meta["reasoning"],
+                "route_taken": meta.get("route_taken", ""),
+                "metrics_diff": meta.get("metrics_diff", ""),
+                "reward": meta.get("reward", 0.0),
+                "reasoning": meta.get("reasoning", ""),
                 "similarity_score": similarity
             })
 
@@ -107,35 +106,37 @@ class LifeStackMemory:
         if not memories:
             return ""
 
-        lines = ["Past successful decisions in similar situations:\n"]
+        lines = ["Past successful trajectories in similar situations:\n"]
         for m in memories:
-            short_reason = m['reasoning'][:60]
+            short_reason = m['reasoning'][:80]
             lines.append(
-                f"  [{m['action_type']}] on [{m['target_domain']}] → reward {m['reward']:.2f} "
+                f"  Route [{m['route_taken']}] → impact [{m['metrics_diff']}] → total reward {m['reward']:.2f} "
                 f"(reasoning: {short_reason}...)"
             )
 
         return "\n".join(lines)
 
     def get_stats(self) -> dict:
-        """Returns memory stats: total count, average reward, and action_type breakdown."""
+        """Returns memory stats: total count, average reward, and route details."""
         if self.collection.count() == 0:
-            return {"total_memories": 0, "average_reward": 0.0, "by_action_type": {}}
+            return {"total_memories": 0, "average_reward": 0.0, "by_route": {}}
 
         all_records = self.collection.get(include=["metadatas"])
         metadatas = all_records["metadatas"]
 
         total = len(metadatas)
-        avg_reward = sum(m["reward"] for m in metadatas) / total
+        avg_reward = sum(m.get("reward", 0.0) for m in metadatas) / total
 
-        by_type = defaultdict(int)
+        by_route = defaultdict(int)
         for m in metadatas:
-            by_type[m["action_type"]] += 1
+            route = m.get("route_taken", "unknown")
+            first_action = route.split(' ')[0] if route else "unknown"
+            by_route[first_action] += 1
 
         return {
             "total_memories": total,
             "average_reward": round(avg_reward, 3),
-            "by_action_type": dict(by_type)
+            "by_route_start": dict(by_route)
         }
 
 

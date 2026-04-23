@@ -27,6 +27,7 @@ from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.reward import compute_reward
 from agent.conflict_generator import generate_conflict, TEMPLATES
 from intake.simperson import SimPerson
+from core.task import Task
 
 
 # ──────────────────────────────────────────────
@@ -69,15 +70,23 @@ def load_model():
 # 2. DATASET: Generate conflict prompts
 # ──────────────────────────────────────────────
 
-def build_prompt_for_conflict(conflict, person, metrics, budget):
-    """Build a structured prompt from conflict state."""
+def build_prompt_for_task(task, person, metrics, budget):
+    """Build a structured prompt from task state, embedding hidden metadata for the reward function."""
     flat = metrics.flatten()
     status = "\n".join(f"  {k}: {v:.1f}" for k, v in flat.items())
+    
+    metadata = {
+        "disruption": task.mutable_world,
+        "difficulty": task.difficulty,
+        "horizon": task.horizon
+    }
+    metadata_str = json.dumps(metadata)
 
     return (
         f"You are a life management AI. Resolve this crisis optimally.\n\n"
-        f"CONFLICT: {conflict.title}\n"
-        f"STORY: {conflict.story}\n\n"
+        f"<SYSTEM_METADATA>\n{metadata_str}\n</SYSTEM_METADATA>\n\n"
+        f"TASK: {task.goal}\n"
+        f"STORY: {task.domain_metadata.get('story', '')}\n\n"
         f"LIFE METRICS:\n{status}\n\n"
         f"RESOURCES: Time={budget.time_hours:.1f}h, "
         f"Money=${budget.money_dollars:.1f}, Energy={budget.energy_units:.1f}\n\n"
@@ -109,19 +118,38 @@ def generate_dataset(n_prompts: int = 200) -> Dataset:
     for _ in range(n_prompts):
         conflict = random.choice(TEMPLATES)
         person = random.choice(person_pool)
+        
+        # Convert ConflictEvent to Task schema
+        budget_dict = conflict.resource_budget if hasattr(conflict, 'resource_budget') and conflict.resource_budget else {}
+        task = Task(
+            id=conflict.id,
+            domain="life_conflict",
+            goal=conflict.title,
+            constraints={"budget": budget_dict},
+            hidden_state={},
+            mutable_world=conflict.primary_disruption,
+            visible_world=conflict.primary_disruption,
+            success_conditions=[],
+            failure_conditions=[],
+            event_schedule=[],
+            viable_routes=[],
+            milestones=[],
+            horizon=30,
+            difficulty=conflict.difficulty,
+            domain_metadata={"story": conflict.story}
+        )
+        
         metrics = LifeMetrics()
         graph = DependencyGraph()
-        metrics = graph.cascade(metrics, conflict.primary_disruption)
+        metrics = graph.cascade(metrics, task.mutable_world)
         
-        # NOTE: Using a robust way to extract default budget to prevent NoneType errs
-        budget_dict = conflict.resource_budget if hasattr(conflict, 'resource_budget') and conflict.resource_budget else {}
         budget = ResourceBudget(
-            time_hours=20.0,
+            time_hours=budget_dict.get("time", 20.0),
             money_dollars=budget_dict.get("money", 500.0),
-            energy_units=100.0,
+            energy_units=budget_dict.get("energy", 100.0),
         )
-        prompt = build_prompt_for_conflict(conflict, person, metrics, budget)
-        prompts.append({"prompt": prompt, "difficulty": conflict.difficulty})
+        prompt = build_prompt_for_task(task, person, metrics, budget)
+        prompts.append({"prompt": prompt, "difficulty": task.difficulty})
 
     return Dataset.from_list(prompts)
 
@@ -152,11 +180,15 @@ def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) ->
                 text = text[:-3]
             data = json.loads(text.strip())
 
-            # Reconstruct the conflict state from the prompt
-            # (We use a default disruption for simplicity — 
-            #  in production, encode the state in the prompt metadata)
+            # Reconstruct the conflict state from the prompt metadata
+            import re
+            m = re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, re.DOTALL)
+            disruption = {"career.workload": 25.0, "finances.liquidity": -30.0} # Fallback
+            if m:
+                meta = json.loads(m.group(1).strip())
+                disruption = meta.get("disruption", disruption)
+                
             state_before = LifeMetrics()
-            disruption = {"career.workload": 25.0, "finances.liquidity": -30.0}
             state_before = graph.cascade(state_before, disruption)
 
             # Apply the agent's proposed changes
@@ -296,7 +328,26 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
         budget = ResourceBudget(time_hours=20.0, money_dollars=500.0, energy_units=100.0)
         person = SimPerson(name="Eval")
 
-        prompt = build_prompt_for_conflict(conflict, person, metrics, budget)
+        budget_dict = conflict.resource_budget if hasattr(conflict, 'resource_budget') and conflict.resource_budget else {}
+        task = Task(
+            id=conflict.id,
+            domain="life_conflict",
+            goal=conflict.title,
+            constraints={"budget": budget_dict},
+            hidden_state={},
+            mutable_world=conflict.primary_disruption,
+            visible_world=conflict.primary_disruption,
+            success_conditions=[],
+            failure_conditions=[],
+            event_schedule=[],
+            viable_routes=[],
+            milestones=[],
+            horizon=30,
+            difficulty=conflict.difficulty,
+            domain_metadata={"story": conflict.story}
+        )
+
+        prompt = build_prompt_for_task(task, person, metrics, budget)
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
         with torch.no_grad():

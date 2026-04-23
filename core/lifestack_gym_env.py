@@ -41,7 +41,7 @@ class LifeStackGymEnv(gym.Env):
     """
     metadata = {"render_modes": ["human", "ansi"]}
 
-    def __init__(self, difficulty: int = None, render_mode: str = None):
+    def __init__(self, task=None, difficulty: int = None, render_mode: str = None, max_steps: int = 30):
         super().__init__()
         self.difficulty = difficulty
         self.render_mode = render_mode
@@ -59,7 +59,7 @@ class LifeStackGymEnv(gym.Env):
         self.conflict: ConflictEvent = None
         self.person: SimPerson = None
         self.step_count = 0
-        self.max_steps = 5
+        self.max_steps = getattr(task, 'horizon', max_steps) if task else max_steps
         self.last_reward = None
         self.last_breakdown = None
 

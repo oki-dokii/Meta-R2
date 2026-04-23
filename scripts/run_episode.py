@@ -45,7 +45,7 @@ def run_episode(
     # --------------------------------------------------
     # 1. SETUP
     # --------------------------------------------------
-    env = LifeStackEnv()
+    env = LifeStackEnv(max_steps=5)
     if agent is None:
         agent = LifeStackAgent()
     if memory is None:
@@ -77,6 +77,8 @@ def run_episode(
     total_reward = 0.0
     step_log = []
     conflicts_seen = [conflict.title]
+    route_taken = []
+    initial_metrics_flat = env.state.current_metrics.flatten()
 
     if verbose:
         print("\n" + "◆" * 60)
@@ -159,16 +161,9 @@ def run_episode(
         done = obs.done
         total_reward += step_reward
 
-        # Store high-quality decisions in memory
+        # Store in transient agent memory
         agent.store_decision(action, step_reward)
-        memory.store_decision(
-            conflict.title,
-            action.primary.action_type,
-            action.primary.target_domain,
-            step_reward,
-            env.state.current_metrics.flatten(),
-            action.reasoning
-        )
+        route_taken.append(f"{action.primary.action_type}({action.primary.target_domain})")
 
         # Log the step
         step_log.append({
@@ -192,6 +187,27 @@ def run_episode(
     # --------------------------------------------------
     # 3. EPISODE SUMMARY
     # --------------------------------------------------
+    final_flat = env.state.current_metrics.flatten()
+    
+    # Calculate difference string
+    diffs = []
+    for k, v_end in final_flat.items():
+        v_start = initial_metrics_flat.get(k, 0.0)
+        delta = v_end - v_start
+        if abs(delta) >= 1.0:
+            name = k.split('.')[-1]
+            sign = "+" if delta > 0 else ""
+            diffs.append(f"{name}:{sign}{delta:.1f}")
+    metrics_diff_str = ", ".join(diffs) if diffs else "no_change"
+
+    # Store full trajectory in ChromaDB
+    memory.store_trajectory(
+        conflict_title=conflict.title,
+        route_taken=" -> ".join(route_taken),
+        total_reward=total_reward,
+        metrics_diff_str=metrics_diff_str,
+        reasoning=f"Resolved with {env.state.step_count} steps. End critical: {len([k for k, v in final_flat.items() if v < 20])}"
+    )
     final_flat = env.state.current_metrics.flatten()
     critical = [k for k, v in final_flat.items() if v < 20]
     improved = [k for k, v in final_flat.items() if v > 70]

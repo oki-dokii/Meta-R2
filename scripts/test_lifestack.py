@@ -140,21 +140,20 @@ def test_memory_threshold():
     os.makedirs(test_dir, exist_ok=True)
     try:
         memory = LifeStackMemory(silent=True, path=test_dir)
-        rewards = [0.3, 0.5, 0.6, 0.4, 0.8]
+        rewards = [0.5, 1.5, 2.1, 2.5, 3.0]
 
         for i, r in enumerate(rewards):
-            memory.store_decision(
+            memory.store_trajectory(
                 conflict_title="test conflict",
-                action_type=f"action_{i}",
-                target_domain="test",
-                reward=r,
-                metrics_snapshot={},
+                route_taken=f"action_{i}",
+                total_reward=r,
+                metrics_diff_str="test_diff",
                 reasoning="test reasoning",
             )
 
-        expected = sum(1 for r in rewards if r >= 0.5)
+        expected = sum(1 for r in rewards if r >= 2.0)
         actual = memory.collection.count()
-        report("Memory threshold (only reward >= 0.5 stored)",
+        report("Memory threshold (only reward >= 2.0 stored)",
                actual == expected,
                f"expected {expected}, stored {actual} (rewards: {rewards})")
     finally:
@@ -163,7 +162,7 @@ def test_memory_threshold():
 
 # ─── 9. Episode Termination Test ─────────────────────────────────────────────
 def test_episode_termination():
-    env = LifeStackEnv()
+    env = LifeStackEnv(max_steps=5)
     obs = env.reset()
 
     done = False

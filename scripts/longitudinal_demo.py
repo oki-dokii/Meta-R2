@@ -26,22 +26,20 @@ class LongitudinalDemo:
         # defined in memory.py, which is correct (we only learn from SUCCESS).
         
         # Memory from Week 2 (Relationship success)
-        self.memory.store_decision(
+        self.memory.store_trajectory(
             conflict_title="Partner upset about dinner",
-            action_type="communicate",
-            target_domain="relationships",
-            reward=0.68,
-            metrics_snapshot={"relationships.romantic": 40, "mental_wellbeing.stress_level": 80},
+            route_taken="communicate(relationships)",
+            total_reward=2.68,
+            metrics_diff_str="romantic:+10.0, stress_level:-5.0",
             reasoning="Arjun's partner needs upfront communication about work delays, not just apologies later."
         )
         
         # Memory from a general work win
-        self.memory.store_decision(
+        self.memory.store_trajectory(
             conflict_title="Project Overload",
-            action_type="negotiate",
-            target_domain="career",
-            reward=0.75,
-            metrics_snapshot={"career.workload": 95, "mental_wellbeing.stress_level": 90},
+            route_taken="negotiate(career) -> delegate(career)",
+            total_reward=2.75,
+            metrics_diff_str="workload:-20.0, stress_level:-15.0",
             reasoning="For startup executives like Arjun, aggressive negotiation of deliverables works better than just 'resting' which leaves work pending."
         )
 

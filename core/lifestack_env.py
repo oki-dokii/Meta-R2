@@ -83,21 +83,22 @@ class LifeStackEnv(_EnvBase):
     """
     SUPPORTS_CONCURRENT_SESSIONS = True
     
-    def __init__(self):
+    def __init__(self, seed: Optional[int] = None, task=None, max_steps: int = 30):
         if USING_MODERN_API:
             super().__init__(rubric=LifeStackRubric())
         else:
             super().__init__()
+            
+        self.max_steps = getattr(task, 'horizon', max_steps) if task else max_steps
         
         self.metadata_internal = {
             'name': 'LifeStack-v1',
             'version': '1.1.0',
             'description': 'Premium multi-domain life conflict resolution simulation',
-            'max_episode_steps': 5
+            'max_episode_steps': self.max_steps
         }
         
         self.graph = DependencyGraph()
-        self.max_steps = 5
         self._internal_state = LifeStackState()
 
     def get_metadata(self):
@@ -135,8 +136,11 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.previous_budget = None
         
         # Scale budgets proportionally and check task constraints
-        self.max_steps = kwargs.get('horizon', getattr(self, 'max_steps', 5))
-        scale = self.max_steps / 5.0
+        task = kwargs.get('task')
+        current_max = getattr(self, 'max_steps', 30)
+        task_horizon = getattr(task, 'horizon', current_max) if task else current_max
+        self.max_steps = kwargs.get('horizon', task_horizon)
+        scale = max(1.0, self.max_steps / 5.0)
 
         constraints = kwargs.get('constraints', {})
         budget_override = constraints.get('budget', budget if budget else {})
