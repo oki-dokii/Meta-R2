@@ -75,10 +75,17 @@ def build_prompt_for_task(task, person, metrics, budget):
     flat = metrics.flatten()
     status = "\n".join(f"  {k}: {v:.1f}" for k, v in flat.items())
     
+    # NEW: Store more task metadata for reconstruction
     metadata = {
+        "goal": task.goal,
         "disruption": task.mutable_world,
         "difficulty": task.difficulty,
-        "horizon": task.horizon
+        "horizon": task.horizon,
+        "budget": {
+            "time": budget.time_hours,
+            "money": budget.money_dollars,
+            "energy": budget.energy_units
+        }
     }
     metadata_str = json.dumps(metadata)
 
@@ -160,68 +167,70 @@ def generate_dataset(n_prompts: int = 200) -> Dataset:
 
 def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """
-    Score each LLM completion using the LifeStack reward function.
-    
-    GRPO calls this for each group of completions per prompt.
-    Returns a list of float rewards.
+    Score each LLM completion using the real LifeStackEnv.
     """
+    from core.lifestack_env import LifeStackEnv, LifeStackAction
+    import re
+    
     rewards = []
-    graph = DependencyGraph()
+    env = LifeStackEnv()
 
     for completion, prompt in zip(completions, prompts):
         try:
-            # Parse the JSON action from the completion
+            # 1. Parse JSON from completion
             text = completion.strip()
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.startswith("```"):
-                text = text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
+            if "```json" in text:
+                text = text.split("```json")[-1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[-1].split("```")[0]
             data = json.loads(text.strip())
 
-            # Reconstruct the conflict state from the prompt metadata
-            import re
+            # 2. Extract Task Metadata from Prompt
             m = re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, re.DOTALL)
-            disruption = {"career.workload": 25.0, "finances.liquidity": -30.0} # Fallback
-            if m:
-                meta = json.loads(m.group(1).strip())
-                disruption = meta.get("disruption", disruption)
-                
-            state_before = LifeMetrics()
-            state_before = graph.cascade(state_before, disruption)
+            if not m:
+                rewards.append(-0.5)
+                continue
+            
+            meta = json.loads(m.group(1).strip())
+            
+            # Reconstruct Task object for env
+            task = Task(
+                id="grpo_eval",
+                domain="life_conflict",
+                goal=meta.get("goal", "Resolve Crisis"),
+                constraints={"budget": meta.get("budget", {})},
+                hidden_state={},
+                mutable_world=meta.get("disruption", {}),
+                visible_world=meta.get("disruption", {}),
+                success_conditions=[],
+                failure_conditions=[],
+                event_schedule=[],
+                viable_routes=[],
+                milestones=[],
+                horizon=meta.get("horizon", 30),
+                difficulty=meta.get("difficulty", 3)
+            )
 
-            # Apply the agent's proposed changes
-            state_after = copy.deepcopy(state_before)
-            metric_changes = data.get("metric_changes", {})
-            for path, delta in metric_changes.items():
-                if '.' not in path:
-                    continue
-                try:
-                    delta = float(delta)
-                except (ValueError, TypeError):
-                    continue
-                if abs(delta) > 5:
-                    state_after = graph.cascade(state_after, {path: delta})
-                else:
-                    dom, sub = path.split('.', 1)
-                    d = getattr(state_after, dom, None)
-                    if d and hasattr(d, sub):
-                        cur = getattr(d, sub)
-                        setattr(d, sub, max(0.0, min(100.0, cur + delta)))
+            # 3. Instantiate and Reset Env
+            env.reset(task=task, conflict=meta.get("disruption", {}))
 
-            resource_cost = data.get("resource_cost", {})
-            for k in resource_cost:
-                try:
-                    resource_cost[k] = float(resource_cost[k])
-                except (ValueError, TypeError):
-                    resource_cost[k] = 0.0
+            # 4. Convert model output to LifeStackAction
+            # Legacy actions map target_domain to 'target' in ToolAction logic if not using execute
+            action = LifeStackAction(
+                action_type=data.get("action_type"),
+                target=data.get("target_domain"),
+                metric_changes=data.get("metric_changes", {}),
+                resource_cost=data.get("resource_cost", {}),
+                reasoning=data.get("reasoning", ""),
+                actions_taken=1
+            )
 
-            reward, _ = compute_reward(state_before, state_after, resource_cost, actions_taken=1)
-            rewards.append(float(reward))
+            # 5. Step and collect real reward
+            obs = env.step(action)
+            rewards.append(float(obs.reward))
 
-        except (json.JSONDecodeError, KeyError, Exception):
-            # Invalid JSON or broken structure = penalty
+        except Exception as e:
+            # Invalid output = penalty
             rewards.append(-0.5)
 
     return rewards
