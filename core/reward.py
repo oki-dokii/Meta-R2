@@ -1,6 +1,7 @@
 import math
 import copy
 from core.life_state import LifeMetrics
+from core.task import Task
 
 def compute_reward(state_before: LifeMetrics, state_after: LifeMetrics, resources_used: dict, actions_taken: int) -> tuple[float, dict]:
     """
@@ -116,6 +117,98 @@ def compute_reward(state_before: LifeMetrics, state_after: LifeMetrics, resource
         "penalties_fired": fired,
         "metrics_worsened": worsened_count,
         "rel_delta": delta_rel
+    }
+    
+    return final_reward, breakdown
+
+def compute_milestone_reward(milestones_achieved: list[str], task: Task) -> float:
+    if not task.milestones:
+        return 0.0
+    total_possible = sum(m.reward for m in task.milestones)
+    if total_possible == 0:
+        return 0.0
+    achieved = sum(m.reward for m in task.milestones if m.id in milestones_achieved)
+    return min(1.0, achieved / total_possible)
+
+def compute_task_completion_reward(success_conditions_met: list[bool], task: Task) -> float:
+    if not success_conditions_met:
+        return 0.0
+    return sum(success_conditions_met) / len(success_conditions_met)
+
+def compute_replan_bonus(exo_events_seen: int, milestones_after_event: int) -> float:
+    # Scale bonus based on ability to bounce back after exogenous events
+    if exo_events_seen == 0:
+        return 0.0
+    return min(1.0, (milestones_after_event / exo_events_seen) * 0.5)
+
+def compute_dead_end_penalty(routes_remaining: int) -> float:
+    return -0.5 if routes_remaining <= 0 else 0.0
+
+def compute_task_reward(
+    state_before: LifeMetrics, 
+    state_after: LifeMetrics, 
+    resources_used: dict, 
+    actions_taken: int,
+    milestones_achieved: list[str],
+    success_conditions_met: list[bool],
+    exo_events_seen: int,
+    milestones_after_event: int,
+    routes_remaining: int,
+    rollback_used: bool,
+    cascade_collapse: bool,
+    task: Task
+) -> tuple[float, dict]:
+    # 1. Base local components via old logic
+    local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken)
+    
+    # 2. Get orchestrator components
+    local_metric_delta_score = local_reward
+    milestone_score = compute_milestone_reward(milestones_achieved, task)
+    completion_score = compute_task_completion_reward(success_conditions_met, task)
+    replan_score = compute_replan_bonus(exo_events_seen, milestones_after_event)
+    efficiency_score = local_breakdown["components"]["efficiency"]
+    
+    # 3. Weighted aggregation
+    # 10% local metric delta, 40% milestone rewards, 30% task completion, 10% replan bonus, 10% efficiency
+    base_reward = (
+        (0.10 * local_metric_delta_score) +
+        (0.40 * milestone_score) +
+        (0.30 * completion_score) +
+        (0.10 * replan_score) +
+        (0.10 * efficiency_score)
+    )
+    
+    # 4. Penalties
+    penalties = 0.0
+    fired = []
+    
+    dead_end_pen = compute_dead_end_penalty(routes_remaining)
+    if dead_end_pen < 0:
+        penalties += dead_end_pen
+        fired.append("DEAD_END")
+        
+    if rollback_used:
+        penalties += -0.1
+        fired.append("ROLLBACK_USED")
+        
+    if cascade_collapse:
+        penalties += -0.3
+        fired.append("CASCADE_COLLAPSE")
+        
+    final_reward = max(-1.0, min(1.0, base_reward + penalties))
+    
+    breakdown = {
+        "components": {
+            "local_metric_delta": local_metric_delta_score,
+            "milestone": milestone_score,
+            "completion": completion_score,
+            "replan": replan_score,
+            "efficiency": efficiency_score
+        },
+        "base_reward": base_reward,
+        "penalties_total": penalties,
+        "penalties_fired": fired,
+        "local_breakdown": local_breakdown
     }
     
     return final_reward, breakdown

@@ -167,18 +167,19 @@ class DependencyGraph:
         d = getattr(metrics, domain, None)
         return getattr(d, sub, 0.0) if d else 0.0
 
-    def _set_val(self, metrics: LifeMetrics, path: str, val: float):
+    def _set_val(self, metrics: LifeMetrics, path: str, val: float, is_cascade: bool = False):
         if '.' not in path:
             return
         domain_name, sub_name = path.split('.', 1)
         domain = getattr(metrics, domain_name, None)
         if domain is None or not hasattr(domain, sub_name):
             return
-        # Ensure values stay within METRIC_FLOOR - 100 range
-        clamped_val = max(METRIC_FLOOR, min(100.0, val))
+        # Ensure values stay within bounds
+        floor = METRIC_FLOOR if is_cascade else 0.0
+        clamped_val = max(floor, min(100.0, val))
         setattr(domain, sub_name, clamped_val)
 
-    def cascade(self, metrics: LifeMetrics, primary_disruption: dict, dampening: float = CASCADE_DAMPENING_DEFAULT) -> LifeMetrics:
+    def cascade(self, metrics: LifeMetrics, primary_disruption: dict, dampening: float = CASCADE_DAMPENING_DEFAULT, per_step_cascade_cap: int = 3) -> LifeMetrics:
         """Applies disruption and propagates effects through the dependency graph.
 
         The dampening factor (default 0.6) is grounded in three complementary
@@ -205,6 +206,7 @@ class DependencyGraph:
             metrics: Current LifeMetrics state.
             primary_disruption: Dict mapping 'domain.submetric' to delta float.
             dampening: Propagation decay per hop (default CASCADE_DAMPENING_DEFAULT = 0.6).
+            per_step_cascade_cap: Max nodes allowed to be affected in one step.
 
         Returns:
             LifeMetrics: New state with disruption and cascade effects applied.
@@ -216,7 +218,7 @@ class DependencyGraph:
             if '.' not in path:  # skip malformed keys from LLM
                 continue
             old_val = self._get_val(new_metrics, path)
-            self._set_val(new_metrics, path, old_val + amount)
+            self._set_val(new_metrics, path, old_val + amount, is_cascade=False)
             queue.append((path, amount))
 
         cascaded_metrics = set()
@@ -226,13 +228,13 @@ class DependencyGraph:
             
             if source_path in self.edges:
                 for target_path, weight in self.edges[source_path]:
-                    if target_path not in cascaded_metrics and len(cascaded_metrics) >= 3:
-                        continue  # Cap at max 3 metrics affected per step during cascade
+                    if target_path not in cascaded_metrics and len(cascaded_metrics) >= per_step_cascade_cap:
+                        continue  # Cap at max per_step_cascade_cap metrics affected
                         
                     impact = source_magnitude * weight * dampening
                     if abs(impact) >= 0.05:
                         old_target_val = self._get_val(new_metrics, target_path)
-                        self._set_val(new_metrics, target_path, old_target_val + impact)
+                        self._set_val(new_metrics, target_path, old_target_val + impact, is_cascade=True)
                         cascaded_metrics.add(target_path)
                         queue.append((target_path, impact))
         
