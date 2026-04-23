@@ -52,6 +52,7 @@ class LifeStackAction(Action):
     target: Optional[str] = Field(default=None, description="e.g. route_id or hidden_key")
     parameters: Dict[str, Any] = Field(default_factory=dict)
     reasoning: Optional[str] = Field(default=None)
+    completion: Optional[str] = Field(default=None)
 
     inspect_target: Optional[str] = Field(default=None, description="Optional hidden state key to inspect")
     is_rollback: bool = Field(default=False, description="Set true to rollback the previous action.")
@@ -462,6 +463,7 @@ class LifeStackEnv(_EnvBase):
                 cascade_collapse=collapse,
                 task=task,
                 reasoning=getattr(action, 'reasoning', ""),
+                completion=getattr(action, 'completion', ""),
                 conflict_domain=self._internal_state.conflict.title if self._internal_state.conflict else "",
                 step_count=self._internal_state.step_count,
                 max_steps=self.max_steps
@@ -471,7 +473,9 @@ class LifeStackEnv(_EnvBase):
                 state_before=state_before,
                 state_after=self._internal_state.current_metrics,
                 resources_used=resource_cost,
-                actions_taken=action.actions_taken
+                actions_taken=action.actions_taken,
+                metric_changes=scaled_changes,
+                completion=getattr(action, 'completion', "")
             )
 
         self._internal_state.step_count += 1

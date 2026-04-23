@@ -213,6 +213,7 @@ def lifestack_reward_fn(completions: list[str], prompts: list[str], **kwargs) ->
                 metric_changes=data.get("metric_changes", {}),
                 resource_cost=data.get("resource_cost", {}),
                 reasoning=data.get("reasoning", ""),
+                completion=completion,
                 actions_taken=1
             )
 
