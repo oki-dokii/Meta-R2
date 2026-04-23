@@ -1,3 +1,14 @@
+---
+title: LifeStack
+emoji: 🪐
+colorFrom: indigo
+colorTo: slate
+sdk: gradio
+sdk_version: 5.6.0
+app_file: app.py
+pinned: false
+---
+
 # LifeStack
 ### An RL Environment for Multi-Domain Life Conflict Resolution
 **Built for Meta × HuggingFace PyTorch OpenEnv Hackathon — Grand Finale 2026**
