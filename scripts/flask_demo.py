@@ -49,7 +49,7 @@ def get_status():
     """Returns the current state of the engine."""
     return jsonify({
         "metrics": env.state.current_metrics.flatten(),
-        "step_count": env.step_count
+        "step_count": env.state.step_count
     })
 
 if __name__ == '__main__':

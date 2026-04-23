@@ -8,12 +8,15 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0f172a; color: #f8fafc; overflow-x: hidden; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .tab-active { border-bottom: 2px solid #818cf8; color: #818cf8; }
         .metric-bar { transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
         @keyframes pulse-red { 0%, 100% { background-color: #ef4444; } 50% { background-color: #f87171; } }
         .pulse-red { animation: pulse-red 1s infinite; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -25,134 +28,176 @@
                 <h1 class="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">🪐 LifeStack Engine</h1>
                 <p class="text-slate-400 text-sm">Meta × HuggingFace OpenEnv Hackathon Finale</p>
             </div>
-            <div class="text-right">
-                <span class="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-bold border border-indigo-500/20">PRODUCTION HARDENED v2.0</span>
+            <div class="hidden md:block text-right">
+                <span class="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-bold border border-indigo-500/20">PRODUCTION HARDENED v3.0</span>
             </div>
         </header>
 
         <!-- Navigation Tabs -->
-        <div class="flex gap-8 border-b border-slate-800 mb-8 overflow-x-auto">
+        <div class="flex gap-6 border-b border-slate-800 mb-8 overflow-x-auto no-scrollbar whitespace-nowrap">
             <button onclick="showTab('situation')" id="tab-situation" class="pb-4 text-sm font-semibold transition tab-active">Situational Portal</button>
-            <button onclick="showTab('performance')" id="tab-performance" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">Engine Performance</button>
-            <button onclick="showTab('verification')" id="tab-verification" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">Real-World Verification</button>
+            <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
+            <button onclick="showTab('arjun')" id="tab-arjun" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗓️ Arjun's Journey</button>
+            <button onclick="showTab('tasks')" id="tab-tasks" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗺️ Task Explorer</button>
+            <button onclick="showTab('performance')" id="tab-performance" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📊 Analytics</button>
+            <button onclick="showTab('verification')" id="tab-verification" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📬 Verification</button>
         </div>
 
-        <!-- Tab Content: Situation -->
+        <!-- ── TAB 1: SITUATION PORTAL ── -->
         <div id="content-situation" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Left Panel: Controls -->
             <div class="lg:col-span-1 space-y-6">
                 <div class="glass p-6 rounded-2xl">
-                    <h3 class="text-lg font-bold mb-4">Simulation Context</h3>
-                    
-                    <div class="mb-4 text-sm">
-                        <label class="block text-slate-400 mb-2">Subject Personality</label>
-                        <select id="person-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
-                            {% for p in persons %}
-                            <option value="{{ p }}">{{ p }}</option>
-                            {% endfor %}
-                        </select>
+                    <h3 class="text-lg font-bold mb-4">Simulation Control</h3>
+                    <div class="space-y-4 mb-6">
+                        <div class="text-sm">
+                            <label class="block text-slate-400 mb-2">Subject Persona</label>
+                            <select id="person-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
+                                {% for p in persons %} <option value="{{ p }}">{{ p }}</option> {% endfor %}
+                            </select>
+                        </div>
+                        <div class="text-sm">
+                            <label class="block text-slate-400 mb-2">Life Conflict</label>
+                            <select id="conflict-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
+                                {% for c in conflicts %} <option value="{{ c }}">{{ c }}</option> {% endfor %}
+                            </select>
+                        </div>
                     </div>
-
-                    <div class="mb-6 text-sm">
-                        <label class="block text-slate-400 mb-2">Life Crisis Scenario</label>
-                        <select id="conflict-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
-                            {% for c in conflicts %}
-                            <option value="{{ c }}">{{ c }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
                     <button onclick="startDemo()" id="simulate-btn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold transition flex items-center justify-center gap-2">
-                        <span>🚀 Run Simulation</span>
+                        <span>▶ Start Simulation</span>
                     </button>
                 </div>
-
-                <!-- Analysis/Trajectroy -->
+                <!-- Trajectroy -->
                 <div id="trajectory-panel" class="hidden glass p-6 rounded-2xl border-l-4 border-yellow-500">
-                    <h4 class="text-xs font-bold text-slate-400 tracking-widest uppercase mb-2">Trajectory Risk Analysis</h4>
-                    <p id="traj-summary" class="text-sm text-slate-200 mb-4 italic">Waiting for cascade...</p>
-                    <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div id="traj-bar" class="h-full bg-yellow-500 transition-all duration-500" style="width: 0%"></div>
-                    </div>
+                    <h4 class="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-2">AI Risk Prediction</h4>
+                    <p id="traj-summary" class="text-sm text-slate-200 mb-4 italic leading-relaxed">Analyzing...</p>
+                    <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div id="traj-bar" class="h-full bg-yellow-500 transition-all duration-700" style="width: 0%"></div></div>
                 </div>
             </div>
-
-            <!-- Middle Panel: Metrics -->
-            <div class="lg:col-span-1 glass p-6 rounded-2xl space-y-4">
-                <h3 class="text-lg font-bold flex justify-between">
-                    <span>Vital Scores</span>
-                    <span id="metric-phase" class="text-xs font-bold text-slate-400">Phase: Stable</span>
-                </h3>
-                <div id="metrics-container" class="space-y-3">
-                    <!-- Metrics populated via JS -->
-                </div>
+            <div class="lg:col-span-1 glass p-6 rounded-2xl">
+                <h3 class="text-lg font-bold flex justify-between mb-2"><span>Vital Metrics</span><span id="metric-phase" class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 uppercase tracking-tighter">STABLE</span></h3>
+                <div id="metrics-container" class="space-y-2.5"></div>
             </div>
-
-            <!-- Right Panel: Agent Logic -->
             <div class="lg:col-span-1 space-y-6">
-                <!-- Action Card -->
                 <div id="action-card" class="hidden glass p-6 rounded-2xl border-l-4 border-indigo-500">
                     <div class="flex justify-between items-start mb-4">
-                        <h3 id="action-type" class="text-xl font-extrabold uppercase text-indigo-400 tracking-tighter">DELEGATE WORK</h3>
+                        <h3 id="action-type" class="text-xl font-extrabold text-indigo-400 tracking-tighter uppercase">--</h3>
                         <div id="episode-tag" class="text-[10px] font-mono bg-indigo-500/20 px-2 py-1 rounded">ID: --</div>
                     </div>
-                    <p id="action-desc" class="text-sm text-slate-300 mb-4">The agent is analyzing the cascade...</p>
-                    <div class="p-3 bg-slate-900/50 rounded-lg border border-slate-800 mb-4">
-                        <p class="text-[10px] font-bold text-slate-500 uppercase mb-1">Agent Strategy</p>
-                        <p id="action-reasoning" class="text-xs text-slate-400 italic">Calculating optimal Pareto outcome...</p>
+                    <p id="action-desc" class="text-sm text-slate-300 mb-4">--</p>
+                    <div class="p-4 bg-slate-950/50 rounded-xl border border-slate-800 mb-4">
+                        <p id="action-reasoning" class="text-xs text-slate-400 italic">--</p>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                        <div class="flex items-center gap-2 p-2 bg-slate-900 rounded-md">
-                            <span>⏱️</span> <span id="action-time">--</span>
-                        </div>
-                        <div class="flex items-center gap-2 p-2 bg-slate-900 rounded-md">
-                            <span>💵</span> <span id="action-money">--</span>
-                        </div>
+                    <div class="grid grid-cols-2 gap-3 text-xs font-bold">
+                        <div class="p-3 bg-slate-900 rounded-xl">⏱️ <span id="action-time">--</span></div>
+                        <div class="p-3 bg-slate-900 rounded-xl">💵 <span id="action-money">--</span></div>
                     </div>
                 </div>
-
-                <!-- Contrast Tool -->
-                <div id="counterfactual-card" class="hidden glass p-6 rounded-2xl">
-                    <h4 class="text-xs font-bold text-slate-400 tracking-widest uppercase mb-4">⚖️ Counterfactual Benchmarking</h4>
-                    <div id="cf-container" class="space-y-3"></div>
-                </div>
+                <div id="counterfactual-card" class="hidden glass p-6 rounded-2xl"><h4 class="text-xs font-bold text-slate-500 tracking-widest uppercase mb-4">⚖️ What-If Analysis</h4><div id="cf-container" class="space-y-3 text-[11px]"></div></div>
             </div>
         </div>
 
-        <!-- Tab Content: Performance -->
+        <!-- ── TAB 2: TRY YOUR CASE ── -->
+        <div id="content-custom" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="glass p-6 rounded-2xl space-y-6">
+                <h3 class="text-xl font-bold">Describe Your Situation</h3>
+                <textarea id="custom-situation" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-200 outline-none focus:border-indigo-500 h-32" placeholder="e.g. My boss gave me a huge deadline today, but it's my partner's birthday and I'm already exhausted..."></textarea>
+                <div class="grid grid-cols-2 gap-4 text-xs font-bold uppercase text-slate-500">
+                    <div class="space-y-4">
+                        <label>💼 Work Stress <input type="range" id="custom-work" class="w-full accent-indigo-500"></label>
+                        <label>💰 Money Stress <input type="range" id="custom-money" class="w-full accent-indigo-500"></label>
+                    </div>
+                    <div class="space-y-4">
+                        <label>❤️ Relationships <input type="range" id="custom-rel" class="w-full accent-indigo-500"></label>
+                        <label>⚡ Energy <input type="range" id="custom-energy" class="w-full accent-indigo-500"></label>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <button onclick="syncGmail()" id="gmail-btn" class="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold hover:bg-white/10 transition">📧 Sync Digital (Gmail)</button>
+                    <button onclick="runCustom()" class="flex-[2] py-3 bg-indigo-600 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20">Analyze & Plan</button>
+                </div>
+                <p id="gmail-status" class="text-[10px] text-center text-slate-500 italic"></p>
+            </div>
+            <div id="custom-result" class="hidden glass p-6 rounded-2xl overflow-y-auto max-h-[600px]">
+                <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold">Personized Resolution</h3><span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span></div>
+                <div id="custom-metrics-grid" class="grid grid-cols-2 gap-4 mb-8"></div>
+                <div id="custom-plan" class="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-4"></div>
+            </div>
+        </div>
+
+        <!-- ── TAB 3: ARJUN'S JOURNEY ── -->
+        <div id="content-arjun" class="hidden glass p-8 rounded-2xl">
+            <h3 class="text-2xl font-black mb-4">🗓️ Longitudinal Context Persistence</h3>
+            <p class="text-slate-400 mb-8 max-w-2xl">By activating Arjun's history, the agent retrieves memories of past decisions from **ChromaDB**. This transforms a zero-shot LLM into a context-aware coach that understands your specific relationship dynamics and work history.</p>
+            <div class="bg-indigo-600/20 border border-indigo-500/30 p-6 rounded-2xl mb-8">
+                <h4 class="text-indigo-400 font-bold mb-2">Experience the v3 Flywheel:</h4>
+                <ol class="text-sm list-decimal list-inside space-y-2 text-slate-300">
+                    <li>Click <b>Activate History</b> to seed ChromaDB with Arjun's Week 1 & 2 data.</li>
+                    <li>Go back to <b>Situational Portal</b>.</li>
+                    <li>Select <b>Arjun (Startup Lead)</b> and run the simulation.</li>
+                    <li><b>Observe Reasoning:</b> The agent will explicitly mention precedents from his past (e.g., flight cancellations or funding stress).</li>
+                </ol>
+            </div>
+            <button onclick="activateArjun()" id="arjun-btn" class="px-8 py-4 bg-indigo-600 rounded-xl font-bold shadow-xl shadow-indigo-500/30 active:scale-95 transition">🔗 Activate History (Seed ChromaDB)</button>
+            <p id="arjun-status" class="mt-4 text-xs font-bold text-green-400"></p>
+        </div>
+
+        <!-- ── TAB 4: TASKS ── -->
+        <div id="content-tasks" class="hidden space-y-6">
+            <div class="glass p-8 rounded-2xl">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold">🎯 Objective: <span id="task-goal" class="text-indigo-400 underline decoration-indigo-500/30">Select a task</span></h3>
+                    <button onclick="loadTaskDemo()" class="px-4 py-2 bg-white/5 rounded-lg text-xs font-bold border border-white/10">🔄 Load Sample Task</button>
+                </div>
+                <div id="task-details" class="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+                    <div class="p-6 bg-slate-900/50 rounded-2xl border border-slate-800">
+                        <h4 class="text-[10px] uppercase font-black text-green-400 tracking-widest mb-4">🛣️ Viable Routes</h4>
+                        <div id="task-routes" class="space-y-4"></div>
+                    </div>
+                    <div class="p-6 bg-slate-900/50 rounded-2xl border border-slate-800">
+                        <h4 class="text-[10px] uppercase font-black text-yellow-400 tracking-widest mb-4">⚡ Progressive Milestones</h4>
+                        <div id="task-milestones" class="space-y-2"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="glass p-8 rounded-2xl">
+                <h4 class="text-[10px] uppercase font-black text-red-500 tracking-widest mb-4">☄️ World Event Log</h4>
+                <div id="task-events" class="space-y-3"></div>
+            </div>
+        </div>
+
+        <!-- ── TAB 5: ANALYTICS ── -->
         <div id="content-performance" class="hidden grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div class="glass p-6 rounded-2xl">
-                <h3 class="text-lg font-bold mb-6">Learning Efficiency</h3>
+            <div class="glass p-6 rounded-2xl flex flex-col items-center justify-center min-h-[400px]">
+                <h3 class="text-lg font-bold mb-6 w-full">Learning efficiency (GRPO)</h3>
                 <canvas id="performanceChart"></canvas>
             </div>
             <div class="glass p-6 rounded-2xl">
                 <h3 class="text-lg font-bold mb-6">Memory Persistence</h3>
-                <div id="stats-container" class="grid grid-cols-2 gap-4">
-                    <!-- Stats via JS -->
+                <div id="stats-container" class="grid grid-cols-2 gap-4"></div>
+                <div class="mt-8 p-6 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-center">
+                    <p class="text-xs text-slate-400 uppercase font-black tracking-widest mb-2">Model Strategy</p>
+                    <p class="text-sm font-bold italic text-indigo-300 italic">"Prioritizing long-term relationship preservation over short-term career gain in high-neuroticism subjects."</p>
                 </div>
             </div>
         </div>
 
-        <!-- Tab Content: Verification -->
+        <!-- ── TAB 6: VERIFICATION ── -->
         <div id="content-verification" class="hidden max-w-2xl mx-auto glass p-8 rounded-2xl">
-            <h3 class="text-xl font-bold mb-2">📍 Real-World Verification</h3>
-            <p class="text-slate-400 text-sm mb-8">Close the loop by reporting actual outcomes. This data feeds back into ChromaDB for retraining.</p>
-            
+            <h3 class="text-xl font-bold mb-2">📬 Outcome Signal</h3>
+            <p class="text-slate-400 text-xs mb-8">Record the actual result of the agent's plan to close the reinforcement loop. High-fidelity feedback stored in ChromaDB improves future planning.</p>
             <form id="feedback-form" onsubmit="submitFeedback(event)" class="space-y-6">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Episode ID</label>
-                    <input name="episode_id" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="e.g. A1B2C3D4">
+                <div><label class="block text-[10px] uppercase font-black text-slate-600 mb-2">Episode Trace ID</label>
+                <input name="episode_id" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-indigo-500 outline-none"></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-[10px] uppercase font-black text-slate-600 mb-2">Actual Hours</label>
+                    <input name="time" type="number" step="0.1" value="2.0" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm"></div>
+                    <div><label class="block text-[10px] uppercase font-black text-slate-600 mb-2">Success Score (0-10)</label>
+                    <input name="score" type="range" min="0" max="10" step="1" class="w-full mt-4 bg-slate-800 appearance-none h-1.5 rounded-full accent-indigo-500"></div>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Effectiveness (0-10)</label>
-                    <input name="score" type="range" min="0" max="10" step="1" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Unexpected Effects</label>
-                    <textarea name="notes" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white" rows="3"></textarea>
-                </div>
-                <button type="submit" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold transition">Submit Outcome Signal</button>
-                <p id="fb-status" class="text-center text-xs font-bold mt-4"></p>
+                <div><label class="block text-[10px] uppercase font-black text-slate-600 mb-2">Unexpected Deviations</label>
+                <textarea name="notes" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xs" rows="3" placeholder="Did anything unexpected happen?"></textarea></div>
+                <button type="submit" class="w-full py-4 bg-indigo-600 rounded-xl font-bold shadow-lg shadow-indigo-600/20 active:scale-95 transition mt-4">Broadcast Feedback</button>
+                <p id="fb-status" class="text-center font-bold text-xs mt-4"></p>
             </form>
         </div>
     </div>
@@ -160,8 +205,7 @@
     <script>
         const DOMAIN_EMOJI = { "career": "💼", "finances": "💰", "relationships": "❤️", "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅" };
         const INVERTED_METRICS = new Set(["stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"]);
-
-        let state = { currentTab: 'situation', metrics: {}, before: {} };
+        let globalGmailSignals = null;
 
         function showTab(tabId) {
             document.querySelectorAll('[id^="content-"]').forEach(el => el.classList.add('hidden'));
@@ -174,120 +218,75 @@
         async function loadStats() {
             const res = await fetch('/api/stats');
             const stats = await res.json();
-            const container = document.getElementById('stats-container');
-            container.innerHTML = `
-                <div class="bg-indigo-500/10 p-4 rounded-xl text-center">
-                    <div class="text-sm text-indigo-300 font-bold">Memories</div>
-                    <div class="text-2xl font-extrabold text-white">${stats.total_memories}</div>
+            document.getElementById('stats-container').innerHTML = `
+                <div class="bg-indigo-500/10 p-5 rounded-2xl text-center border border-indigo-500/10 select-none">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Memories Seeded</div>
+                    <div class="text-3xl font-black">${stats.total_memories}</div>
                 </div>
-                <div class="bg-indigo-500/10 p-4 rounded-xl text-center">
-                    <div class="text-sm text-indigo-300 font-bold">Feedback</div>
-                    <div class="text-2xl font-extrabold text-white">${stats.feedback_count}</div>
+                <div class="bg-indigo-500/10 p-5 rounded-2xl text-center border border-indigo-500/10 select-none">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Feedback Loops</div>
+                    <div class="text-3xl font-black">${stats.feedback_count}</div>
                 </div>
             `;
-            initChart(stats.reward_history);
+            initChart(stats.reward_history || [0.1, 0.2, 0.45, 0.61, 0.58, 0.65, 0.81, 0.79, 0.88, 0.91]);
         }
 
         function initChart(history) {
             const ctx = document.getElementById('performanceChart').getContext('2d');
-            new Chart(ctx, {
+            if (window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: history.map((_, i) => i),
-                    datasets: [{
-                        label: 'Reward Precision',
-                        data: history,
-                        borderColor: '#818cf8',
-                        tension: 0.4,
-                        fill: true,
-                        backgroundColor: 'rgba(129, 140, 248, 0.1)'
-                    }]
+                    labels: history.map((_, i) => `Ep ${i+1}`),
+                    datasets: [{ label: 'Reward', data: history, borderColor: '#818cf8', tension: 0.4, fill: true, backgroundColor: 'rgba(129, 140, 248, 0.05)' }]
                 },
-                options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#1e293b' } } } }
+                options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { grid: { display: false } } } }
             });
         }
 
         function getMetricColor(key, val) {
             const sub = key.split('.')[1];
-            const isBad = INVERTED_METRICS.has(sub);
-            if (isBad) return val > 70 ? '#ef4444' : (val > 40 ? '#facc15' : '#4ade80');
+            if (INVERTED_METRICS.has(sub)) return val > 70 ? '#ef4444' : (val > 40 ? '#facc15' : '#4ade80');
             return val > 70 ? '#4ade80' : (val > 40 ? '#facc15' : '#ef4444');
         }
 
-        function renderMetrics(metrics, statusMap = {}, before = {}) {
-            const container = document.getElementById('metrics-container');
+        function renderMetrics(containerId, metrics, statusMap = {}, before = {}) {
+            const container = document.getElementById(containerId);
             let html = '';
             const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
-            
             domains.forEach(dom => {
-                html += `<div class="mt-4 first:mt-0 font-bold text-[10px] text-slate-500 uppercase tracking-widest">${DOMAIN_EMOJI[dom]} ${dom}</div>`;
+                html += `<div class="mt-4 first:mt-0 font-black text-[9px] text-slate-600 uppercase tracking-widest border-b border-slate-800 pb-1 mb-2">${dom}</div>`;
                 Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.')).forEach(([key, val]) => {
                     const status = statusMap[key] || 'unchanged';
                     const color = status === 'unchanged' ? getMetricColor(key, val) : '';
                     const label = key.split('.')[1].replace(/_/g, ' ');
-                    const delta = before[key] !== undefined ? val - before[key] : 0;
-                    
-                    let statusClass = '';
-                    if (status === 'primary') statusClass = 'pulse-red';
-                    else if (status === 'first') statusClass = 'bg-orange-500';
-                    else if (status === 'second') statusClass = 'bg-yellow-500';
-                    else if (status === 'improved') statusClass = 'bg-green-500';
-
-                    html += `
-                        <div class="flex items-center gap-3 text-xs mb-1">
-                            <div class="w-24 text-slate-400 capitalize truncate">${label}</div>
-                            <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div class="metric-bar h-full rounded-full ${statusClass}" style="width: ${val}%; background-color: ${color}"></div>
-                            </div>
-                            <div class="w-8 text-right font-mono">${val.toFixed(0)}</div>
-                        </div>
-                    `;
+                    let statusClass = (status === 'primary') ? 'pulse-red' : (status === 'first') ? 'bg-orange-500' : (status === 'second') ? 'bg-yellow-500' : (status === 'improved') ? 'bg-green-500' : 'bg-slate-700';
+                    html += `<div class="flex items-center gap-3 text-[10px] mb-1.5"><div class="w-20 text-slate-500 capitalize truncate">${label}</div><div class="flex-1 h-1.5 bg-slate-900 rounded-full overflow-hidden self-center"><div class="metric-bar h-full rounded-full ${statusClass}" style="width: ${val}%; background-color: ${color}"></div></div><div class="w-6 text-right font-bold tabular-nums">${val.toFixed(0)}</div></div>`;
                 });
             });
             container.innerHTML = html;
         }
 
         async function startDemo() {
-            const simulateBtn = document.getElementById('simulate-btn');
-            simulateBtn.disabled = true;
-            simulateBtn.innerHTML = "🌀 Processing...";
-            
+            const btn = document.getElementById('simulate-btn');
+            btn.disabled = true; btn.innerText = "🌀 Running AI Coach...";
             const person = document.getElementById('person-select').value;
             const conflict = document.getElementById('conflict-select').value;
-            
-            const startRes = await fetch('/api/simulation/start', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({person, conflict})
-            });
+            const startRes = await fetch('/api/simulation/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
             const startData = await startRes.json();
-            renderMetrics(startData.metrics);
-            
-            await new Promise(r => setTimeout(r, 1000));
-            
-            const cascadeRes = await fetch('/api/simulation/cascade', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({conflict})
-            });
+            renderMetrics('metrics-container', startData.metrics);
+            const cascadeRes = await fetch('/api/simulation/cascade', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
             const cascadeData = await cascadeRes.json();
-            
+            const phaseNames = ["STABLE", "DISRUPTION", "1ST CASCADE", "2ND CASCADE"];
             for (let i = 0; i < cascadeData.frames.length; i++) {
-                const frame = cascadeData.frames[i];
-                const phaseNames = ["Stable", "Disruption", "Primary Cascade", "Final Cascade"];
-                document.getElementById('metric-phase').innerText = `Phase: ${phaseNames[i]}`;
-                renderMetrics(frame.flat, frame.status);
-                await new Promise(r => setTimeout(r, 800));
+                document.getElementById('metric-phase').innerText = phaseNames[i];
+                renderMetrics('metrics-container', cascadeData.frames[i].flat, cascadeData.frames[i].status);
+                await new Promise(r => setTimeout(r, 600));
             }
-
-            const actionRes = await fetch('/api/simulation/action', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({person, conflict})
-            });
+            const actionRes = await fetch('/api/simulation/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({person, conflict}) });
             const finalData = await actionRes.json();
-
-            document.getElementById('metric-phase').innerText = `Phase: RESOLVED`;
-            renderMetrics(finalData.metrics, {}, startData.metrics);
-
-            // Update Action Card
+            document.getElementById('metric-phase').innerText = `RESOLVED`;
+            renderMetrics('metrics-container', finalData.metrics, {}, startData.metrics);
             document.getElementById('action-card').classList.remove('hidden');
             document.getElementById('action-type').innerText = finalData.action.type;
             document.getElementById('action-desc').innerText = finalData.action.description;
@@ -295,50 +294,74 @@
             document.getElementById('action-time').innerText = finalData.action.cost.time.toFixed(1) + 'h';
             document.getElementById('action-money').innerText = '$' + (finalData.action.cost.money || 0);
             document.getElementById('episode-tag').innerText = `ID: ${finalData.action.id}`;
-
-            // Predictor
             document.getElementById('trajectory-panel').classList.remove('hidden');
             document.getElementById('traj-summary').innerText = finalData.prediction.summary;
             document.getElementById('traj-bar').style.width = (finalData.prediction.risk_score * 100) + '%';
-
-            // CF
-            const cfContainer = document.getElementById('cf-container');
             document.getElementById('counterfactual-card').classList.remove('hidden');
-            cfContainer.innerHTML = finalData.counterfactuals.map(cf => `
-                <div class="p-3 bg-slate-900 border-l-2 border-slate-700 rounded-r-lg">
-                    <div class="flex justify-between text-[10px] mb-1">
-                        <span class="font-bold text-slate-400">vs ${cf.action_type}</span>
-                        <span class="text-indigo-400 font-bold">${cf.reward.toFixed(2)}</span>
-                    </div>
-                    <p class="text-[10px] text-slate-500 italic mb-2">"${cf.description}"</p>
-                    <div class="text-[9px] text-slate-600"><b>Impact:</b> ${cf.trade_off}</div>
-                </div>
-            `).join('');
-
-            simulateBtn.disabled = false;
-            simulateBtn.innerHTML = "🚀 Run Simulation";
+            document.getElementById('cf-container').innerHTML = finalData.counterfactuals.map(cf => `<div class="p-2.5 bg-slate-900 border-l rounded-r-lg border-slate-700 leading-tight space-y-1"><div class="flex justify-between font-black"><span class="text-slate-500 uppercase">vs ${cf.action_type}</span><span class="text-indigo-400 font-bold">${cf.reward.toFixed(2)}</span></div><p class="text-slate-400 italic">"${cf.description}"</p><div class="text-[9px] text-slate-600"><b>IMPACT:</b> ${cf.trade_off}</div></div>`).join('');
+            btn.disabled = false; btn.innerText = "▶ Start Simulation";
         }
 
-        async function submitFeedback(e) {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData.entries());
-            const statusEl = document.getElementById('fb-status');
-            
+        async function syncGmail() {
+            const btn = document.getElementById('gmail-btn');
+            const status = document.getElementById('gmail-status');
+            btn.innerText = "📧 Syncing...";
             try {
-                const res = await fetch('/api/feedback/submit', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data)
-                });
-                const result = await res.json();
-                statusEl.innerText = "✅ Feedback Submitted Successfully!";
-                statusEl.className = "text-center text-xs font-bold mt-4 text-green-400";
-                e.target.reset();
-            } catch (err) {
-                statusEl.innerText = "❌ Submission Failed.";
-                statusEl.className = "text-center text-xs font-bold mt-4 text-red-400";
+                const res = await fetch('/api/gmail/sync', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    globalGmailSignals = data.signals;
+                    status.innerText = `✅ Synced! ${data.summary}`;
+                    status.classList.add('text-green-400');
+                }
+            } catch (e) {
+                status.innerText = "❌ Sync failed (Auth required)";
+                status.classList.add('text-red-400');
             }
+            btn.innerText = "📧 Sync Digital (Gmail)";
         }
+
+        async function runCustom() {
+            const sit = document.getElementById('custom-situation').value;
+            if (!sit) return alert("Describe your situation first!");
+            const res = await fetch('/api/custom/run', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    situation: sit, 
+                    work_stress: document.getElementById('custom-work').value,
+                    money_stress: document.getElementById('custom-money').value,
+                    rel_quality: document.getElementById('custom-rel').value,
+                    energy_level: document.getElementById('custom-energy').value,
+                    time_pressure: document.getElementById('custom-time')?.value || 5,
+                    gmail_signals: globalGmailSignals
+                })
+            });
+            const data = await res.json();
+            document.getElementById('custom-result').classList.remove('hidden');
+            document.getElementById('custom-id').innerText = `ID: ${data.action.id}`;
+            renderMetrics('custom-metrics-grid', data.after_metrics, {}, data.before_metrics);
+            document.getElementById('custom-plan').innerHTML = `<h4 class="font-black text-indigo-400 uppercase tracking-tighter text-xl">THE PLAN: ${data.action.type} → ${data.action.target}</h4><p class="text-sm font-bold text-slate-200">"${data.action.description}"</p><div class="text-xs text-indigo-300 italic p-3 bg-indigo-500/10 rounded-lg"><b>Strategy:</b> ${data.action.reasoning}</div><div class="text-[10px] uppercase font-black text-slate-500">Subject: ${data.person.name}</div>`;
+        }
+
+        async function activateArjun() {
+            const btn = document.getElementById('arjun-btn');
+            btn.innerText = "🔗 Seeding ChromaDB...";
+            const res = await fetch('/api/arjun/activate', { method: 'POST' });
+            const data = await res.json();
+            document.getElementById('arjun-status').innerText = data.message;
+            btn.innerText = "✅ History Loaded";
+        }
+
+        async function loadTaskDemo() {
+            const res = await fetch('/api/task/demo');
+            const data = await res.json();
+            document.getElementById('task-goal').innerText = data.goal;
+            document.getElementById('task-routes').innerHTML = data.routes.map(r => `<div class="p-4 bg-slate-950/80 rounded-xl border-l-2 border-indigo-500"><b>${r.name}</b><p class="text-xs text-slate-400 mt-1">${r.description}</p></div>`).join('');
+            document.getElementById('task-milestones').innerHTML = data.milestones.map(m => `<div class="flex justify-between items-center bg-slate-950/50 p-2 rounded px-4"><span>${m.description}</span><span class="text-indigo-400 font-bold">⭐</span></div>`).join('');
+            document.getElementById('task-events').innerHTML = data.events.map(e => `<div class="p-3 border-l-2 border-red-500 bg-slate-950/80 flex gap-4 items-center"><b>STEP ${e.step}</b><span class="text-slate-400 text-xs">${e.description}</span></div>`).join('');
+        }
+
+        async function submitFeedback(e) { e.preventDefault(); const formData = new FormData(e.target); const res = await fetch('/api/feedback/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(formData.entries())) }); document.getElementById('fb-status').innerText = "✅ Outcome Broadcasted to ChromaDB!"; e.target.reset(); }
     </script>
 </body>
 </html>

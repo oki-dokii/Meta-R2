@@ -1,6 +1,7 @@
 """
-app_flask.py — LifeStack Flask Portal
+app_flask.py — LifeStack Flask Portal (FULL FEATURE PARITY)
 Complete migration of the Gradio demo to a Flask-native architecture.
+Includes: Live Demo, Custom Situations, Gmail Sync, Longitudinal Analysis, Task Explorer.
 """
 
 import os
@@ -25,6 +26,7 @@ from scripts.longitudinal_demo import LongitudinalDemo
 from intake.gmail_intake import GmailIntake
 from core.task import Task, ExoEvent, Route, Milestone
 from core.feedback import OutcomeFeedback, compute_human_feedback_reward
+from core.cascade_utils import animate_cascade
 
 app = Flask(__name__)
 app.secret_key = "lifestack_secret_key_2026"
@@ -64,12 +66,6 @@ DOMAIN_EMOJI = {
 }
 INVERTED_METRICS = {"stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"}
 
-def _metric_color(key: str, val: float) -> str:
-    sub = key.split(".")[-1]
-    if sub in INVERTED_METRICS:
-        return "#f87171" if val > 70 else ("#facc15" if val >= 40 else "#4ade80")
-    return "#4ade80" if val > 70 else ("#facc15" if val >= 40 else "#f87171")
-
 def _normalize_action_metric_changes(action) -> None:
     fixed_changes = {}
     for path, delta in action.primary.metric_changes.items():
@@ -93,13 +89,9 @@ def index():
 @app.route('/api/simulation/start', methods=['POST'])
 def start_simulation():
     data = request.json
-    person_label = data.get('person')
     conflict_label = data.get('conflict')
-    
-    conflict = CONFLICT_CHOICES[conflict_label]
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
     base_metrics = LifeMetrics()
-    
-    # Simple direct return for start frame
     flat = base_metrics.flatten()
     return jsonify({
         "status": "success",
@@ -114,9 +106,7 @@ def start_simulation():
 def get_cascade_frames():
     data = request.json
     conflict_label = data.get('conflict')
-    conflict = CONFLICT_CHOICES[conflict_label]
-    
-    from app import animate_cascade
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
     frames = animate_cascade(conflict.primary_disruption, LifeMetrics())
     return jsonify({"frames": frames})
 
@@ -126,8 +116,8 @@ def perform_action():
     person_label = data.get('person')
     conflict_label = data.get('conflict')
     
-    conflict = CONFLICT_CHOICES[conflict_label]
-    person = PERSONS[person_label]
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+    person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
     
     env = LifeStackEnv()
     env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
@@ -146,9 +136,7 @@ def perform_action():
     
     obs = env.step(env_action)
     
-    # Counterfactuals
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
-    
     episode_id = "".join(str(uuid.uuid4()).split("-")[:2]).upper()
     
     return jsonify({
@@ -170,6 +158,107 @@ def perform_action():
         }
     })
 
+# ─── Custom Situation Entry ───
+@app.route('/api/custom/run', methods=['POST'])
+def run_custom():
+    data = request.json
+    situation_input = data.get('situation', "")
+    
+    # Map sliders to metrics
+    m = LifeMetrics()
+    m.career.stress_level = float(data.get('work_stress', 5)) * 10
+    m.finances.debt_pressure = float(data.get('money_stress', 5)) * 10
+    m.relationships.conflict_frequency = (10 - float(data.get('rel_quality', 5))) * 10
+    m.physical_health.energy_level = float(data.get('energy_level', 5)) * 10
+    m.time.free_time = (10 - float(data.get('time_pressure', 5))) * 10
+    
+    gmail_signals = data.get('gmail_signals')
+    if gmail_signals:
+        # Merge digital signals if provided
+        for k, v in gmail_signals.items():
+            parts = k.split(".")
+            if len(parts) == 2:
+                dom = getattr(m, parts[0], None)
+                if dom and hasattr(dom, parts[1]):
+                    setattr(dom, parts[1], v)
+
+    # Extract conflict from text using LLM
+    conflict = INTAKE.extract_conflict(situation_input)
+    person = AGENT.infer_personality(situation_input)
+    
+    budget = ResourceBudget(time=24, money=1000, energy=100)
+    action = AGENT.get_action(m, budget, conflict, person)
+    _normalize_action_metric_changes(action)
+    
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, 
+                                     m.mental_wellbeing.stress_level)
+    
+    env = LifeStackEnv()
+    env.state.current_metrics = copy.deepcopy(m)
+    env.state.budget = budget
+    
+    env_action = LifeStackAction.from_agent_action(action)
+    env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+    obs = env.step(env_action)
+    
+    return jsonify({
+        "before_metrics": m.flatten(),
+        "after_metrics": obs.metrics,
+        "action": {
+            "type": action.primary.action_type,
+            "target": action.primary.target_domain,
+            "description": action.primary.description,
+            "reasoning": action.reasoning,
+            "id": "".join(str(uuid.uuid4()).split("-")[:2]).upper()
+        },
+        "person": {"name": person.name or "Inferred Self"}
+    })
+
+@app.route('/api/gmail/sync', methods=['POST'])
+def sync_gmail():
+    try:
+        service = GMAIL.authenticate()
+        rel = GMAIL.extract_relationship_signals(service)
+        work = GMAIL.extract_work_signals(service)
+        signals = GMAIL.to_life_metrics(rel, work)
+        summary = GMAIL.get_email_summary(rel, work)
+        return jsonify({"status": "success", "signals": signals, "summary": summary})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/arjun/activate', methods=['POST'])
+def activate_arjun():
+    LONG_DEMO.pre_seed_arjun()
+    return jsonify({"status": "success", "message": "Arjun's memory (Week 1 & 2) is now ACTIVE in ChromaDB."})
+
+@app.route('/api/task/demo', methods=['GET'])
+def get_demo_task():
+    dummy_routes = [
+        Route(id="r1", name="Rebook Premium Option", description="Call agent and rebook on premium ticket", required_action_types=["communicate", "spend"], milestones_unlocked=["m1"], final_reward=2.5),
+        Route(id="r2", name="Accept Delay & Work", description="Stay at airport lounge and work on laptop", required_action_types=["rest", "delegate"], milestones_unlocked=["m2"], final_reward=1.8),
+    ]
+    dummy_milestones = [
+        Milestone(id="m1", description="Successfully rebooked flight before deadline", reward=1.0),
+        Milestone(id="m2", description="Caught up with all emergency slack messages", reward=0.8),
+    ]
+    dummy_events = [
+        ExoEvent(step=2, probability=1.0, id="price_surge", description="Ticket prices sharply increased by $300."),
+        ExoEvent(step=4, probability=1.0, id="lounge_full", description="The airport lounge is now at maximum capacity."),
+    ]
+    task = Task(
+        id="sample_flight_crisis", domain="flight_crisis", goal="Survive Airport Cancellation",
+        event_schedule=dummy_events, viable_routes=dummy_routes, milestones=dummy_milestones,
+        horizon=10, difficulty=4
+    )
+    return jsonify({
+        "goal": task.goal,
+        "difficulty": task.difficulty,
+        "routes": [{"name": r.name, "description": r.description} for r in dummy_routes],
+        "milestones": [{"id": m.id, "description": m.description} for m in dummy_milestones],
+        "events": [{"step": e.step, "id": e.id, "description": e.description} for e in dummy_events],
+        "story": "A major storm grounded commercial flights."
+    })
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     stats = MEMORY.get_stats()
@@ -182,11 +271,11 @@ def submit_feedback():
         feedback = OutcomeFeedback(
             episode_id=data.get('episode_id'),
             submitted_at=datetime.datetime.now(),
-            overall_effectiveness=int(data.get('score')),
+            overall_effectiveness=int(data.get('score', 7)),
             domains_improved=data.get('improved', []),
             domains_worsened=data.get('worsened', []),
             unexpected_effects=data.get('notes', ""),
-            resolution_time_hours=float(data.get('time'))
+            resolution_time_hours=float(data.get('time', 1.0))
         )
         MEMORY.store_feedback(feedback)
         return jsonify({"status": "success", "message": f"Feedback stored for episode {feedback.episode_id}"})
