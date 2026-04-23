@@ -45,6 +45,7 @@ class LifeStackAction(Action):
     resource_cost: Dict[str, float] = Field(default_factory=dict, description="Time, money, and energy costs")
     actions_taken: int = Field(default=0, description="Number of atomic actions taken")
     inspect_target: Optional[str] = Field(default=None, description="Optional hidden state key to inspect")
+    is_rollback: bool = Field(default=False, description="Set true to rollback the previous action. Can only be used once per route.")
 
 class LifeStackObservation(Observation):
     """Observation returned by LifeStack."""
@@ -63,6 +64,9 @@ class LifeStackState(State):
     step_count: int = 0
     inspected_keys: list = Field(default_factory=list)
     consecutive_waits: int = 0
+    used_rollback: bool = Field(default=False)
+    previous_metrics: Optional[LifeMetrics] = None
+    previous_budget: Optional[ResourceBudget] = None
 
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""
@@ -126,6 +130,9 @@ class LifeStackEnv(_EnvBase):
         self._internal_state.current_metrics = LifeMetrics()
         self._internal_state.inspected_keys = []
         self._internal_state.consecutive_waits = 0
+        self._internal_state.used_rollback = False
+        self._internal_state.previous_metrics = None
+        self._internal_state.previous_budget = None
         
         # Scale budgets proportionally and check task constraints
         self.max_steps = kwargs.get('horizon', getattr(self, 'max_steps', 5))
@@ -180,6 +187,33 @@ class LifeStackEnv(_EnvBase):
         resource_cost = action.resource_cost
         
         info_msgs = []
+        
+        # -2. Rollback Logic
+        if getattr(action, 'is_rollback', False):
+            self._internal_state.step_count += 1
+            done = self._internal_state.step_count >= self.max_steps
+            if self._internal_state.used_rollback:
+                info_msgs.append("REWARD_HACKING: Rollback already used this episode.")
+                obs = self._get_obs(done=done, reward=-0.50)
+                obs.metadata["info"] = info_msgs
+                return obs
+            elif not self._internal_state.previous_metrics:
+                info_msgs.append("ROLLBACK_FAILED: No previous state available.")
+                obs = self._get_obs(done=done, reward=0.0)
+                obs.metadata["info"] = info_msgs
+                return obs
+            else:
+                self._internal_state.current_metrics = copy.deepcopy(self._internal_state.previous_metrics)
+                self._internal_state.budget = copy.deepcopy(self._internal_state.previous_budget)
+                self._internal_state.used_rollback = True
+                info_msgs.append("ROLLBACK_SUCCESS: Reverted to previous state.")
+                obs = self._get_obs(done=done, reward=0.0)
+                obs.metadata["info"] = info_msgs
+                return obs
+
+        # Save previous state before normal action mutates it
+        self._internal_state.previous_metrics = copy.deepcopy(self._internal_state.current_metrics)
+        self._internal_state.previous_budget = copy.deepcopy(self._internal_state.budget)
         
         # -1. Wait Loop Anti-Cheat Logic
         is_wait = len(metric_changes) == 0 and not getattr(action, 'inspect_target', None)
