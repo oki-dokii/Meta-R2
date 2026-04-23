@@ -458,13 +458,14 @@ def train_curriculum(
             per_device_train_batch_size=2,
             gradient_accumulation_steps=4,
             learning_rate=5e-6,
-            num_generations=4,
+            # TRL 1.x rule: num_generations must divide per_device_train_batch_size
+            # batch=2, num_generations=2 → 2 % 2 = 0 ✓
+            num_generations=2,
             bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
             # ── Checkpoint settings ──────────────────────────────────────
             save_strategy="steps",
-            save_steps=25,          # checkpoint every 25 optimiser steps
-            save_total_limit=3,     # keep only the 3 most recent checkpoints
-            load_best_model_at_end=False,  # GRPO has no eval loop
+            save_steps=25,
+            save_total_limit=3,
             # ── Logging ─────────────────────────────────────────────────
             logging_steps=5,
             report_to="tensorboard",
@@ -672,7 +673,9 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
         per_device_train_batch_size=1,
         gradient_accumulation_steps=1,
         learning_rate=1e-5,
-        num_generations=2,
+        # TRL 1.x rule: num_generations must divide per_device_train_batch_size
+        # batch=1 → num_generations must be 1
+        num_generations=1,
         max_steps=1,          # ONE step — just proves the pipeline works
         bf16=False,
         fp16=False,
