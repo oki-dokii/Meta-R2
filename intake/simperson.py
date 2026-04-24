@@ -56,10 +56,29 @@ class SimPerson:
         current = getattr(self, trait)
         setattr(self, trait, max(0.0, min(1.0, current + change)))
         
+        trait_to_metric = {
+            'openness': 'career.growth_trajectory',
+            'conscientiousness': 'time.admin_overhead',
+            'extraversion': 'relationships.social',
+            'agreeableness': 'relationships.romantic',
+            'neuroticism': 'mental_wellbeing.stress_level'
+        }
+        
+        metric = trait_to_metric[trait]
+        
+        # Determine delta based on whether the trait shift is typically "stressful" 
+        # or "disruptive" for that personality facet.
+        if trait == 'neuroticism':
+            delta = 6 if change > 0 else -4  # increased neuroticism is bad
+        elif trait == 'conscientiousness':
+            delta = 7 if change < 0 else -3  # decreased conscientiousness leads to admin bloat
+        else:
+            delta = 5 if change < 0 else -2  # other facets slipping
+            
         return {
-            'metric': 'career.satisfaction', 
-            'delta': -5, 
-            'reason': f'Minor internal shift in {trait} causing professional friction.'
+            'metric': metric, 
+            'delta': delta, 
+            'reason': f'Internal personality shift in {trait} impacting {metric.split(".")[1]}.'
         }
 
     def get_personality_hint(self) -> str:

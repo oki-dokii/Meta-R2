@@ -9,9 +9,14 @@ from core.action_space import AgentAction, PrimaryAction, CommunicationAction, a
 from intake.simperson import SimPerson
 
 class LifeStackAgent:
-    def __init__(self):
+    def __init__(self, local_model_path: str = None):
         self.api_key = os.getenv('GROQ_API_KEY')
+        self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
         
+        # Fallback to current directory if default existence
+        if not self.local_model_path and os.path.exists("./lifestack_model"):
+            self.local_model_path = "./lifestack_model"
+
         # Fallback to .env file if env var is missing
         if not self.api_key and os.path.exists('.env'):
             try:
@@ -24,12 +29,31 @@ class LifeStackAgent:
                 pass
 
         self.client = None
-        if self.api_key:
+        self.tokenizer = None
+        self.local_model = None
+
+        if self.local_model_path:
+            try:
+                print(f"📦 Loading local GRPO model from {self.local_model_path}...")
+                import torch
+                from transformers import AutoModelForCausalLM, AutoTokenizer
+                self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
+                self.local_model = AutoModelForCausalLM.from_pretrained(
+                    self.local_model_path, 
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    device_map="auto" if torch.cuda.is_available() else None
+                )
+                print("✅ Local model LOADED.")
+            except Exception as e:
+                print(f"⚠️ Failed to load local model: {e}. Falling back to Groq.")
+                self.local_model_path = None
+
+        if self.api_key and not self.local_model:
             self.client = OpenAI(
                 base_url='https://api.groq.com/openai/v1',
                 api_key=self.api_key
             )
-        self.model = 'llama-3.1-8b-instant'  # 500k TPD on free tier (vs 100k for 70b)
+        self.model = 'llama-3.1-8b-instant'
         self.memory = [] # Will store last 10 decisions
 
     def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> str:
@@ -110,43 +134,58 @@ SCHEMA:
 
     def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest") -> "AgentAction":
         import time as _t
+        import torch
         try:
-            for attempt in range(3):  # Up to 3 retries on rate limit
-                try:
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.3,
-                        max_tokens=350
+            if self.local_model:
+                # Use local model (Transformers)
+                inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
+                with torch.no_grad():
+                    outputs = self.local_model.generate(
+                        **inputs, 
+                        max_new_tokens=256, 
+                        temperature=0.3, 
+                        do_sample=True,
+                        pad_token_id=self.tokenizer.pad_token_id
                     )
-                    break  # Success
-                except Exception as e:
-                    err = str(e)
-                    if "429" in err and attempt < 2:
-                        import re
-                        # Handle formats: "2m10.5s", "10.5s", "240ms"
-                        wait_secs = 30  # default
-                        m = re.search(r'try again in (\d+)m([\d.]+)s', err)
-                        if m:
-                            wait_secs = int(m.group(1)) * 60 + float(m.group(2))
-                        else:
-                            m = re.search(r'try again in ([\d.]+)s', err)
+                content = self.tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+            else:
+                # Use Groq API
+                for attempt in range(3):  # Up to 3 retries on rate limit
+                    try:
+                        response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[{"role": "user", "content": prompt}],
+                            temperature=0.3,
+                            max_tokens=350
+                        )
+                        break  # Success
+                    except Exception as e:
+                        err = str(e)
+                        if "429" in err and attempt < 2:
+                            import re
+                            # Handle formats: "2m10.5s", "10.5s", "240ms"
+                            wait_secs = 30  # default
+                            m = re.search(r'try again in (\d+)m([\d.]+)s', err)
                             if m:
-                                wait_secs = float(m.group(1))
+                                wait_secs = int(m.group(1)) * 60 + float(m.group(2))
                             else:
-                                m = re.search(r'try again in ([\d.]+)ms', err)
+                                m = re.search(r'try again in ([\d.]+)s', err)
                                 if m:
-                                    wait_secs = float(m.group(1)) / 1000.0
-                        wait_secs = max(0.5, min(wait_secs + 0.5, 120))  # add 0.5s buffer, cap at 2min
-                        if wait_secs > 5.0:
-                            print(f"  ⏳ Rate limit wait too long ({wait_secs:.1f}s). Executing fallback...")
-                            return self._fallback_action(f"Rate limited (wait: {wait_secs:.1f}s)")
-                        print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.1f}s before retry {attempt+2}/3...")
-                        _t.sleep(wait_secs)
-                    else:
-                        raise  # Re-raise if not 429 or out of retries
-            _t.sleep(1)  # Light throttle — retry logic handles actual TPM limits
-            content = response.choices[0].message.content.strip()
+                                    wait_secs = float(m.group(1))
+                                else:
+                                    m = re.search(r'try again in ([\d.]+)ms', err)
+                                    if m:
+                                        wait_secs = float(m.group(1)) / 1000.0
+                            wait_secs = max(0.5, min(wait_secs + 0.5, 120))  # add 0.5s buffer, cap at 2min
+                            if wait_secs > 5.0:
+                                print(f"  ⏳ Rate limit wait too long ({wait_secs:.1f}s). Executing fallback...")
+                                return self._fallback_action(f"Rate limited (wait: {wait_secs:.1f}s)")
+                            print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.1f}s before retry {attempt+2}/3...")
+                            _t.sleep(wait_secs)
+                        else:
+                            raise  # Re-raise if not 429 or out of retries
+                _t.sleep(0.5)  # Light throttle
+                content = response.choices[0].message.content.strip()
             
             # Clean possible markdown fences
             if content.startswith("```json"):

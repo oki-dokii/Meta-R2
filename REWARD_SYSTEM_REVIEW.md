@@ -115,3 +115,14 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
 1. **Critical Bug 5: _REWARD_CACHE contradicted anti-hacking rules**
    - *Fix applied*: Completely removed `_REWARD_CACHE` from `scripts/train_trl.py`. Every reward call now triggers a fresh environment execution. 
    - *Fix applied*: Eliminated potential memory leak from unbounded global dictionary.
+
+---
+
+## Ecosystem Integration & Realism ❌ -> ✅
+
+1. **Bug 4 (Secondary): drift() was hardcoded to career.satisfaction**
+   - *Fix applied*: Implemented personality-to-metric mapping in `intake/simperson.py`. Neuroticism now impacts Stress, Conscientiousness impacts Admin Overhead, etc.
+   
+2. **Model Integration: Qwen trained model never used in demo**
+   - *Fix applied*: Updated `LifeStackAgent` in `agent/agent.py` to check for `./lifestack_model`. If found, it loads the GRPO-trained policy via Transformers/Unsloth for all demos and episode runs.
+   - *Fix applied*: Documented model switching via `LIFESTACK_MODEL_PATH` env var.
