@@ -50,9 +50,7 @@ class LifeStackMemory:
         trajectory: list[dict] = None,
         route_outcome: str = None
     ) -> None:
-        """Stores individual decision if reward >= 0.5."""
-        if reward < 0.5:
-            return
+        """Stores individual decision for longitudinal tracking."""
             
         text = f"{conflict_title} Action: {action_type} Domain: {target_domain} Reward: {reward:.2f} {reasoning[:100]}"
         embedding = self._embed_text(text)
@@ -83,11 +81,7 @@ class LifeStackMemory:
         task_id: str = None,
         trajectory_summary: dict = None
     ) -> None:
-        """Stores a full trajectory summary (only if total reward >= 2.0)."""
-        if total_reward < 2.0:
-            if not self.silent:
-                print(f"Skipped (low total reward {total_reward:.2f}): {route_taken}")
-            return
+        """Stores a full trajectory summary."""
 
         if trajectory_summary is not None and task_id is not None:
             import json
@@ -209,11 +203,15 @@ class LifeStackMemory:
         query_embedding = self._embed_text(query_text)
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=min(n, self.collection.count())
+            n_results=min(n * 2, self.collection.count()) # Retrieve more to filter for high reward
         )
 
         output = []
         for i, meta in enumerate(results['metadatas'][0]):
+            if meta.get("reward", 0.0) < 0.5: # Filter for high reward at retrieval time
+                continue
+            if len(output) >= n:
+                break
             distance = results['distances'][0][i]
             similarity = round(1.0 / (1.0 + distance), 4)
             output.append({

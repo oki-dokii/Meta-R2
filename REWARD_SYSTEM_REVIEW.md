@@ -126,3 +126,16 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
 2. **Model Integration: Qwen trained model never used in demo**
    - *Fix applied*: Updated `LifeStackAgent` in `agent/agent.py` to check for `./lifestack_model`. If found, it loads the GRPO-trained policy via Transformers/Unsloth for all demos and episode runs.
    - *Fix applied*: Documented model switching via `LIFESTACK_MODEL_PATH` env var.
+
+---
+
+## Technical Debt & Memory Hardening ❌ -> ✅
+
+1. **Bug 8: query_texts vs query_embeddings in ChromaDB**
+   - *Fix applied*: Switched all memory retrieval to use `memo._embed_text()` explicitly and `query_embeddings` in ChromaDB to ensure semantic consistency.
+   
+2. **Bug 10: hardcoded disruption_baseline=2**
+   - *Fix applied*: Updated `compute_reward` to accept an optional `disruption_baseline`. `compute_task_reward` now passes `len(task.mutable_world)` from metadata, ensuring the "cascade spread" penalty scales with the actual complexity of the crisis.
+   
+3. **Bug 11: store_decision drops negative examples**
+   - *Fix applied*: Removed reward thresholds (`<0.5` and `<2.0`) from `LifeStackMemory.store_decision` and `store_trajectory`. The system now captures the full longitudinal record, filtering for "successful" examples only during retrieval time for few-shot prompting.

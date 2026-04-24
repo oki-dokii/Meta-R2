@@ -11,7 +11,8 @@ def compute_reward(
     resources_used: dict, 
     actions_taken: int,
     metric_changes: dict = None,
-    completion: str = None
+    completion: str = None,
+    disruption_baseline: int = None
 ) -> tuple[float, dict]:
     """
     Computes the reward for a life step based on changes in LifeMetrics and resource usage.
@@ -21,6 +22,7 @@ def compute_reward(
         state_after: The state after actions and cascades.
         resources_used: Dict with keys 'time', 'money', 'energy'.
         actions_taken: Integer count of intentional actions performed.
+        disruption_baseline: Expected number of metrics affected by an action.
         
     Returns:
         tuple[float, dict]: (final_reward, breakdown_dict)
@@ -95,9 +97,11 @@ def compute_reward(
         penalties -= 0.50
         fired.append("CRITICAL_FLOOR_VIOLATION")
         
-    # -0.30 if more metrics worsened than the primary disruption affected
-    # We assume a baseline of 2 seeds for the primary disruption (from standard tests)
-    disruption_baseline = 2
+    # -0.30 if cascade spread wider than the number of metrics the agent directly changed
+    # Scaled baseline from task metadata preferred over hardcoded default
+    if disruption_baseline is None:
+        disruption_baseline = len(metric_changes) if metric_changes else 2
+        
     if worsened_count > disruption_baseline:
         penalties -= 0.30
         fired.append("CASCADE_SPREAD_WIDER")
@@ -190,9 +194,11 @@ def compute_task_reward(
     metric_changes: dict = None,
     cumulative_rel_delta: float = 0.0
 ) -> tuple[float, dict]:
-    # 1. Base local components
+    # 1. Base local components (with scaled disruption baseline from task metadata)
+    d_baseline = len(task.mutable_world) if task and hasattr(task, 'mutable_world') else None
     local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken,
-                                                   metric_changes=metric_changes, completion=completion)
+                                                   metric_changes=metric_changes, completion=completion,
+                                                   disruption_baseline=d_baseline)
 
     # 2. Orchestrator components
     local_metric_delta_score = local_reward

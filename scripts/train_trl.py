@@ -124,7 +124,7 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_
         f'"reasoning": "brief explanation"}}'
         f"{event_context}"
     )
-    )
+
 
 
 # All 8 TaskGenerator domains — covers the full daily-life action space.
@@ -201,10 +201,11 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
             for s in range(start_step):
                 # Take null actions to let events fire naturally
                 obs = env.step(LifeStackAction(action_type="rest", target="time", actions_taken=0))
-                for event in obs.metadata.get("events_fired", []):
-                    event_log.append(event.description)
+                for event_id in obs.metadata.get("info", []):
+                    if event_id.startswith("EVENT_FIRED:"):
+                        event_log.append(event_id[len("EVENT_FIRED:"):].strip())
             metrics = env.state.current_metrics
-            budget = env.state.remaining_budget
+            budget = env.state.budget
 
         prompt = build_prompt_for_task(task, person, metrics, budget, seed=task_seed, step=start_step, event_descriptions=event_log)
         prompts.append({"prompt": prompt, "difficulty": curr_diff, "domain": domain})
@@ -378,9 +379,12 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
                 continue
 
             # Use task prompt to query feedback instead of model-generated reasoning
-            # to avoid reward-hacking ChromaDB
+            # to avoid reward-hacking ChromaDB. Must use query_embeddings to match
+            # the custom _embed_text() space used when storing feedback.
+            # Bug 8: Use embeddings instead of raw text for query
+            q_emb = memo._embed_text(p)
             similar_fb_list = memo.feedback_collection.query(
-                query_texts=[p],
+                query_embeddings=[q_emb],
                 n_results=1
             ).get('metadatas', [[]])[0]
 
@@ -616,13 +620,16 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
         difficulty = min(5, 1 + ep // 10)
         # Cycle through all 8 domains during evaluation
         domain = ALL_DOMAINS[ep % len(ALL_DOMAINS)]
+        ep_seed = ep * 137  # deterministic per episode so reward_task_success_fn reconstructs the same task
+        random.seed(ep_seed)
         task = generator.generate(domain=domain, difficulty=difficulty)
-        
+        random.seed()
+
         metrics = LifeMetrics()
         # Initial disruption from legacy templates
         conflict = generate_conflict(difficulty)
         metrics = graph.cascade(metrics, {**task.mutable_world, **conflict.primary_disruption})
-        
+
         budget_dict = task.constraints.get("budget", {})
         budget = ResourceBudget(
             time_hours=budget_dict.get("time", 20.0),
@@ -631,7 +638,7 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
         )
         person = SimPerson(name="Eval")
 
-        prompt = build_prompt_for_task(task, person, metrics, budget)
+        prompt = build_prompt_for_task(task, person, metrics, budget, seed=ep_seed, step=0)
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
         with torch.no_grad():
