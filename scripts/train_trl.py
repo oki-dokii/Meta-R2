@@ -75,12 +75,16 @@ def load_model():
 # 2. DATASET: Generate conflict prompts
 # ──────────────────────────────────────────────
 
-def build_prompt_for_task(task, person, metrics, budget, seed=42):
+def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_descriptions=None):
     """Build a structured prompt from task state, embedding hidden metadata for the reward function."""
     flat = metrics.flatten()
     status = "\n".join(f"  {k}: {v:.1f}" for k, v in flat.items())
     
-    # NEW: Store more task metadata for reconstruction
+    event_context = ""
+    if event_descriptions:
+        event_context = "\n\nEXOGENOUS EVENTS ENCOUNTERED:\n" + "\n".join(f"  - {e}" for e in event_descriptions)
+
+    # NEW: Store more task metadata for reconstruction, including current step
     metadata = {
         "goal": task.goal,
         "domain": task.domain,
@@ -88,6 +92,7 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42):
         "difficulty": task.difficulty,
         "horizon": task.horizon,
         "seed": seed,
+        "step": step,
         "budget": {
             "time": budget.time_hours,
             "money": budget.money_dollars,
@@ -117,6 +122,8 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42):
         f'"metric_changes": {{"domain.submetric": delta}}, '
         f'"resource_cost": {{"time": 0, "money": 0, "energy": 0}}, '
         f'"reasoning": "brief explanation"}}'
+        f"{event_context}"
+    )
     )
 
 
@@ -183,7 +190,23 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
             money_dollars=budget_dict.get("money", 500.0),
             energy_units=budget_dict.get("energy", 100.0),
         )
-        prompt = build_prompt_for_task(task, person, metrics, budget, seed=task_seed)
+
+        # NEW: Randomly pick a starting step (0, 2, or 4) to activate replan signal
+        start_step = random.choice([0, 2, 4])
+        event_log = []
+        if start_step > 0:
+            from core.lifestack_env import LifeStackEnv, LifeStackAction
+            env = LifeStackEnv()
+            env.reset(task=task, conflict=task.mutable_world)
+            for s in range(start_step):
+                # Take null actions to let events fire naturally
+                obs = env.step(LifeStackAction(action_type="rest", target="time", actions_taken=0))
+                for event in obs.metadata.get("events_fired", []):
+                    event_log.append(event.description)
+            metrics = env.state.current_metrics
+            budget = env.state.remaining_budget
+
+        prompt = build_prompt_for_task(task, person, metrics, budget, seed=task_seed, step=start_step, event_descriptions=event_log)
         prompts.append({"prompt": prompt, "difficulty": curr_diff, "domain": domain})
 
     return Dataset.from_list(prompts)
@@ -252,6 +275,12 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         # 3. Step Env
         env = LifeStackEnv()
         env.reset(task=task, conflict=meta.get("disruption", {}))
+        
+        # Fast-forward to the state the model saw
+        curr_step = meta.get("step", 0)
+        for _ in range(curr_step):
+            env.step(LifeStackAction(action_type="rest", target="time", actions_taken=0))
+
         initial_metrics = dict(env.state.current_metrics.flatten())
         action = LifeStackAction(
             action_type=data.get("action_type"),

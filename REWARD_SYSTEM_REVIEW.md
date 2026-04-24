@@ -98,3 +98,12 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
 1. **Critical Bug 3: CodeMergeCrisisTask() was a stub**
    - *Fix applied*: Fully implemented the `CodeMergeCrisisTask` in `core/task.py` with real disruptions and routes.
    - *Fix applied*: Seeded `mutable_world` and `visible_world` baseline disruptions into ALL domain generators in `TaskGenerator`. No more "phantom crises."
+
+---
+
+## Reward Signal Activations ❌ -> ✅
+
+1. **Critical Bug 4: replan_bonus was always 0.0**
+   - *Fix applied*: Modified `generate_dataset` to sample tasks at steps 0, 2, and 4 instead of only step 0. 
+   - *Fix applied*: Capture and display `EXOGENOUS EVENTS ENCOUNTERED` in the prompt context.
+   - *Fix applied*: Synchronized `get_lifestack_evaluation` to fast-forward the environment to the corresponding step before scoring.
