@@ -13,9 +13,13 @@ class LifeStackAgent:
         self.api_key = os.getenv('GROQ_API_KEY')
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
         
-        # Fallback to current directory if default existence
+        # 1. Check for local folder (Kaggle / local dev)
         if not self.local_model_path and os.path.exists("./lifestack_model"):
             self.local_model_path = "./lifestack_model"
+
+        # 2. Fall back to HuggingFace Hub model repo (production / Space deployment)
+        if not self.local_model_path:
+            self.local_model_path = "jdsb06/lifestack-agent"
 
         # Fallback to .env file if env var is missing
         if not self.api_key and os.path.exists('.env'):
