@@ -30,6 +30,7 @@ transformers>=4.40.0
 trl>=0.8.0
 accelerate>=0.29.0
 peft>=0.10.0
+bitsandbytes>=0.46.1
 # Google API (Gmail Intake)
 google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0
