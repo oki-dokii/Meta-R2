@@ -482,6 +482,11 @@ def train_curriculum(
             args=config,
             train_dataset=dataset if not resume_ckpt else generate_dataset(n_prompts_per_stage, difficulty=curr_diff),
             reward_funcs=[
+                # reward_format_fn MUST be first: it's the only signal that varies
+                # between completions in early training (partial JSON vs garbage).
+                # Without it, all completions fail JSON parse with the same default
+                # score → reward_std=0 → zero GRPO gradient.
+                reward_format_fn,
                 reward_plausibility_fn,
                 reward_task_success_fn,
                 reward_milestone_fn,
@@ -535,10 +540,23 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
     print("  EVALUATION")
     print("=" * 50)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_dir, torch_dtype=torch.float16, device_map="auto"
-    )
+    # Use Unsloth's loader to avoid peft version conflicts on Kaggle/Colab
+    try:
+        from unsloth import FastLanguageModel
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_dir,
+            max_seq_length=2048,
+            load_in_4bit=True,
+        )
+        FastLanguageModel.for_inference(model)
+        print("  Loaded via Unsloth FastLanguageModel")
+    except Exception as unsloth_err:
+        print(f"  Unsloth load failed ({unsloth_err}), falling back to AutoModelForCausalLM")
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_dir, dtype=torch.float16, device_map="auto"
+        )
     model.eval()
 
     graph = DependencyGraph()
