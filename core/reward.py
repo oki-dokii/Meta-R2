@@ -233,10 +233,12 @@ def compute_task_reward(
     dead_end_pen = compute_dead_end_penalty(routes_remaining)
     
     # 3. Final weighting (all components are now unique/non-overlapping)
+    # Weights: Milestone 35%, Completion 25%, Outcome 10%, Preservation 5%, Replan 10%, Efficiency 10%, Reasoning 5%
     base_reward = (
         (0.35 * milestone_score) + 
         (0.25 * completion_score) + 
-        (0.15 * outcome_score_local) + 
+        (0.10 * outcome_score_local) + 
+        (0.05 * preservation_score) +
         (0.10 * replan_score) + 
         (0.10 * efficiency_score) + 
         (0.05 * reasoning_score)

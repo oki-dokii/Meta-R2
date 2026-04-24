@@ -42,211 +42,66 @@ class LifeStackGymEnv(gym.Env):
 
     def __init__(self, task=None, difficulty: int = None, render_mode: str = None, max_steps: int = 30):
         super().__init__()
-        self.difficulty = difficulty
-        self.render_mode = render_mode
-
-        # 23 sub-metrics + 3 resources = 26
         self.observation_space = spaces.Box(
             low=0.0, high=100.0, shape=(26,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(7)
-
-        # Internal state
-        self.graph = DependencyGraph()
-        self.state: LifeMetrics = None
-        self.budget: ResourceBudget = None
+        self.render_mode = render_mode
         self.task = task
-        self.conflict: ConflictEvent = None
-        self.person: SimPerson = None
-        self.milestones_achieved = []
-        self.exo_events_seen = 0
-        self.milestones_after_event = 0
-        self.closed_route_ids = set()
-        self.world_state = {}
-        self.hidden_state = {}
-        self.step_count = 0
-        self.max_steps = getattr(task, 'horizon', max_steps) if task else max_steps
-        self.last_reward = None
-        self.last_breakdown = None
-
-        # Precompute sorted metric keys for consistent ordering
+        self.difficulty = difficulty
+        self.max_steps = max_steps
+        
+        from core.lifestack_env import LifeStackEnv
+        self.env = LifeStackEnv(render_mode=render_mode)
         self._metric_keys = list(LifeMetrics().flatten().keys())
 
     def _obs_vector(self) -> np.ndarray:
-        flat = self.state.flatten()
+        flat = self.env.state.flatten()
         metric_vals = [flat[k] for k in self._metric_keys]
         resource_vals = [
-            self.budget.time_hours,
-            self.budget.money_dollars,
-            self.budget.energy_units,
+            self.env.budget.time_hours,
+            self.env.budget.money_dollars,
+            self.env.budget.energy_units,
         ]
         return np.array(metric_vals + resource_vals, dtype=np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-
-        # Random person
-        person_pool = [
-            SimPerson(name="Alex", openness=0.4, conscientiousness=0.9,
-                      extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
-            SimPerson(name="Chloe", openness=0.9, conscientiousness=0.2,
-                      extraversion=0.5, agreeableness=0.70, neuroticism=0.15),
-            SimPerson(name="Sam", openness=0.5, conscientiousness=0.6,
-                      extraversion=0.1, agreeableness=0.65, neuroticism=0.9),
-            SimPerson(name="Maya", openness=0.5, conscientiousness=0.7,
-                      extraversion=0.5, agreeableness=0.95, neuroticism=0.3),
-            SimPerson(name="Leo", openness=0.85, conscientiousness=0.8,
-                      extraversion=0.4, agreeableness=0.4, neuroticism=0.55),
-        ]
-        self.person = self.np_random.choice(person_pool) if seed else random.choice(person_pool)
-
-        # Generate conflict
-        self.conflict = generate_conflict(self.difficulty)
-
-        # Fresh state + budget
-        self.state = LifeMetrics()
-        self.budget = ResourceBudget(
-            time_hours=self.conflict.resource_budget.get("time", 20.0),
-            money_dollars=self.conflict.resource_budget.get("money", 500.0),
-            energy_units=self.conflict.resource_budget.get("energy", 100.0),
-        )
-        self.step_count = 0
-        self.milestones_achieved = []
-        self.exo_events_seen = 0
-        self.milestones_after_event = 0
-        self.closed_route_ids = set()
-        self.world_state = copy.deepcopy(getattr(self.task, "mutable_world", {})) if self.task else {}
-        self.hidden_state = copy.deepcopy(getattr(self.task, "hidden_state", {})) if self.task else {}
-        self.last_reward = None
-        self.last_breakdown = None
-
-        # Apply initial disruption
-        self.state = self.graph.cascade(self.state, self.conflict.primary_disruption)
-
-        obs = self._obs_vector()
-        info = {
-            "conflict_title": self.conflict.title,
-            "conflict_story": self.conflict.story,
-            "person": self.person.name,
-            "difficulty": self.conflict.difficulty,
-        }
-        return obs, info
+        obs_obj = self.env.reset(task=self.task, difficulty=self.difficulty)
+        return self._obs_vector(), {"info": obs_obj.metadata}
 
     def step(self, action: int):
-        assert self.action_space.contains(action), f"Invalid action {action}"
-
-        state_before = copy.deepcopy(self.state)
+        from core.lifestack_env import LifeStackAction
         action_type = ACTION_TYPE_MAP[action]
-
-        # Build a template action based on action_type
-        # Find a matching example action, or generate a default
+        
+        # Build logical action from template
         metric_changes, resource_cost = self._action_to_changes(action_type)
-
-        # Apply personality uptake scaling
-        stress = self.state.mental_wellbeing.stress_level
-        uptake = self.person.respond_to_action(action_type, resource_cost, stress)
-        scaled_changes = {k: v * uptake for k, v in metric_changes.items()}
-
-        # Apply significant changes via cascade
-        for path, delta in scaled_changes.items():
-            path = normalize_metric_path(path)
-            if '.' not in path:
-                continue
-            if abs(delta) > 5:
-                self.state = self.graph.cascade(self.state, {path: delta})
-            else:
-                dom, sub = path.split('.', 1)
-                d = getattr(self.state, dom, None)
-                if d and hasattr(d, sub):
-                    cur = getattr(d, sub)
-                    setattr(d, sub, max(0.0, min(100.0, cur + delta)))
-
-        # Deduct resources
-        self.budget.deduct(
-            time=resource_cost.get("time", 0.0),
-            money=resource_cost.get("money", 0.0),
-            energy=resource_cost.get("energy", 0.0),
+        
+        # In this wrapper, we pick a reasonable target if needed
+        target = ""
+        if action_type == "execute" and self.env.task:
+            # Pick first available route
+            for r in self.env.task.viable_routes:
+                if r.id not in self.env.closed_route_ids:
+                    target = r.id
+                    break
+        
+        ls_action = LifeStackAction(
+            action_type=action_type,
+            target=target,
+            reasoning=f"Agent chose {action_type} for discrete action {action}.",
+            metric_changes=metric_changes,
+            resource_cost=resource_cost,
+            actions_taken=1
         )
-
-        # Approximate task progression for the gym wrapper by applying the first
-        # reachable route that accepts the chosen action type.
-        if self.task:
-            for route in self.task.viable_routes:
-                if route.id in self.closed_route_ids:
-                    continue
-                if action_type not in route.required_action_types:
-                    continue
-                if any(self.hidden_state.get(k, self.world_state.get(k)) != v for k, v in route.preconditions.items()):
-                    continue
-                self.world_state.update(route.consequences)
-                self.closed_route_ids.update(route.closes_routes)
-                break
-
-        # Reward (Task-Aware if possible)
-        from core.verifier import LifeStackVerifier
-        success_mets = []
-        if self.task:
-            success_mets = LifeStackVerifier.check_success(self.task, self.world_state, self.hidden_state)
-            newly_met = LifeStackVerifier.check_new_milestones(
-                self.task, self.world_state, self.hidden_state, self.milestones_achieved
-            )
-            for mid in newly_met:
-                self.milestones_achieved.append(mid)
-            
-            routes_rem, _ = LifeStackVerifier.get_route_status(
-                self.task, self.closed_route_ids, self.world_state, self.hidden_state
-            )
-            
-            self.step_count += 1
-            reward, breakdown = compute_task_reward(
-                state_before=state_before,
-                state_after=self.state,
-                resources_used=resource_cost,
-                actions_taken=1,
-                milestones_achieved=self.milestones_achieved,
-                success_conditions_met=success_mets,
-                exo_events_seen=self.exo_events_seen,
-                milestones_after_event=self.milestones_after_event,
-                routes_remaining=routes_rem,
-                rollback_used=False,
-                cascade_collapse=False,
-                task=self.task,
-                conflict_domain=self.task.domain,
-                step_count=self.step_count,
-                max_steps=self.max_steps,
-                metric_changes=scaled_changes,
-                action_type=action_type
-            )
-        else:
-            self.step_count += 1
-            reward, breakdown = compute_reward(
-                state_before, 
-                self.state, 
-                resource_cost, 
-                actions_taken=1,
-                metric_changes=scaled_changes,
-                action_type=action_type
-            )
-        self.last_reward = reward
-        self.last_breakdown = breakdown
-
-        # Termination
-        flat = self.state.flatten()
-        any_zero = any(v <= 0.0 for v in flat.values())
-        no_resources = (
-            self.budget.time_hours <= 0
-            and self.budget.money_dollars <= 0
-            and self.budget.energy_units <= 0
-        )
-        terminated = any_zero or no_resources
-        truncated = self.step_count >= self.max_steps
-
-        obs = self._obs_vector()
-        info = {
-            "breakdown": breakdown,
-            "step": self.step_count,
-        }
-        return obs, reward, terminated, truncated, info
+        
+        obs_obj = self.env.step(ls_action)
+        
+        reward = obs_obj.reward
+        terminated = obs_obj.done
+        truncated = self.env.step_count >= (self.task.horizon if self.task else self.max_steps)
+        
+        return self._obs_vector(), reward, terminated, truncated, {"breakdown": obs_obj.metadata.get("breakdown", {})}
 
     def _action_to_changes(self, action_type: str):
         """Maps an action type string to (metric_changes, resource_cost)."""
