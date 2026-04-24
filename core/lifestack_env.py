@@ -297,7 +297,9 @@ class LifeStackEnv(_EnvBase):
                 "success": success,
                 "failure": failure,
                 "failure_reason": failure_reason,
-                "routes_remaining": routes_remaining
+                "routes_remaining": routes_remaining,
+                "conflict_title": self._internal_state.current_conflict.title if hasattr(self._internal_state.current_conflict, 'title') else "Custom Task",
+                "person": self._internal_state.person.name if hasattr(self._internal_state.person, 'name') else "Unknown"
             }
         )
 

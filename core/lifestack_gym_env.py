@@ -26,7 +26,7 @@ ACTION_TYPE_MAP = {
     3: "spend",
     4: "reschedule",
     5: "rest",
-    6: "deprioritize",
+    6: "execute",
 }
 
 
@@ -52,23 +52,24 @@ class LifeStackGymEnv(gym.Env):
         self.max_steps = max_steps
         
         from core.lifestack_env import LifeStackEnv
-        self.env = LifeStackEnv(render_mode=render_mode)
+        self.env = LifeStackEnv()
         self._metric_keys = list(LifeMetrics().flatten().keys())
 
     def _obs_vector(self) -> np.ndarray:
-        flat = self.env.state.flatten()
+        flat = self.env.state.current_metrics.flatten()
         metric_vals = [flat[k] for k in self._metric_keys]
+        budget = self.env.state.budget
         resource_vals = [
-            self.env.budget.time_hours,
-            self.env.budget.money_dollars,
-            self.env.budget.energy_units,
+            budget.time_hours,
+            budget.money_dollars,
+            budget.energy_units,
         ]
         return np.array(metric_vals + resource_vals, dtype=np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         obs_obj = self.env.reset(task=self.task, difficulty=self.difficulty)
-        return self._obs_vector(), {"info": obs_obj.metadata}
+        return self._obs_vector(), obs_obj.metadata
 
     def step(self, action: int):
         from core.lifestack_env import LifeStackAction
@@ -99,7 +100,7 @@ class LifeStackGymEnv(gym.Env):
         
         reward = obs_obj.reward
         terminated = obs_obj.done
-        truncated = self.env.step_count >= (self.task.horizon if self.task else self.max_steps)
+        truncated = self.env.state.step_count >= (self.task.horizon if self.task else self.max_steps)
         
         return self._obs_vector(), reward, terminated, truncated, {"breakdown": obs_obj.metadata.get("breakdown", {})}
 
@@ -130,24 +131,17 @@ class LifeStackGymEnv(gym.Env):
                 {"mental_wellbeing.stress_level": -12.0, "physical_health.energy": 10.0},
                 {"time": 1.0},
             ),
-            "deprioritize": (
-                {"time.free_hours_per_week": 8.0, "relationships.social": -10.0},
-                {"time": 0.5, "energy": 5.0},
+            "execute": (
+                {}, # executes a route target
+                {"time": 1.0, "energy": 10.0},
             ),
         }
         return templates.get(action_type, ({}, {}))
 
     def render(self):
         if self.render_mode == "human":
-            # Reuse the rich render from the original env
-            from core.lifestack_env import LifeStackEnv as _Orig
-            tmp = _Orig()
-            tmp.state = self.state
-            tmp.budget = self.budget
-            tmp.step_count = self.step_count
-            tmp.last_reward = self.last_reward
-            tmp.last_breakdown = self.last_breakdown
-            tmp.render()
+            # Delegate to the internal env's render
+            self.env.render()
 
 
 # ── Quick smoke test ──
