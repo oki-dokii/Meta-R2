@@ -107,3 +107,11 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
    - *Fix applied*: Modified `generate_dataset` to sample tasks at steps 0, 2, and 4 instead of only step 0. 
    - *Fix applied*: Capture and display `EXOGENOUS EVENTS ENCOUNTERED` in the prompt context.
    - *Fix applied*: Synchronized `get_lifestack_evaluation` to fast-forward the environment to the corresponding step before scoring.
+
+---
+
+## Anti-Hacking Hardening ❌ -> ✅
+
+1. **Critical Bug 5: _REWARD_CACHE contradicted anti-hacking rules**
+   - *Fix applied*: Completely removed `_REWARD_CACHE` from `scripts/train_trl.py`. Every reward call now triggers a fresh environment execution. 
+   - *Fix applied*: Eliminated potential memory leak from unbounded global dictionary.

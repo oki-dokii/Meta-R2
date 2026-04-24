@@ -216,22 +216,13 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
 # 3. REWARD FUNCTION for GRPO
 # ──────────────────────────────────────────────
 
-_REWARD_CACHE = {}
 _GLOBAL_REWARD_CALL_COUNT = 0
 LOG_INTERVAL = 20
 LOG_DIR = "training_logs"
 SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 
 def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
-    """Run the environment and return the full reward breakdown. Cached for efficiency."""
-    global _REWARD_CACHE
-    if len(_REWARD_CACHE) > 1000:
-        _REWARD_CACHE.clear()
-
-    key = (prompt, completion)
-    if key in _REWARD_CACHE:
-        return _REWARD_CACHE[key]
-        
+    """Run the environment and return the full reward breakdown. Computed fresh per call to prevent hacking."""
     from core.lifestack_env import LifeStackEnv, LifeStackAction
     import re
     
@@ -322,7 +313,6 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
                 comp_str = " | ".join(f"{k}={v:.3f}" for k, v in components.items())
                 print(f"[step {_GLOBAL_REWARD_CALL_COUNT}] reward={result['reward']:.3f} | {comp_str}")
 
-        _REWARD_CACHE[key] = result
         return result
         
     except Exception:
