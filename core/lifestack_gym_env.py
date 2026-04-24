@@ -68,7 +68,13 @@ class LifeStackGymEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        obs_obj = self.env.reset(task=self.task, difficulty=self.difficulty)
+        
+        conflict = None
+        if self.task is None:
+            from agent.conflict_generator import generate_conflict
+            conflict = generate_conflict(self.difficulty)
+            
+        obs_obj = self.env.reset(task=self.task, conflict=conflict)
         return self._obs_vector(), obs_obj.metadata
 
     def step(self, action: int):
@@ -98,11 +104,11 @@ class LifeStackGymEnv(gym.Env):
         
         obs_obj = self.env.step(ls_action)
         
-        reward = obs_obj.reward
         terminated = obs_obj.done
-        truncated = self.env.state.step_count >= (self.task.horizon if self.task else self.max_steps)
+        # Truncated only if not naturally terminated
+        truncated = (not terminated) and (self.env.state.step_count >= (self.task.horizon if self.task else self.max_steps))
         
-        return self._obs_vector(), reward, terminated, truncated, {"breakdown": obs_obj.metadata.get("breakdown", {})}
+        return self._obs_vector(), obs_obj.reward, terminated, truncated, {"breakdown": obs_obj.metadata.get("breakdown", {})}
 
     def _action_to_changes(self, action_type: str):
         """Maps an action type string to (metric_changes, resource_cost)."""
