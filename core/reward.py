@@ -401,7 +401,9 @@ def reward_reasoning_coherence(reasoning: str, action_type: str = "") -> float:
         "communicate": ["talk", "discuss", "speak", "message", "call", "explain"],
         "delegate": ["hand off", "assign", "help", "junior", "colleague"],
         "negotiate": ["bargain", "trade", "deal", "terms"],
-        "deprioritize": ["later", "postpone", "unimportant", "drop"]
+        "deprioritize": ["later", "postpone", "unimportant", "drop"],
+        "reschedule": ["reschedule", "delay", "postpone", "move", "time", "calendar", "slot"],
+        "execute": ["route", "plan", "action", "implement", "complete", "resolve", "execute"],
     }
     
     if action_type and action_type in action_keywords:

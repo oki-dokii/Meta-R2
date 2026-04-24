@@ -61,13 +61,27 @@ def load_model():
         )
         return model, tokenizer
     except ImportError:
-        # Fallback: standard HF loading (slower, more VRAM)
+        # Fallback: standard HF + PEFT LoRA (Unsloth not installed)
+        # MUST apply LoRA here — training the full 1.5B model requires ~24GB
+        # VRAM for Adam states and breaks the PeftModel loader in inference.py.
         from transformers import AutoModelForCausalLM
+        from peft import LoraConfig, get_peft_model, TaskType
         model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(
             model_name, torch_dtype=torch.float16, device_map="auto"
         )
+        lora_cfg = LoraConfig(
+            r=16,
+            lora_alpha=16,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=0.0,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+        )
+        model = get_peft_model(model, lora_cfg)
+        model.print_trainable_parameters()
         return model, tokenizer
 
 
@@ -171,6 +185,9 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
         # Cycle difficulty 1-5 unless fixed
         curr_diff = difficulty if difficulty else (i % 5) + 1
 
+        # Save the outer random state so that task seeding is deterministic
+        # but does NOT corrupt the outer RNG chain between loop iterations.
+        outer_state = random.getstate()
         task_seed = random.randint(0, 999999)
         random.seed(task_seed)
         task = generator.generate(domain=domain, difficulty=curr_diff)
@@ -191,8 +208,14 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
             energy_units=budget_dict.get("energy", 100.0),
         )
 
-        # NEW: Randomly pick a starting step (0, 2, or 4) to activate replan signal
+        # Randomly pick a starting step (0, 2, or 4) to activate replan signal
         start_step = random.choice([0, 2, 4])
+        # Restore outer state now — env fast-forward below must not bleed into
+        # subsequent iterations' seed selection.
+        random.setstate(outer_state)
+        # Advance outer state past the seed we consumed so next iteration differs.
+        _ = random.random()
+
         event_log = []
         if start_step > 0:
             from core.lifestack_env import LifeStackEnv, LifeStackAction
@@ -642,10 +665,12 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
     except Exception as unsloth_err:
         print(f"  Unsloth load failed ({unsloth_err}), falling back to AutoModelForCausalLM")
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel
         tokenizer = AutoTokenizer.from_pretrained(model_dir)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_dir, dtype=torch.float16, device_map="auto"
+        base = AutoModelForCausalLM.from_pretrained(
+            "Qwen/Qwen2.5-1.5B-Instruct", torch_dtype=torch.float16, device_map="auto"
         )
+        model = PeftModel.from_pretrained(base, model_dir)
     model.eval()
 
     graph = DependencyGraph()
@@ -680,7 +705,9 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
         with torch.no_grad():
             outputs = model.generate(
                 **inputs, max_new_tokens=256, temperature=0.3,
-                do_sample=True, pad_token_id=tokenizer.pad_token_id
+                do_sample=True,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
             )
 
         completion = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
