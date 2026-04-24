@@ -86,10 +86,10 @@ class LifeStackGymEnv(gym.Env):
         
         # In this wrapper, we pick a reasonable target if needed
         target = ""
-        if action_type == "execute" and self.env.task:
-            # Pick first available route
-            for r in self.env.task.viable_routes:
-                if r.id not in self.env.closed_route_ids:
+        current_task = self.env.state.current_task
+        if action_type == "execute" and current_task:
+            for r in current_task.viable_routes:
+                if r.id not in self.env.state.closed_route_ids:
                     target = r.id
                     break
         

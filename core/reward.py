@@ -390,8 +390,8 @@ def reward_reasoning_coherence(reasoning: str, action_type: str = "") -> float:
     # 1. Structural Logic Check
     # Reward use of logical connectors rather than just list of facts
     connectors = ["because", "since", "therefore", "due to", "resulting in", "consequently"]
-    if any(c in reasoning_lower for f, c in zip(range(2), connectors)): # Check first few
-         score += 0.05
+    if any(c in reasoning_lower for c in connectors):
+        score += 0.05
     
     # 2. Action Alignment (Non-Gammable Anti-Hacking)
     # The reasoning MUST logically justify the chosen category.

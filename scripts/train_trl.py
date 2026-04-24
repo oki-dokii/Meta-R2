@@ -371,7 +371,8 @@ def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) ->
             
             reasoning = data.get("reasoning", "")
             a_type = data.get("action_type", "")
-            results.append(reward_reasoning_coherence(reasoning, action_type=a_type) * 10.0)
+            # reward_reasoning_coherence returns [-0.30, 0.30] — no scaling needed
+            results.append(reward_reasoning_coherence(reasoning, action_type=a_type))
         except Exception:
             results.append(-0.1)
     return results
