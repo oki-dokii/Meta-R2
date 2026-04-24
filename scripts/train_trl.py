@@ -411,6 +411,13 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
 
     return rewards
 
+def reward_replan_fn(completions, prompts, **kwargs) -> list[float]:
+    """Exposes the internal replan bonus as a standalone GRPO signal."""
+    rewards = []
+    for c, p in zip(completions, prompts):
+        eval_data = get_lifestack_evaluation(c, p)
+        rewards.append(eval_data.get("breakdown", {}).get("components", {}).get("replan", 0.0))
+    return rewards
 
 # ──────────────────────────────────────────────
 # 4. CHECKPOINT HELPERS
@@ -543,6 +550,7 @@ def train_curriculum(
                 reward_plausibility_fn,
                 reward_task_success_fn,
                 reward_milestone_fn,
+                reward_replan_fn,
                 reward_reasoning_fn,
                 reward_human_feedback_fn,
             ],

@@ -139,3 +139,13 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
    
 3. **Bug 11: store_decision drops negative examples**
    - *Fix applied*: Removed reward thresholds (`<0.5` and `<2.0`) from `LifeStackMemory.store_decision` and `store_trajectory`. The system now captures the full longitudinal record, filtering for "successful" examples only during retrieval time for few-shot prompting.
+
+---
+
+## Final Policy Refinement ❌ -> ✅
+
+1. **Success Termination Logic**: Resolved the "Mutually Exclusive Route" blocker.
+   - *Fix applied*: Changed `is_success` verification from `all()` to `any()` in `core/lifestack_env.py`. This ensures that episodes terminate correctly when one of the valid task goals is met, preventing the agent from being penalized for not achieving impossible combinations of exclusive routes.
+
+2. **Explicit Replan Signal**: Promoted Replan Bonus to a primary training objective.
+   - *Fix applied*: Implemented a dedicated `reward_replan_fn` in `scripts/train_trl.py`. By exposing this as a standalone GRPO reward function, the model now receives a direct gradient for "recovering" (achieving milestones) specifically after exogenous events, rather than it being absorbed into general task success.
