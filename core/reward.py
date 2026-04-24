@@ -174,9 +174,11 @@ def compute_milestone_reward(milestones_achieved: list[str], task: Task) -> floa
     return min(1.0, achieved / total_possible)
 
 def compute_task_completion_reward(success_conditions_met: list[bool], task: Task) -> float:
+    # A task is completed if any of its target success conditions are satisfied.
+    # This handles tasks with multiple alternative goal-states (e.g. choice of routes).
     if not success_conditions_met:
         return 0.0
-    return sum(success_conditions_met) / len(success_conditions_met)
+    return 1.0 if any(success_conditions_met) else 0.0
 
 def compute_replan_bonus(exo_events_seen: int, milestones_after_event: int) -> float:
     # Scale bonus based on ability to bounce back after exogenous events

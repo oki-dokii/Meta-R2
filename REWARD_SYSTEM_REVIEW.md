@@ -159,3 +159,11 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
    - **Static Judges**: `reward_format_fn`, `reward_plausibility_fn`, and `reward_reasoning_fn` now operate through direct JSON parsing and independent semantic verification. They provide gradients for "logical integrity" without needing the simulation engine.
    - **Empirical Judges**: `reward_task_success_fn` and `reward_milestone_fn` remain tied to the `LifeStackEnv` simulation. They provide gradients for "causal outcome"—ensuring the agent's logic actually works in the simulated world.
    - **Outcome**: This prevents "signal contamination" where an environment bug or a single gammable path could inflate all reward components simultaneously.
+
+---
+
+## Success Logic Reconciliation ✅
+
+1. **Alignment of Win States**:
+   - *Fix applied*: Updated `compute_task_completion_reward` in `core/reward.py` to use `any()` logic. 
+   - **Reasoning**: This reconciles the reward system with the environment's early termination logic. In crises with multiple resolution paths (e.g., selling an asset vs. negotiating a payment plan), the agent now receives full completion credit (1.0) for reaching any valid goal-state, rather than previously being capped at partial credit.
