@@ -96,6 +96,12 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42):
     }
     metadata_str = json.dumps(metadata)
 
+    # Render viable routes
+    routes_str = "\n".join(
+        f"  - {r.id}: {r.name} ({r.description}). Requires: {', '.join(r.required_action_types)}"
+        for r in task.viable_routes
+    )
+
     return (
         f"You are a life management AI. Resolve this crisis optimally.\n\n"
         f"<SYSTEM_METADATA>\n{metadata_str}\n</SYSTEM_METADATA>\n\n"
@@ -104,9 +110,10 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42):
         f"LIFE METRICS:\n{status}\n\n"
         f"RESOURCES: Time={budget.time_hours:.1f}h, "
         f"Money=${budget.money_dollars:.1f}, Energy={budget.energy_units:.1f}\n\n"
+        f"AVAILABLE ROUTES (To execute a route, prerequisites must be met):\n{routes_str}\n\n"
         f"Respond with ONLY valid JSON:\n"
-        f'{{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize", '
-        f'"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time", '
+        f'{{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute", '
+        f'"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time OR <route_id>", '
         f'"metric_changes": {{"domain.submetric": delta}}, '
         f'"resource_cost": {{"time": 0, "money": 0, "energy": 0}}, '
         f'"reasoning": "brief explanation"}}'

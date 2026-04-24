@@ -81,3 +81,12 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
 
 5. **Bug 5: `reward_human_feedback_fn` DB query exploit**
    - *Fix applied*: Switched the ChromaDB lookup to query against the `prompt` string instead of `action.reasoning`. The agent can no longer manipulate the query text to retrieve high scores.
+
+---
+
+## Critical Bug Fixes ❌ -> ✅
+
+1. **Critical Bug 1: Milestone and Completion rewards were dead**
+   - *Fix applied*: Populated `success_conditions` for all task domains in `TaskGenerator`.
+   - *Fix applied*: Exposed `viable_routes` in the GRPO prompt so the model knows which IDs to target.
+   - *Fix applied*: Added `execute` to the allowed `action_type` list and updated schema instructions.
