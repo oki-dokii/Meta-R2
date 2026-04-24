@@ -27,14 +27,15 @@ except ImportError:
         EnvironmentMetadata = None
         USING_MODERN_API = False
     except ImportError:
-        # Final fallback to nominal shim
+        # Final fallback — must use BaseModel so Pydantic subclasses work
+        from pydantic import BaseModel
         class Environment:
             def __init__(self, rubric=None): self.rubric = rubric
             def reset(self, *a, **k): pass
             def step(self, *a, **k): pass
-        class Action: pass
-        class Observation: pass
-        class State: pass
+        class Action(BaseModel): pass
+        class Observation(BaseModel): pass
+        class State(BaseModel): pass
         class Rubric:
             def __init__(self, *a, **k): pass
             def compute(self, *a, **k): return 0.0
