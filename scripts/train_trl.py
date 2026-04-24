@@ -191,6 +191,10 @@ SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 
 def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
     """Run the environment and return the full reward breakdown. Cached for efficiency."""
+    global _REWARD_CACHE
+    if len(_REWARD_CACHE) > 1000:
+        _REWARD_CACHE.clear()
+
     key = (prompt, completion)
     if key in _REWARD_CACHE:
         return _REWARD_CACHE[key]
@@ -283,8 +287,9 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         return {"reward": -0.5, "breakdown": {}, "action": None, "initial_metrics": meta.get("disruption", {}) if 'meta' in locals() else {}}
 
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Scores JSON format compliance."""
-    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("format_compliance", -0.5) for c, p in zip(completions, prompts)]
+    """Scores JSON format compliance independently."""
+    from core.reward import reward_format_compliance
+    return [reward_format_compliance(c) for c in completions]
 
 def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Penalize zero-cost metric changes."""
@@ -318,8 +323,9 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
         from agent.memory import LifeStackMemory
         memo = LifeStackMemory(silent=True)
     except (ImportError, Exception) as e:
-        # chromadb not installed or DB init failed — neutral abstention
-        return [0.0] * len(completions)
+        print(f"[warning] reward_human_feedback_fn unavailable ({e}), applying small penalty.")
+        # chromadb not installed or DB init failed — apply small penalty
+        return [-0.01] * len(completions)
 
     rewards = []
     for c, p in zip(completions, prompts):

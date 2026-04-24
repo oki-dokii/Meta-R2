@@ -359,7 +359,8 @@ class LifeStackEnv(_EnvBase):
             "execute"
         )
         
-        metric_changes = copy.deepcopy(action.metric_changes)
+        allowed_keys = set(self._internal_state.current_metrics.flatten().keys())
+        metric_changes = {k: v for k, v in action.metric_changes.items() if k in allowed_keys}
         resource_cost = copy.deepcopy(action.resource_cost)
         
         # Handle Rollback
