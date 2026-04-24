@@ -271,26 +271,33 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             gen = TaskGenerator()
             domain = meta.get("domain", "flight_crisis")
             import random
-            random.seed(meta.get("seed", 42))
+            # Keep seed active through the ENTIRE env evaluation — task gen, reset,
+            # fast-forward, and the action step.  Without this, stochastic events
+            # (event.step == -1, random.random() < probability) fire differently each
+            # call, so reward_task_success_fn / reward_milestone_fn / reward_replan_fn
+            # see inconsistent env states for the same completion.
+            eval_seed = meta.get("seed", 42)
+            random.seed(eval_seed)
             task = gen.generate(domain=domain, difficulty=meta.get("difficulty", 3))
-            random.seed() # reset
             # Overlay the actual disruption that was presented in the prompt
             task.mutable_world.update(meta.get("disruption", {}))
             task.visible_world.update(meta.get("disruption", {}))
         except Exception as e:
             print(f"[reward] Task construction failed: {e}")
+            random.seed()
             return {"reward": -0.5, "breakdown": {"error": str(e)}}
 
         # Validate required fields are present and non-None.
         _required = ("id", "goal", "constraints", "mutable_world", "visible_world")
         if any(getattr(task, f, None) is None for f in _required):
             print("[reward] Task missing required fields after construction.")
+            random.seed()
             return {"reward": -0.5, "breakdown": {"error": "missing_fields"}}
 
-        # 3. Step Env
+        # 3. Step Env — still under eval_seed so events are deterministic per (completion, prompt)
         env = LifeStackEnv()
         env.reset(task=task, conflict=meta.get("disruption", {}))
-        
+
         # Fast-forward to the state the model saw
         curr_step = meta.get("step", 0)
         for _ in range(curr_step):
@@ -307,6 +314,7 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             actions_taken=1
         )
         obs = env.step(action)
+        random.seed()  # restore global RNG — eval_seed must not bleed into trainer
 
         result = {
             "reward": float(obs.reward),
@@ -340,6 +348,7 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         return result
         
     except Exception:
+        random.seed()  # always restore RNG on any failure path
         return {"reward": -0.5, "breakdown": {}, "action": None, "initial_metrics": meta.get("disruption", {}) if 'meta' in locals() else {}}
 
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
