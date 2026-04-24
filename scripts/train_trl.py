@@ -298,27 +298,21 @@ def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> li
     return [reward_format_compliance(c) for c in completions]
 
 def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Penalize zero-cost metric changes, reflecting actual severity instead of binary."""
-    from core.reward import reward_plausibility_check
-    rewards = []
-    for c in completions:
-        try:
-            text = c.strip()
-            if "```json" in text:
-                text = text.split("```json")[-1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[-1].split("```")[0]
-            data = json.loads(text.strip())
-            mc = data.get("metric_changes", {})
-            rc = data.get("resource_cost", {})
-            rewards.append(reward_plausibility_check(mc, rc))
-        except Exception:
-            rewards.append(0.0)
-    return rewards
+    """Penalize zero-cost metric changes using the severity-aware score from the env."""
+    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("plausibility", 0.0) for c, p in zip(completions, prompts)]
 
 def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Core outcome reward isolated to completion (avoiding milestone/format/reasoning double-dip)."""
-    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("completion", 0.0) for c, p in zip(completions, prompts)]
+    """Core outcome reward isolated to completion (avoiding double-dip). Returns penalty if evaluation failed."""
+    results = []
+    for c, p in zip(completions, prompts):
+        eval_res = get_lifestack_evaluation(c, p)
+        # If breakdown is empty, it means the evaluation failed (likely JSON error)
+        # We return the top-level reward which contains the -0.5 failure penalty.
+        if not eval_res.get("breakdown"):
+            results.append(eval_res.get("reward", -0.5))
+        else:
+            results.append(eval_res.get("breakdown", {}).get("components", {}).get("completion", 0.0))
+    return results
 
 def reward_milestone_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Monitor progress through logical bottlenecks."""

@@ -134,7 +134,8 @@ def compute_reward(
             "containment": cascade_containment_score,
             "efficiency": resource_efficiency_score,
             "preservation": relationship_preservation_score,
-            "format_compliance": comp_reward
+            "format_compliance": comp_reward,
+            "plausibility": reward_plausibility_check(metric_changes, resources_used) if metric_changes else 0.0
         },
         "base_reward": base_reward,
         "penalties_total": penalties,
@@ -256,6 +257,7 @@ def compute_task_reward(
             "efficiency": efficiency_score,
             "reasoning": reasoning_score,
             "format_compliance": format_score,
+            "plausibility": local_breakdown["components"].get("plausibility", 0.0),
             "timeout_penalty": timeout_pen
         },
         "base_reward": base_reward,
