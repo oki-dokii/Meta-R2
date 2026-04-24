@@ -62,3 +62,22 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
 | Low | Log a warning or small penalty when `reward_human_feedback_fn` falls back to 0.0 | Section 15: monitor individual columns | ✅ Fixed |
 
 *The biggest structural win is decoupling `reward_format_fn` from the shared env call — it can check JSON validity entirely on its own, making it genuinely independent from the environment's result.*
+
+---
+
+## Secondary Bug Fixes ❌ -> ✅
+
+1. **Bug 1: `reward_plausibility_fn` inverted/broken output**
+   - *Fix applied*: Extracted the parsed completion and invoked `reward_plausibility_check` natively to retrieve the true continuous penalty score (e.g., `-0.1`, `-0.3`) instead of returning a binary `1.0`/`-1.0`.
+
+2. **Bug 2: `reward_task_success_fn` double-dipping components**
+   - *Fix applied*: Narrowed the function to retrieve just the `.get("completion", 0.0)` score from the breakdown, avoiding re-summing milestone, format, and reasoning.
+
+3. **Bug 3: `reward_reasoning_fn` output range is noise**
+   - *Fix applied*: Added a `* 10.0` scalar to inflate the `[-0.10, 0.10]` range to `[-1.0, 1.0]`, equalizing its variance and ensuring it produces valid gradients.
+
+4. **Bug 4: Task reconstruction was non-deterministic**
+   - *Fix applied*: Injected a sampled `seed` into `<SYSTEM_METADATA>` and set `random.seed()` around `TaskGenerator.generate()` in the evaluation function. Now the environment evaluates against the exact same routes and milestones the prompt originally described.
+
+5. **Bug 5: `reward_human_feedback_fn` DB query exploit**
+   - *Fix applied*: Switched the ChromaDB lookup to query against the `prompt` string instead of `action.reasoning`. The agent can no longer manipulate the query text to retrieve high scores.

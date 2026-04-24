@@ -75,7 +75,7 @@ def load_model():
 # 2. DATASET: Generate conflict prompts
 # ──────────────────────────────────────────────
 
-def build_prompt_for_task(task, person, metrics, budget):
+def build_prompt_for_task(task, person, metrics, budget, seed=42):
     """Build a structured prompt from task state, embedding hidden metadata for the reward function."""
     flat = metrics.flatten()
     status = "\n".join(f"  {k}: {v:.1f}" for k, v in flat.items())
@@ -87,6 +87,7 @@ def build_prompt_for_task(task, person, metrics, budget):
         "disruption": task.mutable_world,
         "difficulty": task.difficulty,
         "horizon": task.horizon,
+        "seed": seed,
         "budget": {
             "time": budget.time_hours,
             "money": budget.money_dollars,
@@ -156,6 +157,8 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
         # Cycle difficulty 1-5 unless fixed
         curr_diff = difficulty if difficulty else (i % 5) + 1
 
+        task_seed = random.randint(0, 999999)
+        random.seed(task_seed)
         task = generator.generate(domain=domain, difficulty=curr_diff)
 
         # Overlay a matching legacy conflict disruption for richer metric seeding
@@ -173,7 +176,7 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
             money_dollars=budget_dict.get("money", 500.0),
             energy_units=budget_dict.get("energy", 100.0),
         )
-        prompt = build_prompt_for_task(task, person, metrics, budget)
+        prompt = build_prompt_for_task(task, person, metrics, budget, seed=task_seed)
         prompts.append({"prompt": prompt, "difficulty": curr_diff, "domain": domain})
 
     return Dataset.from_list(prompts)
@@ -222,7 +225,10 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             from agent.conflict_generator import TaskGenerator
             gen = TaskGenerator()
             domain = meta.get("domain", "flight_crisis")
+            import random
+            random.seed(meta.get("seed", 42))
             task = gen.generate(domain=domain, difficulty=meta.get("difficulty", 3))
+            random.seed() # reset
             # Overlay the actual disruption that was presented in the prompt
             task.mutable_world.update(meta.get("disruption", {}))
             task.visible_world.update(meta.get("disruption", {}))
@@ -292,20 +298,35 @@ def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> li
     return [reward_format_compliance(c) for c in completions]
 
 def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Penalize zero-cost metric changes."""
-    return [1.0 if "PLAUSIBILITY_VIOLATION" not in get_lifestack_evaluation(c, p).get("breakdown", {}).get("penalties_fired", []) else -1.0 for c, p in zip(completions, prompts)]
+    """Penalize zero-cost metric changes, reflecting actual severity instead of binary."""
+    from core.reward import reward_plausibility_check
+    rewards = []
+    for c in completions:
+        try:
+            text = c.strip()
+            if "```json" in text:
+                text = text.split("```json")[-1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[-1].split("```")[0]
+            data = json.loads(text.strip())
+            mc = data.get("metric_changes", {})
+            rc = data.get("resource_cost", {})
+            rewards.append(reward_plausibility_check(mc, rc))
+        except Exception:
+            rewards.append(0.0)
+    return rewards
 
 def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Core outcome reward."""
-    return [get_lifestack_evaluation(c, p)["reward"] for c, p in zip(completions, prompts)]
+    """Core outcome reward isolated to completion (avoiding milestone/format/reasoning double-dip)."""
+    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("completion", 0.0) for c, p in zip(completions, prompts)]
 
 def reward_milestone_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Monitor progress through logical bottlenecks."""
     return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("milestone", 0.0) for c, p in zip(completions, prompts)]
 
 def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Evaluate planning coherence."""
-    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("reasoning", 0.0) for c, p in zip(completions, prompts)]
+    """Evaluate planning coherence. Scaled 10x to match task_success variance."""
+    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("reasoning", 0.0) * 10.0 for c, p in zip(completions, prompts)]
 
 def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """
@@ -336,8 +357,10 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
                 rewards.append(0.0)
                 continue
 
+            # Use task prompt to query feedback instead of model-generated reasoning
+            # to avoid reward-hacking ChromaDB
             similar_fb_list = memo.feedback_collection.query(
-                query_texts=[action.reasoning],
+                query_texts=[p],
                 n_results=1
             ).get('metadatas', [[]])[0]
 
