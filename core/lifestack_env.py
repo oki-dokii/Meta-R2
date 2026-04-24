@@ -505,7 +505,8 @@ class LifeStackEnv(_EnvBase):
                 step_count=self._internal_state.step_count,
                 max_steps=self.max_steps,
                 metric_changes=metric_changes,
-                cumulative_rel_delta=self._internal_state.cumulative_rel_delta
+                cumulative_rel_delta=self._internal_state.cumulative_rel_delta,
+                action_type=tool_type
             )
             # Charge the rollback penalty only once per episode
             if self._internal_state.used_rollback and not self._internal_state.rollback_penalty_charged:
@@ -517,7 +518,8 @@ class LifeStackEnv(_EnvBase):
                 resources_used=resource_cost,
                 actions_taken=action.actions_taken,
                 metric_changes=metric_changes,
-                completion=getattr(action, 'completion', "")
+                completion=getattr(action, 'completion', ""),
+                action_type=tool_type
             )
         
         # 7. End Conditions

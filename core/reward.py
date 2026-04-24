@@ -5,6 +5,8 @@ import re
 from core.life_state import LifeMetrics
 from core.task import Task
 
+
+
 def compute_reward(
     state_before: LifeMetrics, 
     state_after: LifeMetrics, 
@@ -12,7 +14,8 @@ def compute_reward(
     actions_taken: int,
     metric_changes: dict = None,
     completion: str = None,
-    disruption_baseline: int = None
+    disruption_baseline: int = None,
+    action_type: str = ""
 ) -> tuple[float, dict]:
     """
     Computes the reward for a life step based on changes in LifeMetrics and resource usage.
@@ -117,19 +120,29 @@ def compute_reward(
         fired.append("RELATIONSHIP_COLLAPSE")
 
     # [NEW] Plausibility Penalty
+    plaus = 0.0
     if metric_changes:
         plaus = reward_plausibility_check(metric_changes, resources_used)
         if plaus < 0:
             penalties += plaus
             fired.append("PLAUSIBILITY_VIOLATION")
 
-    # [NEW] Format Compliance (Only if raw completion provided)
+    # [NEW] Format Compliance & Reasoning
     comp_reward = 0.0
+    reasoning = ""
     if completion:
         comp_reward = reward_format_compliance(completion)
-        # Note: reward_format_compliance returns high magnitude values, 
-        # we can cap it or use it as-is.
-        
+        try:
+            # Simple extract reasoning from JSON if possible
+            import json
+            data = json.loads(completion)
+            reasoning = data.get("reasoning", "")
+        except:
+            pass
+    
+    # [NEW] Reasoning Alignment (tied to action_type)
+    reasoning_score = reward_reasoning_coherence(reasoning, action_type=action_type)
+    
     final_reward = max(-1.0, min(1.0, base_reward + penalties))
     
     breakdown = {
@@ -139,7 +152,8 @@ def compute_reward(
             "efficiency": resource_efficiency_score,
             "preservation": relationship_preservation_score,
             "format_compliance": comp_reward,
-            "plausibility": reward_plausibility_check(metric_changes, resources_used) if metric_changes else 0.0
+            "plausibility": plaus,
+            "reasoning_alignment": reasoning_score
         },
         "base_reward": base_reward,
         "penalties_total": penalties,
@@ -192,13 +206,14 @@ def compute_task_reward(
     step_count: int = 0,
     max_steps: int = 0,
     metric_changes: dict = None,
-    cumulative_rel_delta: float = 0.0
+    cumulative_rel_delta: float = 0.0,
+    action_type: str = ""
 ) -> tuple[float, dict]:
     # 1. Base local components (with scaled disruption baseline from task metadata)
     d_baseline = len(task.mutable_world) if task and hasattr(task, 'mutable_world') else None
     local_reward, local_breakdown = compute_reward(state_before, state_after, resources_used, actions_taken,
                                                    metric_changes=metric_changes, completion=completion,
-                                                   disruption_baseline=d_baseline)
+                                                   disruption_baseline=d_baseline, action_type=action_type)
 
     # 2. Orchestrator components
     # Use only the raw outcome component from local_breakdown to avoid double-counting 
@@ -256,13 +271,13 @@ def compute_task_reward(
 
     breakdown = {
         "components": {
-            "local_metric_delta": local_metric_delta_score,
+            "local_metric_delta": outcome_score_local,
             "milestone": milestone_score,
             "completion": completion_score,
             "replan": replan_score,
             "efficiency": efficiency_score,
             "reasoning": reasoning_score,
-            "format_compliance": format_score,
+            "format_compliance": local_breakdown["components"].get("format_compliance", 0.0),
             "plausibility": local_breakdown["components"].get("plausibility", 0.0),
             "timeout_penalty": timeout_pen
         },
@@ -354,23 +369,42 @@ def reward_timeout_check(step_count: int, max_steps: int, done: bool) -> float:
         return -0.20
     return 0.0
 
-def reward_reasoning_coherence(reasoning: str, conflict_domain: str) -> float:
+def reward_reasoning_coherence(reasoning: str, action_type: str = "") -> float:
     """
-    Process-aware intermediate reward.
-    Requires a non-empty domain AND non-empty reasoning — empty domain would match every string.
+    Harden verification of logical consistency. Requires both length and 
+    alignment with the chosen action to prevent word-stuffing.
     """
-    if not conflict_domain or not reasoning:
-        return -0.10
+    if not reasoning or len(reasoning.strip()) < 20:
+        return -0.20 # Severe penalty for lack of effort
 
     reasoning_lower = reasoning.lower()
+    score = 0.0
 
-    if conflict_domain.lower() in reasoning_lower:
-        return 0.10
-
-    if len(reasoning.strip()) < 20:
-        return -0.10
-
-    return 0.0
+    # 1. Structural Logic Check
+    # Reward use of logical connectors rather than just list of facts
+    connectors = ["because", "since", "therefore", "due to", "resulting in", "consequently"]
+    if any(c in reasoning_lower for f, c in zip(range(2), connectors)): # Check first few
+         score += 0.05
+    
+    # 2. Action Alignment (Non-Gammable Anti-Hacking)
+    # The reasoning MUST logically justify the chosen category.
+    action_keywords = {
+        "spend": ["cost", "price", "expensive", "money", "budget", "finance"],
+        "rest": ["energy", "sleep", "exhaustion", "recharge", "break"],
+        "communicate": ["talk", "discuss", "speak", "message", "call", "explain"],
+        "delegate": ["hand off", "assign", "help", "junior", "colleague"],
+        "negotiate": ["bargain", "trade", "deal", "terms"],
+        "deprioritize": ["later", "postpone", "unimportant", "drop"]
+    }
+    
+    if action_type and action_type in action_keywords:
+        match = any(kw in reasoning_lower for kw in action_keywords[action_type])
+        if match:
+            score += 0.10
+        else:
+            score -= 0.20 # Contradiction penalty: action says 'spend' but reasoning doesn't mention cost
+            
+    return max(-0.30, min(0.30, score))
 
 def main():
     # Scenario setup
