@@ -197,6 +197,7 @@ class LifeStackGymEnv(gym.Env):
                 self.task, self.closed_route_ids, self.world_state, self.hidden_state
             )
             
+            self.step_count += 1
             reward, breakdown = compute_task_reward(
                 state_before=state_before,
                 state_after=self.state,
@@ -217,6 +218,7 @@ class LifeStackGymEnv(gym.Env):
                 action_type=action_type
             )
         else:
+            self.step_count += 1
             reward, breakdown = compute_reward(
                 state_before, 
                 self.state, 
@@ -227,7 +229,6 @@ class LifeStackGymEnv(gym.Env):
             )
         self.last_reward = reward
         self.last_breakdown = breakdown
-        self.step_count += 1
 
         # Termination
         flat = self.state.flatten()

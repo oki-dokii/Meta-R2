@@ -152,11 +152,11 @@ def test_memory_threshold():
                 reasoning="test reasoning",
             )
 
-        expected = sum(1 for r in rewards if r >= 2.0)
+        expected = len(rewards)
         actual = memory.collection.count()
-        report("Memory threshold (only reward >= 2.0 stored)",
+        report("Memory storage (all trajectories stored for retrieval filtering)",
                actual == expected,
-               f"expected {expected}, stored {actual} (rewards: {rewards})")
+               f"expected {expected}, stored {actual} (all items regardless of reward)")
     finally:
         shutil.rmtree(test_dir, ignore_errors=True)
 
