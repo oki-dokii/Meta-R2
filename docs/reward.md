@@ -18,25 +18,27 @@ Two reward functions are available:
 ## `compute_task_reward` — Components
 
 ```
-reward = (0.10 × metric_delta)       # Local step improvement
-       + (0.40 × milestone_reward)   # Reaching key progress markers
-       + (0.30 × completion_reward)  # Final goal achievement
+reward = (0.35 × milestone)          # Reaching key progress markers
+       + (0.25 × completion)         # Final goal achievement (binary 1.0 if any goal met)
+       + (0.15 × outcome)            # Isolated local metric improvement
        + (0.10 × replan_bonus)       # Recovery after ExoEvents
-       + (0.10 × efficiency)         # Resource preservation
+       + (0.10 × efficiency)         # Resource preservation relative to delta
+       + (0.05 × reasoning)          # Logical coherence & action alignment
        + penalties
 ```
 
 ### Penalties
 
-| Penalty | Value | Trigger |
-|---|---|---|
-| `INACTION_PENALTY` | `-0.20` | `actions_taken == 0` |
-| `CRITICAL_FLOOR_VIOLATION` | `-0.30` | Any metric drops below 20 |
-| `DEAD_END_PENALTY` | `-0.50` | All viable routes closed, no success |
-| `ROLLBACK_PENALTY` | `-0.10` | Agent used rollback action |
-| `CASCADE_COLLAPSE` | `-0.30` | Metric drops from safe zone (>20) to critical (<10) |
-| `WAIT_CAP_PENALTY` | `-0.50` | 4+ consecutive wait actions |
-| `PLAUSIBILITY_VIOLATION` | `-0.20` | Zero-cost non-zero metric changes |
+| Penalty | Value | Level | Trigger |
+*   **INACTION_PENALTY** | `-0.40` | Step | `actions_taken == 0` |
+*   **TASK_INACTION** | `-0.20` | Task | `actions_taken == 0` (additive to step penalty) |
+*   **CRITICAL_FLOOR** | `-0.50` | Step | Any metric drops below 20 |
+*   **DEAD_END** | `-0.50` | Task | All viable routes closed without success |
+*   **CASCADE_SPREAD** | `-0.30` | Step | Changes spread wider than disruption baseline |
+*   **REL_COLLAPSE** | `-0.15` | Step | Relationships drop >20 pts in one step |
+*   **REL_EROSION** | `-0.15` | Episode | Cumulative relationship drop >20 pts |
+*   **PLAUSIBILITY** | `-0.10 to -0.30` | Step | Implausible metric/cost ratio |
+*   **TIMEOUT** | `-0.20` | Task | Max steps reached without resolution |
 
 ---
 
@@ -47,15 +49,19 @@ Both functions return `(reward: float, breakdown: dict)`.
 ```python
 breakdown = {
     "components": {
-        "metric_delta": float,
-        "milestone": float,
-        "completion": float,
-        "replan": float,
+        "outcome": float,
+        "containment": float,
         "efficiency": float,
+        "preservation": float,
         "format_compliance": float,
-        "reasoning": float,
+        "plausibility": float,
+        "reasoning_alignment": float,
+        "replan": float,
+        "milestone": float,
+        "completion": float
     },
     "penalties_fired": list[str],
+    "base_reward": float,
     "total": float,
 }
 ```
