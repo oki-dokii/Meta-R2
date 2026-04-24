@@ -221,8 +221,8 @@ def test_task_driven_smoke():
 
 # ─── 11. Full Episode Smoke Test ─────────────────────────────────────────────
 @pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY"),
-    reason="Skipped: no API key in environment"
+    not os.environ.get("OPENAI_API_KEY") and not os.environ.get("GROQ_API_KEY"),
+    reason="Skipped: no API key (OpenAI/Groq) in environment"
 )
 def test_full_episode_smoke():
     test_dir = "./test_episode_memory_tmp"
