@@ -521,7 +521,9 @@ class LifeStackEnv(_EnvBase):
             )
         
         # 7. End Conditions
-        is_success = all(val == True for val in success_mets) if success_mets else False
+        # Check if ALL success conditions are met. 
+        # Since I just populated success_conditions in TaskGenerator, this will now fire.
+        is_success = all(success_mets) if (success_mets and len(task.success_conditions) > 0) else False
         is_task_failure = any(val == True for val in failure_mets)
         metric_death = any(v <= 10 for v in metrics_after.values())
         
