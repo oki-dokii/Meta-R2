@@ -5,22 +5,38 @@ class LifeStackVerifier:
     """Standalone verifier for Task success, failure, and progression."""
     
     @staticmethod
+    def _check_cond(cond: dict, world_state: dict, hidden_state: dict, metrics_flat: dict = None) -> bool:
+        key = cond['key']
+        target = cond['value']
+        op = cond.get('op', 'eq')
+        
+        # Priority: Metrics > Hidden > World
+        val = None
+        if metrics_flat and key in metrics_flat:
+            val = metrics_flat[key]
+        else:
+            val = hidden_state.get(key, world_state.get(key))
+            
+        if val is None:
+            return False
+            
+        if op == 'eq': return val == target
+        if op == 'ne': return val != target
+        if op == 'gt': return val > target
+        if op == 'lt': return val < target
+        if op == 'ge': return val >= target
+        if op == 'le': return val <= target
+        return False
+
+    @staticmethod
     def check_success(task: Task, world_state: dict, hidden_state: dict) -> list[bool]:
         """Checks if task-specific success conditions are met."""
-        results = []
-        for cond in task.success_conditions:
-            val = hidden_state.get(cond['key'], world_state.get(cond['key']))
-            results.append(val == cond['value'])
-        return results
+        return [LifeStackVerifier._check_cond(c, world_state, hidden_state) for c in task.success_conditions]
 
     @staticmethod
     def check_failure(task: Task, world_state: dict, hidden_state: dict, metrics_flat: dict) -> list[bool]:
         """Checks if task-specific or global failure conditions (metric death) are met."""
-        results = []
-        # 1. Task failures
-        for cond in task.failure_conditions:
-            val = hidden_state.get(cond['key'], world_state.get(cond['key']))
-            results.append(val == cond['value'])
+        results = [LifeStackVerifier._check_cond(c, world_state, hidden_state, metrics_flat) for c in task.failure_conditions]
         # 2. Metric death
         if any(v <= 10 for v in metrics_flat.values()):
             results.append(True)
