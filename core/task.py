@@ -117,13 +117,29 @@ def FlightCrisisTask() -> Task:
     )
 
 def CodeMergeCrisisTask() -> Task:
+    """A high-difficulty technical crisis requiring rollback or hotfix."""
+    routes = [
+        Route(id="revert_commit", name="Revert Commit", description="Quickly revert the broken merge to unblock the team.", required_action_types=["delegate", "communicate"], preconditions={}, consequences={"pipeline_unblocked": True}, closes_routes=["hotfix"], milestones_unlocked=["m1"], final_reward=1.5),
+        Route(id="hotfix", name="Patch Forward", description="Find the logic error and push a hotfix.", required_action_types=["communicate", "spend"], preconditions={}, consequences={"bug_resolved": True}, closes_routes=["revert_commit"], milestones_unlocked=["m2"], final_reward=3.0),
+    ]
+    milestones = [
+        Milestone(id="m1", description="CI pipeline is green again", condition_key="pipeline_unblocked", condition_value=True, reward=1.0),
+        Milestone(id="m2", description="Bug resolved without losing features", condition_key="bug_resolved", condition_value=True, reward=2.0),
+    ]
     return Task(
-        id="code_merge_crisis_stub",
+        id="code_merge_task_fallback",
         domain="code_merge_crisis",
         goal="Resolve Production Outage",
-        constraints={"budget_max": 1000, "deadline_step": 15},
-        hidden_state={}, mutable_world={}, visible_world={},
-        success_conditions=[], failure_conditions=[],
-        event_schedule=[], viable_routes=[], milestones=[],
-        horizon=30, difficulty=3, domain_metadata={}
+        constraints={"budget_max": 1000, "deadline_step": 8},
+        hidden_state={"on_call_status": "alert"},
+        mutable_world={"career.stability": -20.0, "mental_wellbeing.stress_level": 30.0},
+        visible_world={"career.stability": -20.0, "mental_wellbeing.stress_level": 30.0},
+        success_conditions=[{"key": "pipeline_unblocked", "value": True}, {"key": "bug_resolved", "value": True}],
+        failure_conditions=[],
+        event_schedule=[],
+        viable_routes=routes,
+        milestones=milestones,
+        horizon=10,
+        difficulty=4,
+        domain_metadata={}
     )

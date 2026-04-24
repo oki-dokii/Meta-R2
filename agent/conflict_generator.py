@@ -338,7 +338,9 @@ class TaskGenerator:
         return Task(
             id="train_delay_task", domain="transport_crisis", goal="Navigate Train Delay Crisis",
             constraints={"budget_max": 150, "deadline_step": 8},
-            hidden_state={"platform_reassigned": False}, mutable_world={}, visible_world={},
+            hidden_state={"platform_reassigned": False}, 
+            mutable_world={"time.commute_burden": 30.0, "mental_wellbeing.stress_level": 15.0}, 
+            visible_world={"time.commute_burden": 30.0, "mental_wellbeing.stress_level": 15.0},
             success_conditions=[{"key": "meeting_attended", "value": True}, {"key": "arrived_on_time", "value": True}, {"key": "meeting_rescheduled", "value": True}], 
             failure_conditions=[{"key": "finances.liquidity", "value": 10.0, "op": "lt"}],
             event_schedule=events, viable_routes=routes, milestones=milestones,
@@ -364,7 +366,9 @@ class TaskGenerator:
         return Task(
             id="car_breakdown_task", domain="transport_crisis", goal="Recover from Car Breakdown",
             constraints={"budget_max": 500, "deadline_step": 10},
-            hidden_state={"tow_dispatched": False}, mutable_world={}, visible_world={},
+            hidden_state={"tow_dispatched": False}, 
+            mutable_world={"finances.liquidity": -35.0, "time.commute_burden": 40.0}, 
+            visible_world={"finances.liquidity": -35.0, "time.commute_burden": 40.0},
             success_conditions=[{"key": "mobile", "value": True}, {"key": "transport_sorted", "value": True}, {"key": "borrowed", "value": True}], 
             failure_conditions=[{"key": "finances.liquidity", "value": 0.0, "op": "le"}],
             event_schedule=events, viable_routes=routes, milestones=milestones,
@@ -390,7 +394,9 @@ class TaskGenerator:
         return Task(
             id="rideshare_surge_task", domain="transport_crisis", goal="Get to the Presentation on Time",
             constraints={"budget_max": 200, "deadline_step": 6},
-            hidden_state={}, mutable_world={}, visible_world={},
+            hidden_state={}, 
+            mutable_world={"finances.liquidity": -50.0, "mental_wellbeing.stress_level": 30.0}, 
+            visible_world={"finances.liquidity": -50.0, "mental_wellbeing.stress_level": 30.0},
             success_conditions=[{"key": "arrived", "value": True}, {"key": "carpooled", "value": True}, {"key": "remote_approved", "value": True}], 
             failure_conditions=[],
             event_schedule=events, viable_routes=routes, milestones=milestones,
@@ -416,7 +422,9 @@ class TaskGenerator:
         return Task(
             id="transit_strike_task", domain="transport_crisis", goal="Survive City-Wide Transit Strike",
             constraints={"budget_max": 400, "deadline_step": 14},
-            hidden_state={}, mutable_world={}, visible_world={},
+            hidden_state={}, 
+            mutable_world={"time.commute_burden": 50.0, "mental_wellbeing.stress_level": 25.0}, 
+            visible_world={"time.commute_burden": 50.0, "mental_wellbeing.stress_level": 25.0},
             success_conditions=[{"key": "wfh_approved", "value": True}, {"key": "transport_secured", "value": True}, {"key": "accommodation_sorted", "value": True}], 
             failure_conditions=[],
             event_schedule=events, viable_routes=routes, milestones=milestones,
@@ -440,7 +448,9 @@ class TaskGenerator:
         return Task(
             id="flight_crisis_task", domain="flight_crisis", goal="Survive Airport Cancellation",
             constraints={"budget_max": 800, "deadline_step": 10},
-            hidden_state={"lounge_capacity": 100}, mutable_world={}, visible_world={},
+            hidden_state={"lounge_capacity": 100}, 
+            mutable_world={"mental_wellbeing.stress_level": 25.0, "time.free_hours_per_week": -10.0}, 
+            visible_world={"mental_wellbeing.stress_level": 25.0, "time.free_hours_per_week": -10.0},
             success_conditions=[{"key": "flight_rebooked", "value": True}, {"key": "caught_up", "value": True}],
             failure_conditions=[],
             event_schedule=events, viable_routes=routes, milestones=milestones,
@@ -462,7 +472,9 @@ class TaskGenerator:
         return Task(
             id="code_merge_task", domain="code_merge_crisis", goal="Resolve Production Outage",
             constraints={"budget_max": 1000, "deadline_step": 8},
-            hidden_state={}, mutable_world={}, visible_world={},
+            hidden_state={}, 
+            mutable_world={"career.stability": -20.0, "mental_wellbeing.stress_level": 30.0}, 
+            visible_world={"career.stability": -20.0, "mental_wellbeing.stress_level": 30.0},
             success_conditions=[{"key": "pipeline_unblocked", "value": True}, {"key": "bug_resolved", "value": True}], 
             failure_conditions=[],
             event_schedule=events, viable_routes=routes, milestones=milestones,
@@ -485,7 +497,9 @@ class TaskGenerator:
         ]
         return Task(
             id="career_crisis", domain="career", goal="Manage Career Overload", constraints={"budget_max": 500, "deadline_step": 12}, 
-            hidden_state={}, mutable_world={}, visible_world={}, 
+            hidden_state={}, 
+            mutable_world={"career.workload": 30.0, "time.free_hours_per_week": -20.0}, 
+            visible_world={"career.workload": 30.0, "time.free_hours_per_week": -20.0}, 
             success_conditions=[{"key": "workload_reduced", "value": True}, {"key": "job_found", "value": True}, {"key": "team_delegated", "value": True}],
             failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Severe workload is threatening your career stability."}
         )
@@ -506,7 +520,9 @@ class TaskGenerator:
         ]
         return Task(
             id="finance_crisis", domain="finances", goal="Resolve Financial Pressure", constraints={"budget_max": 1000, "deadline_step": 10}, 
-            hidden_state={}, mutable_world={}, visible_world={}, 
+            hidden_state={}, 
+            mutable_world={"finances.liquidity": -40.0, "finances.debt_pressure": 20.0}, 
+            visible_world={"finances.liquidity": -40.0, "finances.debt_pressure": 20.0}, 
             success_conditions=[{"key": "used_emergency", "value": True}, {"key": "payment_plan", "value": True}, {"key": "asset_sold", "value": True}],
             failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "An unexpected expense has caused financial strain."}
         )
@@ -527,7 +543,9 @@ class TaskGenerator:
         ]
         return Task(
             id="relationship_crisis", domain="relationships", goal="Repair Relationship Friction", constraints={"budget_max": 800, "deadline_step": 14}, 
-            hidden_state={}, mutable_world={}, visible_world={}, 
+            hidden_state={}, 
+            mutable_world={"relationships.romantic": -30.0, "mental_wellbeing.stress_level": 20.0}, 
+            visible_world={"relationships.romantic": -30.0, "mental_wellbeing.stress_level": 20.0}, 
             success_conditions=[{"key": "therapy_scheduled", "value": True}, {"key": "had_conversation", "value": True}, {"key": "giving_space", "value": True}],
             failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Growing distance and recent conflicts demand attention."}
         )
@@ -548,7 +566,9 @@ class TaskGenerator:
         ]
         return Task(
             id="health_crisis", domain="physical_health", goal="Address Health Warning", constraints={"budget_max": 1500, "deadline_step": 15}, 
-            hidden_state={}, mutable_world={}, visible_world={}, 
+            hidden_state={}, 
+            mutable_world={"physical_health.energy": -30.0, "mental_wellbeing.stress_level": 30.0}, 
+            visible_world={"physical_health.energy": -30.0, "mental_wellbeing.stress_level": 30.0}, 
             success_conditions=[{"key": "on_leave", "value": True}, {"key": "saw_doctor", "value": True}, {"key": "lifestyle_changed", "value": True}],
             failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Physical symptoms are becoming impossible to ignore."}
         )
@@ -569,7 +589,9 @@ class TaskGenerator:
         ]
         return Task(
             id="mental_crisis", domain="mental_wellbeing", goal="Avert Total Burnout", constraints={"budget_max": 600, "deadline_step": 12}, 
-            hidden_state={}, mutable_world={}, visible_world={}, 
+            hidden_state={}, 
+            mutable_world={"mental_wellbeing.motivation": -35.0, "mental_wellbeing.stress_level": 40.0}, 
+            visible_world={"mental_wellbeing.motivation": -35.0, "mental_wellbeing.stress_level": 40.0}, 
             success_conditions=[{"key": "therapy_started", "value": True}, {"key": "disconnected", "value": True}, {"key": "medication_taken", "value": True}],
             failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "Complete exhaustion and loss of motivation."}
         )
@@ -590,7 +612,9 @@ class TaskGenerator:
         ]
         return Task(
             id="time_crisis", domain="time", goal="Regain Time Control", constraints={"budget_max": 300, "deadline_step": 10}, 
-            hidden_state={}, mutable_world={}, visible_world={}, 
+            hidden_state={}, 
+            mutable_world={"time.free_hours_per_week": -25.0, "time.admin_overhead": 20.0}, 
+            visible_world={"time.free_hours_per_week": -25.0, "time.admin_overhead": 20.0}, 
             success_conditions=[{"key": "priorities_reset", "value": True}, {"key": "tasks_delegated", "value": True}, {"key": "commitments_cancelled", "value": True}],
             failure_conditions=[], event_schedule=events, viable_routes=routes, milestones=milestones, horizon=15 + difficulty * 2, difficulty=difficulty, domain_metadata={"story": "You are double-booked and drowning in obligations."}
         )

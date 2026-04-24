@@ -90,3 +90,11 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
    - *Fix applied*: Populated `success_conditions` for all task domains in `TaskGenerator`.
    - *Fix applied*: Exposed `viable_routes` in the GRPO prompt so the model knows which IDs to target.
    - *Fix applied*: Added `execute` to the allowed `action_type` list and updated schema instructions.
+
+---
+
+## Final Structural Hardening ❌ -> ✅
+
+1. **Critical Bug 3: CodeMergeCrisisTask() was a stub**
+   - *Fix applied*: Fully implemented the `CodeMergeCrisisTask` in `core/task.py` with real disruptions and routes.
+   - *Fix applied*: Seeded `mutable_world` and `visible_world` baseline disruptions into ALL domain generators in `TaskGenerator`. No more "phantom crises."
