@@ -320,21 +320,33 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         return {"reward": -0.5, "breakdown": {}, "action": None, "initial_metrics": meta.get("disruption", {}) if 'meta' in locals() else {}}
 
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Scores JSON format compliance independently."""
+    """Scores JSON format compliance independently (Static Check)."""
     from core.reward import reward_format_compliance
     return [reward_format_compliance(c) for c in completions]
 
 def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Penalize zero-cost metric changes using the severity-aware score from the env."""
-    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("plausibility", 0.0) for c, p in zip(completions, prompts)]
+    """Penalize zero-cost metric changes (Independent Logic Check)."""
+    from core.reward import reward_plausibility_check
+    import json
+    results = []
+    for c in completions:
+        try:
+            text = c.strip()
+            if "```json" in text: text = text.split("```json")[-1].split("```")[0]
+            elif "```" in text: text = text.split("```")[-1].split("```")[0]
+            data = json.loads(text.strip())
+            mc = data.get("metric_changes", {})
+            rc = data.get("resource_cost", {})
+            results.append(reward_plausibility_check(mc, rc))
+        except Exception:
+            results.append(0.0)
+    return results
 
 def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Core outcome reward isolated to completion (avoiding double-dip). Returns penalty if evaluation failed."""
+    """Core outcome reward isolated to completion (Environment Simulation)."""
     results = []
     for c, p in zip(completions, prompts):
         eval_res = get_lifestack_evaluation(c, p)
-        # If breakdown is empty, it means the evaluation failed (likely JSON error)
-        # We return the top-level reward which contains the -0.5 failure penalty.
         if not eval_res.get("breakdown"):
             results.append(eval_res.get("reward", -0.5))
         else:
@@ -342,12 +354,27 @@ def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs)
     return results
 
 def reward_milestone_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Monitor progress through logical bottlenecks."""
+    """Monitor progress through logical bottlenecks (Environment Simulation)."""
     return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("milestone", 0.0) for c, p in zip(completions, prompts)]
 
 def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Evaluate planning coherence. Scaled 10x to match task_success variance."""
-    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("reasoning", 0.0) * 10.0 for c, p in zip(completions, prompts)]
+    """Evaluate planning coherence (Independent Semantic/Logic Check)."""
+    from core.reward import reward_reasoning_coherence
+    import json
+    results = []
+    for c in completions:
+        try:
+            text = c.strip()
+            if "```json" in text: text = text.split("```json")[-1].split("```")[0]
+            elif "```" in text: text = text.split("```")[-1].split("```")[0]
+            data = json.loads(text.strip())
+            
+            reasoning = data.get("reasoning", "")
+            a_type = data.get("action_type", "")
+            results.append(reward_reasoning_coherence(reasoning, action_type=a_type) * 10.0)
+        except Exception:
+            results.append(-0.1)
+    return results
 
 def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """

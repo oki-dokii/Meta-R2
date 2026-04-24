@@ -149,3 +149,13 @@ In `train_trl.py`: 6 separate functions passed to `reward_funcs=[]` for GRPO:
 
 2. **Explicit Replan Signal**: Promoted Replan Bonus to a primary training objective.
    - *Fix applied*: Implemented a dedicated `reward_replan_fn` in `scripts/train_trl.py`. By exposing this as a standalone GRPO reward function, the model now receives a direct gradient for "recovering" (achieving milestones) specifically after exogenous events, rather than it being absorbed into general task success.
+
+---
+
+## GRPO Independence & Judge Separation ✅
+
+1. **Decoupled Reward Signals**:
+   - *Architecture update*: The GRPO training pipeline no longer relies on a single environment evaluation for all rewards. 
+   - **Static Judges**: `reward_format_fn`, `reward_plausibility_fn`, and `reward_reasoning_fn` now operate through direct JSON parsing and independent semantic verification. They provide gradients for "logical integrity" without needing the simulation engine.
+   - **Empirical Judges**: `reward_task_success_fn` and `reward_milestone_fn` remain tied to the `LifeStackEnv` simulation. They provide gradients for "causal outcome"—ensuring the agent's logic actually works in the simulated world.
+   - **Outcome**: This prevents "signal contamination" where an environment bug or a single gammable path could inflate all reward components simultaneously.
