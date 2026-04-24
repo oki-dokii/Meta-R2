@@ -66,14 +66,14 @@ class SimPerson:
         
         metric = trait_to_metric[trait]
         
-        # Determine delta based on whether the trait shift is typically "stressful" 
-        # or "disruptive" for that personality facet.
+        # neuroticism up → stress up (bad); conscientiousness up → overhead down (good);
+        # openness/extraversion/agreeableness up → their metric up (good).
         if trait == 'neuroticism':
-            delta = 6 if change > 0 else -4  # increased neuroticism is bad
+            delta = 6 if change > 0 else -4
         elif trait == 'conscientiousness':
-            delta = 7 if change < 0 else -3  # decreased conscientiousness leads to admin bloat
+            delta = -3 if change > 0 else 7   # more conscientious = less admin overhead
         else:
-            delta = 5 if change < 0 else -2  # other facets slipping
+            delta = 5 if change > 0 else -5   # trait up → metric up
             
         return {
             'metric': metric, 

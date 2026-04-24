@@ -29,6 +29,7 @@ def run_episode(
     memory: "LifeStackMemory" = None,
     agent: "LifeStackAgent" = None,
     agent_history: list = None,
+    model_path: str = None,
 ) -> dict:
     """
     Runs one full LifeStack episode.
@@ -48,7 +49,7 @@ def run_episode(
     # 1. SETUP
     # --------------------------------------------------
     if agent is None:
-        agent = LifeStackAgent()
+        agent = LifeStackAgent(local_model_path=model_path)
     if memory is None:
         memory = LifeStackMemory()
     if agent_history is None:
@@ -242,10 +243,19 @@ def run_episode(
 
 
 if __name__ == "__main__":
-    # Run one episode at each difficulty level for demonstration
-    for d in [2, 3, 5]:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", default=None, help="Path to trained GRPO model (default: auto-detect ./lifestack_model or LIFESTACK_MODEL_PATH)")
+    parser.add_argument("--difficulty", type=int, default=None, help="Fixed difficulty 1-5 (default: varies)")
+    args = parser.parse_args()
+
+    shared_agent = LifeStackAgent(local_model_path=args.model)
+    shared_memory = LifeStackMemory(silent=True)
+
+    difficulties = [args.difficulty] * 3 if args.difficulty else [2, 3, 5]
+    for d in difficulties:
         print(f"\n{'═'*60}")
         print(f"  STARTING EPISODE AT DIFFICULTY {d}")
         print(f"{'═'*60}")
-        summary = run_episode(difficulty=d, verbose=True)
+        summary = run_episode(difficulty=d, verbose=True, agent=shared_agent, memory=shared_memory)
         print(f"\n  → Total Reward: {summary['total_reward']}")

@@ -11,88 +11,113 @@ pinned: false
 ### An RL Environment for Multi-Domain Life Conflict Resolution
 **Built for Meta × HuggingFace PyTorch OpenEnv Hackathon — Grand Finale 2026**
 
----
-
-LifeStack is the first OpenEnv-compatible environment that trains agents to resolve cascading real-life conflicts across 6 interconnected domains simultaneously, under finite resource constraints, with Pareto-optimal reward shaping. 
-
-**v2.0 Update: Long-Horizon Challenge**
-LifeStack now supports complex, branching 20–50 step episodes with dynamic world events, hidden state variables, and partial observability — moving beyond simple linear conflict resolution to true strategic life planning.
+> **Team: BholeChature — Scaler School of Technology, Bangalore**
 
 ---
 
-## 🚀 Quickstart Guide
+## Links
 
-### 1. Setup
-```bash
-git clone https://github.com/oki-dokii/LifeStack.git
-cd LifeStack
-python -y -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Test (Smoke Test)
-Verify the core simulation engine and metadata reporting.
-```bash
-python scripts/smoke_test.py
-```
-
-### 3. Train (Curriculum)
-Train the agent via Success-Based Curriculum (GRPO).
-```bash
-python scripts/train_trl.py
-```
-
-### 4. Evaluate (Benchmark)
-Run the random-baseline evaluation suite across N episodes.
-```bash
-python scripts/eval.py --episodes 50 --verbose
-# Optional: filter by domain
-python scripts/eval.py --episodes 20 --domain flight_crisis
-```
-
-### 5. Serve (Deployment)
-Run the interactive Gradio demo.
-```bash
-python app.py
-```
+| Resource | URL |
+|---|---|
+| HuggingFace Space | _[Add your HF Space URL here after deployment]_ |
+| Blog / Writeup | [BLOG.md](BLOG.md) — _[Also add HF blog or YouTube link here]_ |
+| Training Notebook | [`notebooks/LifeStack_Training.ipynb`](notebooks/LifeStack_Training.ipynb) |
+| Source Code | This repo |
 
 ---
 
-## 🐳 Docker Deployment
+## What is LifeStack?
 
-For production-ready deployment:
+LifeStack is the first OpenEnv-compatible RL environment that trains agents to resolve **cascading real-life conflicts** across **6 interconnected domains** simultaneously, under finite resource constraints.
 
-```bash
-docker build -t lifestack:latest .
-docker run -p 7860:7860 lifestack:latest
-```
+**The problem:** It's 6PM Friday. Your flight got cancelled. Your card declined. Your boss moved Monday's deadline to Sunday. Solving each problem in isolation makes the others worse. Every app you have talks to one domain. None of them talk to each other. LifeStack is the gym where an agent can learn to handle all of them at once.
 
----
-
-## 🏗️ Architecture
-
-LifeStack uses a **Decoupled Simulation Engine**:
-- **WorldEngine**: Handles exogenous events & world state mutation.
-- **DependencyGraph**: Propagates second-order metric cascades using Starcke & Brand (2012) dampening.
-- **LifeStackVerifier**: Standalone engine for success/failure/milestone audits.
-- **Curriculum Trainer**: Adaptive GRPO stages that scale difficulty based on agent success rates.
+**What makes it novel:**
+- 6 domains (career, finances, relationships, physical health, mental wellbeing, time) connected by a **40-edge dependency graph** — grounded in Starcke & Brand (2012) cognitive stress research
+- **Big Five personality model** scales action effectiveness per person (anxious introvert ≠ confident extrovert)
+- **Long-horizon tasks** (20–50 steps) with branching routes, hidden state, partial observability, and stochastic exogenous events
+- **ChromaDB trajectory memory** — past successful strategies retrieved as RAG context
+- **8 task domains** across 5 transport variants, career, finance, relationships, health, mental wellbeing, and time
+- **Curriculum learning**: 5 GRPO training stages that scale difficulty on success
 
 ---
 
-## 📊 Analytics & Telemetry
-Observations now include a canonical truth schema:
+## Results
+
+### GRPO Training Progress (Qwen2.5-1.5B via TRL + Unsloth)
+
+![GRPO Training Curve](data/trl_reward_curve.png)
+*GRPO reward over 50 training steps. Model starts negative (-0.60) and converges to +0.65, a **+125% improvement** in reward signal. X-axis: training step. Y-axis: normalized reward [-1, +1].*
+
+### Agent vs Random Baseline (50 episodes across 8 domains)
+
+![Baseline vs Trained](data/baseline_vs_trained.png)
+*LifeStack agent (blue/red) vs random-action baseline (gray) over 50 episodes across all 8 domains and 5 difficulty levels. Agent mean reward: **2.48**. Baseline mean reward: **0.97**. That is a **155% improvement** over random. The agent learns within the first 5 episodes and holds near its ceiling for the remainder.*
+
+### Learning Curve with Difficulty Phases
+
+![Learning Curve](data/reward_curve.png)
+*50-episode learning curve with 5-episode rolling average (red dashed), shaded by curriculum difficulty phase (green=easy, red=hard). Reward rises from 1.63 → 2.58 in the first 5 episodes and stabilizes near 2.5. The dip at episode 45 is the hard-difficulty curriculum phase.*
+
+### Memory vs No-Memory Ablation
+
+| Condition | Avg Reward | Primary Action |
+|---|---|---|
+| Without memory (cold start) | 1.13 | delegate |
+| With ChromaDB memory (RAG) | 2.45 | communicate |
+| Improvement | **+116%** | — |
+
+With memory retrieval active, the agent shifts from reactive delegation to proactive communication — a qualitative behavioral change driven by retrieved trajectories.
+
+---
+
+## How the Environment Works
+
+### What the agent sees (Observation)
 ```json
 {
-  "success": true,
-  "failure": false,
-  "milestones": ["flight_rebooked"],
-  "failure_reason": "",
-  "routes_remaining": 2,
-  "event_log": ["price_surge"]
+  "metrics": {"career.workload": 85.0, "mental_wellbeing.stress_level": 92.0, "...": "..."},
+  "resources": {"time": 12.5, "money": 340.0, "energy": 60.0},
+  "step": 3,
+  "world_state": {"lounge_access": true},
+  "milestones": ["m1"],
+  "events": ["price_surge"]
 }
 ```
-All training generations are sampled to `training_logs/generations.jsonl` to prevent reward hacking.
+
+### What the agent does (Action)
+```json
+{
+  "action_type": "execute|communicate|negotiate|rest|delegate|spend|inspect",
+  "target": "rebook_premium",
+  "metric_changes": {"mental_wellbeing.stress_level": -15.0},
+  "resource_cost": {"time": 2.0, "money": 300.0, "energy": 10.0},
+  "reasoning": "Rebook before lounge closes at step 4"
+}
+```
+
+### What it gets rewarded for
+
+```
+reward = (0.05 × metric_delta)        # Did life metrics improve?
+       + (0.35 × milestone_score)     # Did the agent hit key progress markers?
+       + (0.25 × completion_score)    # Did it achieve the task goal?
+       + (0.10 × replan_bonus)        # Did it recover after exogenous events?
+       + (0.05 × efficiency_score)    # Did it preserve resources?
+       + (0.10 × reasoning_score)     # Was the reasoning domain-coherent?
+       + (0.10 × format_score)        # Valid JSON with required fields?
+       + penalties
+```
+
+**Anti-gaming mechanisms:**
+- `reward_plausibility_check`: penalizes claiming massive metric changes with near-zero resource cost
+- 6 independent GRPO reward functions — gaming one doesn't game the others
+- `reward_format_compliance`: -1.0 for refusals or empty responses
+- Reward computed fresh per completion — no caching
+
+---
+
+## Architecture
 
 ```mermaid
 graph TD
@@ -126,93 +151,93 @@ graph TD
     Env -->|total outcome| Mem
 ```
 
+**Key components:**
+- **WorldEngine**: Injects deterministic and probabilistic exogenous events (price surges, lounge closures, CTO pings)
+- **DependencyGraph**: 40-edge BFS cascade with 0.6 dampening factor (Starcke & Brand 2012) — `career.workload → stress_level → sleep_quality → clarity → career.growth_trajectory`
+- **PartialObsFilter**: Agent sees `visible_world`; reveals `hidden_state` via `inspect` actions (costs a step)
+- **LifeStackVerifier**: Standalone auditor for success/failure/milestone conditions
+- **Curriculum Trainer**: 5 GRPO stages that advance difficulty when avg reward > 0.6
+
 ---
 
-## Quick Start
+## Training Pipeline
+
+### Two complementary pipelines
+
+| Pipeline | Script | Model | What it shows |
+|---|---|---|---|
+| GRPO Training | `scripts/train_trl.py` | Qwen2.5-1.5B via Unsloth | Reward vs training step (model learns from env feedback) |
+| Demo / Evaluation | `scripts/run_episode.py` | Groq LLaMA-3.1-8B | Reward vs episode (agent behavior over time) |
+
+The GRPO pipeline trains the Qwen model with 6 independent reward functions. The demo pipeline runs the interactive Gradio UI. After training, `run_episode.py --model ./lifestack_model` runs the GRPO-trained model.
+
+### Run training
+```bash
+python scripts/train_trl.py --dry-run     # 1-step smoke test, no GPU needed
+python scripts/train_trl.py --stages 5    # Full 5-stage curriculum (GPU required)
+```
+
+### Run evaluation (no GPU, no API key needed)
+```bash
+python scripts/eval.py --episodes 50 --verbose
+python scripts/eval.py --episodes 20 --domain flight_crisis
+```
+
+---
+
+## Quickstart
 
 ```bash
-git clone https://github.com/oki-dokii/Meta-R2
-cd Meta-R2
-bash setup.sh
-source .venv/bin/activate
-python app.py          # Launch Gradio demo  →  http://127.0.0.1:7860
-python scripts/train_trl.py   # Run long-horizon GRPO training
+git clone https://github.com/oki-dokii/LifeStack.git
+cd LifeStack
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# Smoke test
+python scripts/smoke_test.py
+
+# Interactive demo
+python app.py          # Gradio UI → http://127.0.0.1:7860
+
+# Evaluation (random baseline, no keys)
+python scripts/eval.py --episodes 20
+
+# Full GRPO training (GPU)
+python scripts/train_trl.py
 ```
 
-> **Verify openenv installed:** `pip3 show openenv-core` — should show `Version: 0.2.3`  
-> **Note:** LifeStack is built on the `Task` schema — define a crisis, routes, and milestones inside `core/task.py`.
+> **Verify OpenEnv:** `pip show openenv-core` — should show `Version: 0.2.3`
 
 ---
 
-## Environment v2.0 Overview
+## Docker
 
-The environment has transitioned from short, linear conflicts to a **Long-Horizon Strategy Engine**:
-
-1.  **Task System**: Episodes are driven by a serialized `Task` object. Each task defines a goal, a horizon (20–50 steps), a budget, and a branching set of **Routes**.
-2.  **World Engine & Exogenous Events**: The environment is no longer static. Random or deterministic `ExoEvents` (e.g., a ticket price surge or a sudden illness) can mutate the world state and close off specific routes mid-episode.
-3.  **Partial Observability**: The agent no longer sees the full internal state. It must use `inspect` actions to reveal `HiddenStateField` values, balancing the cost of information gathering against the clock.
-4.  **Route Branching**: Instead of just adjusting metrics, agents select and execute `Routes`. Each route has `preconditions` (checks against world/hidden state) and `consequences` (mutations on success).
-5.  **Trajectory Memory**: ChromaDB now stores full **episodic trajectories**, allowing agents to retrieve entire successful strategies (chain of thoughts + route paths) based on domain similarity.
-
----
-
-## Advanced Reward System (Orchestrator)
-
-The reward function now incentivizes long-term success over immediate metric gains:
-
-```
-reward = (0.10 × metric_delta)       # Local step improvement
-       + (0.40 × milestone_reward)   # Reaching key progress markers
-       + (0.30 × completion_reward)  # Final goal achievement
-       + (0.10 × replan_bonus)       # Ability to recover from ExoEvents
-       + (0.10 × efficiency)         # Resource preservation
-       + penalties
-```
-
-| New Penalties | Description |
-|---|---|
-| `-0.50` Dead End | Applied if all viable routes are closed (failure to plan) |
-| `-0.10` Rollback | Small cost for undoing an action (discourages brute force) |
-| `-0.30` Cascade Collapse | Applied if any metric drops from a safe zone (>20) to critical (<10) |
-| `-0.50` Wait Cap | Triggered if agent waits 4 times consecutively without acting |
-
----
-
-## Deployment (OpenEnv Native)
-
-LifeStack is a fully qualified OpenEnv project. Use the environment service to interact with agents via MCP or REST.
-
-**Launch Environment Service:**
 ```bash
-python3 server.py      # Starts the environment server on port 8000
+docker build -t lifestack:latest .
+docker run -p 7860:7860 lifestack:latest
 ```
-- **Web Interface:** `http://localhost:8000/web`
-- **MCP Tool List:** `http://localhost:8000/mcp`
-- **CLI Manifest:** See `openenv.yaml` for integration details.
 
 ---
 
-## Documentation
+## OpenEnv Server
 
-All reference docs live in [`docs/`](docs/).
+```bash
+python server.py    # HTTP + WebSocket server on port 8000
+# Web UI:   http://localhost:8000/web
+# MCP tool: http://localhost:8000/mcp
+# Docs:     http://localhost:8000/docs
+```
 
-| Doc | Covers |
+---
+
+## Research Grounding
+
+| Concept | Source |
 |---|---|
-| [`docs/INDEX.md`](docs/INDEX.md) | Master index — **update this for every new feature** |
-| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Documentation rule — what must ship with every change |
-| [`docs/lifestack_env.md`](docs/lifestack_env.md) | `core/lifestack_env.py` — env API, actions, observations |
-| [`docs/task.md`](docs/task.md) | `core/task.py` — Task / Route / Milestone / ExoEvent schema |
-| [`docs/reward.md`](docs/reward.md) | `core/reward.py` — reward components and penalties |
-| [`docs/memory.md`](docs/memory.md) | `agent/memory.py` — ChromaDB trajectory and feedback store |
-| [`docs/conflict_generator.md`](docs/conflict_generator.md) | `agent/conflict_generator.py` — TaskGenerator and templates |
-| [`docs/eval.md`](docs/eval.md) | `scripts/eval.py` — evaluation runner CLI reference |
-| [`docs/train_trl.md`](docs/train_trl.md) | `scripts/train_trl.py` — GRPO training reference |
-| [`docs/app.md`](docs/app.md) | `app.py` — Gradio tabs and module-level singletons |
-| [`docs/scripts.md`](docs/scripts.md) | All other scripts |
-| [`docs/configuration.md`](docs/configuration.md) | Env vars, secrets, Docker, openenv.yaml |
-
-> **Rule:** Any new feature, script, or module must update `docs/INDEX.md` and `README.md`.
-> See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the full checklist.
+| Cascade dampening (0.6) | Starcke & Brand (2012) — stress effects attenuate ~40% per cognitive hop |
+| Multi-objective reward | Roijers et al. (2013) — Pareto-optimal trade-offs under competing objectives |
+| Scarcity decision-making | Mullainathan & Shafir (2013) — resource pressure degrades decision quality |
+| Pareto-optimal resolution | Wang et al. (2024) — balancing short-term vs long-term outcomes under uncertainty |
 
 ---
 
@@ -220,25 +245,19 @@ All reference docs live in [`docs/`](docs/).
 
 | File / Dir | Description |
 |---|---|
-| `core/task.py` | Dataclass schema for Tasks, ExoEvents, Routes, and Milestones |
-| `core/lifestack_env.py` | WorldEngine, PartialObsFilter, and Long-Horizon Step processing |
-| `core/reward.py` | Task-aware reward orchestrator with completion bonuses |
-| `agent/conflict_generator.py` | `TaskGenerator` class for automated crisis scenario building |
-| `agent/memory.py` | Trajectory + human-feedback storage and retrieval (ChromaDB) |
-| `core/life_state.py` | Dependency graph with `METRIC_FLOOR` and BFS cascade bounding |
-| `app.py` | Gradio interface — 6 tabs including Task Explorer and Follow-up |
-| `scripts/eval.py` | Standalone random-baseline evaluation runner (no GPU/key needed) |
-| `scripts/train_trl.py` | GRPO curriculum training via TRL + Unsloth |
-| `scripts/test_lifestack.py` | 11-test edge-case suite |
-| `docs/` | All reference documentation (see Documentation section above) |
-
----
-
-## Team: BholeChature
-
-**Team of 3 — Scaler School of Technology, Bangalore**
+| `core/task.py` | Task, Route, Milestone, ExoEvent dataclass schema |
+| `core/lifestack_env.py` | WorldEngine, PartialObsFilter, Long-Horizon step logic |
+| `core/reward.py` | Task-aware reward orchestrator (7 components + penalties) |
+| `core/life_state.py` | DependencyGraph — 40 edges, BFS cascade, 23 sub-metrics |
+| `agent/conflict_generator.py` | TaskGenerator — 8 domains, 12 generate_* methods |
+| `agent/memory.py` | ChromaDB trajectory + human-feedback store |
+| `scripts/train_trl.py` | GRPO curriculum training (5 stages, Qwen2.5-1.5B) |
+| `scripts/eval.py` | Random-baseline evaluator (no GPU/key required) |
+| `scripts/run_episode.py` | Full episode runner with Groq or local Qwen model |
+| `app.py` | Gradio demo — 6 tabs |
+| `data/` | Training logs, reward curves, comparison JSON |
+| `docs/` | Full reference documentation |
 
 ---
 
 *LifeStack: We built the gym. Now any model can train in it.*
-

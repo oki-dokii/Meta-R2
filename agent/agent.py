@@ -126,8 +126,8 @@ SCHEMA:
         return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type)
 
     def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> "AgentAction":
-        if not self.api_key:
-            return self._fallback_action("Error: GROQ_API_KEY not set.")
+        if not self.local_model and not self.api_key:
+            return self._fallback_action("Error: No model configured (set GROQ_API_KEY or LIFESTACK_MODEL_PATH).")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
         return self._get_action_from_prompt(prompt)
