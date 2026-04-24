@@ -61,7 +61,9 @@ class LifeStackGymEnv(gym.Env):
         self.milestones_achieved = []
         self.exo_events_seen = 0
         self.milestones_after_event = 0
-        self.closed_route_ids = []
+        self.closed_route_ids = set()
+        self.world_state = {}
+        self.hidden_state = {}
         self.step_count = 0
         self.max_steps = getattr(task, 'horizon', max_steps) if task else max_steps
         self.last_reward = None
@@ -112,7 +114,9 @@ class LifeStackGymEnv(gym.Env):
         self.milestones_achieved = []
         self.exo_events_seen = 0
         self.milestones_after_event = 0
-        self.closed_route_ids = []
+        self.closed_route_ids = set()
+        self.world_state = copy.deepcopy(getattr(self.task, "mutable_world", {})) if self.task else {}
+        self.hidden_state = copy.deepcopy(getattr(self.task, "hidden_state", {})) if self.task else {}
         self.last_reward = None
         self.last_breakdown = None
 
@@ -164,16 +168,34 @@ class LifeStackGymEnv(gym.Env):
             energy=resource_cost.get("energy", 0.0),
         )
 
+        # Approximate task progression for the gym wrapper by applying the first
+        # reachable route that accepts the chosen action type.
+        if self.task:
+            for route in self.task.viable_routes:
+                if route.id in self.closed_route_ids:
+                    continue
+                if action_type not in route.required_action_types:
+                    continue
+                if any(self.hidden_state.get(k, self.world_state.get(k)) != v for k, v in route.preconditions.items()):
+                    continue
+                self.world_state.update(route.consequences)
+                self.closed_route_ids.update(route.closes_routes)
+                break
+
         # Reward (Task-Aware if possible)
         from core.verifier import LifeStackVerifier
         success_mets = []
         if self.task:
-            success_mets = LifeStackVerifier.check_success(self.task, {}, {}, self.state.flatten()) # simplified for gym
-            newly_met = LifeStackVerifier.check_new_milestones(self.task, {}, {}, self.milestones_achieved)
+            success_mets = LifeStackVerifier.check_success(self.task, self.world_state, self.hidden_state)
+            newly_met = LifeStackVerifier.check_new_milestones(
+                self.task, self.world_state, self.hidden_state, self.milestones_achieved
+            )
             for mid in newly_met:
                 self.milestones_achieved.append(mid)
             
-            routes_rem, _ = LifeStackVerifier.get_route_status(self.task, self.closed_route_ids, {}, {})
+            routes_rem, _ = LifeStackVerifier.get_route_status(
+                self.task, self.closed_route_ids, self.world_state, self.hidden_state
+            )
             
             reward, breakdown = compute_task_reward(
                 state_before=state_before,
@@ -188,14 +210,20 @@ class LifeStackGymEnv(gym.Env):
                 rollback_used=False,
                 cascade_collapse=False,
                 task=self.task,
-                conflict_domain=self.conflict.title if self.conflict else "",
+                conflict_domain=self.task.domain,
                 step_count=self.step_count,
-                max_steps=self.max_steps
+                max_steps=self.max_steps,
+                metric_changes=scaled_changes,
+                action_type=action_type
             )
         else:
             reward, breakdown = compute_reward(
-                state_before, self.state, resource_cost, actions_taken=1,
-                metric_changes=scaled_changes
+                state_before, 
+                self.state, 
+                resource_cost, 
+                actions_taken=1,
+                metric_changes=scaled_changes,
+                action_type=action_type
             )
         self.last_reward = reward
         self.last_breakdown = breakdown

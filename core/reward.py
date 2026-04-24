@@ -226,7 +226,7 @@ def compute_task_reward(
     replan_score = compute_replan_bonus(exo_events_seen, milestones_after_event)
     efficiency_score = local_breakdown["components"].get("efficiency", 0.0)
     preservation_score = local_breakdown["components"].get("preservation", 0.0)
-    reasoning_score = reward_reasoning_coherence(reasoning, conflict_domain)
+    reasoning_score = reward_reasoning_coherence(reasoning, action_type=action_type)
     
     # Check for specific failure cases
     timeout_pen = reward_timeout_check(step_count, max_steps, any(success_met for success_met in success_conditions_met) if success_conditions_met else False)
@@ -243,10 +243,13 @@ def compute_task_reward(
     )
 
     # 4. Penalties
-    penalties = timeout_pen
+    penalties = 0.0
     fired = []
-
-    dead_end_pen = compute_dead_end_penalty(routes_remaining)
+    
+    if timeout_pen < 0:
+        penalties += timeout_pen
+        fired.append("TIMEOUT")
+        
     if dead_end_pen < 0:
         penalties += dead_end_pen
         fired.append("DEAD_END")
@@ -404,7 +407,7 @@ def reward_reasoning_coherence(reasoning: str, action_type: str = "") -> float:
         if match:
             score += 0.10
         else:
-            score -= 0.20 # Contradiction penalty: action says 'spend' but reasoning doesn't mention cost
+            score -= 0.20
             
     return max(-0.30, min(0.30, score))
 
