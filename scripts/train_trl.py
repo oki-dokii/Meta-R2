@@ -750,7 +750,7 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
 # 6. POST-TRAINING VALIDATION
 # ──────────────────────────────────────────────
 
-MIN_MODEL_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB — a placeholder will always be < this
+MIN_MODEL_SIZE_BYTES = 5 * 1024 * 1024   # 5 MB — LoRA adapter ~39 MB, placeholder ~few KB
 
 def validate_saved_model(output_dir: str = "./lifestack_model"):
     """
