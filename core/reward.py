@@ -201,28 +201,28 @@ def compute_task_reward(
                                                    disruption_baseline=d_baseline)
 
     # 2. Orchestrator components
-    local_metric_delta_score = local_reward
+    # Use only the raw outcome component from local_breakdown to avoid double-counting 
+    # efficiency, containment, or preservation which are added separately below.
+    outcome_score_local = local_breakdown["components"].get("outcome", 0.0)
     milestone_score = compute_milestone_reward(milestones_achieved, task)
     completion_score = compute_task_completion_reward(success_conditions_met, task)
     replan_score = compute_replan_bonus(exo_events_seen, milestones_after_event)
-    efficiency_score = local_breakdown["components"]["efficiency"]
-    # Format compliance lives here (not in compute_reward) to avoid double-counting
-    format_score = local_breakdown["components"].get("format_compliance", 0.0)
+    efficiency_score = local_breakdown["components"].get("efficiency", 0.0)
+    preservation_score = local_breakdown["components"].get("preservation", 0.0)
     reasoning_score = reward_reasoning_coherence(reasoning, conflict_domain)
-    timeout_pen = reward_timeout_check(step_count, max_steps, all(success_conditions_met) if success_conditions_met else False)
-
-    # 3. Weighted aggregation
-    # Weights: 5% local delta, 35% milestone, 25% completion, 10% replan,
-    #          5% efficiency, 10% reasoning coherence, 10% format compliance
-    # Sum: 0.05+0.35+0.25+0.10+0.05+0.10+0.10 = 1.00
+    
+    # Check for specific failure cases
+    timeout_pen = reward_timeout_check(step_count, max_steps, any(success_met for success_met in success_conditions_met) if success_conditions_met else False)
+    dead_end_pen = compute_dead_end_penalty(routes_remaining)
+    
+    # 3. Final weighting (all components are now unique/non-overlapping)
     base_reward = (
-        (0.05 * local_metric_delta_score) +
-        (0.35 * milestone_score) +
-        (0.25 * completion_score) +
-        (0.10 * replan_score) +
-        (0.05 * efficiency_score) +
-        (0.10 * reasoning_score) +
-        (0.10 * format_score)
+        (0.35 * milestone_score) + 
+        (0.25 * completion_score) + 
+        (0.15 * outcome_score_local) + 
+        (0.10 * replan_score) + 
+        (0.10 * efficiency_score) + 
+        (0.05 * reasoning_score)
     )
 
     # 4. Penalties
