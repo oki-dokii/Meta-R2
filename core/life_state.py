@@ -11,14 +11,14 @@ METRIC_FLOOR = 10.0
 @dataclass
 class CareerMetrics:
     satisfaction: float = 70.0
-    workload: float = 70.0
+    workload: float = 45.0       # inverted: moderate load at baseline
     stability: float = 70.0
     growth_trajectory: float = 70.0
 
 @dataclass
 class FinanceMetrics:
     liquidity: float = 70.0
-    debt_pressure: float = 70.0
+    debt_pressure: float = 30.0  # inverted: low debt at baseline
     monthly_runway: float = 70.0
     long_term_health: float = 70.0
 
@@ -38,7 +38,7 @@ class PhysicalHealthMetrics:
 
 @dataclass
 class MentalWellbeingMetrics:
-    stress_level: float = 70.0
+    stress_level: float = 40.0   # inverted: low-moderate stress at baseline
     clarity: float = 70.0
     motivation: float = 70.0
     emotional_stability: float = 70.0
@@ -46,8 +46,8 @@ class MentalWellbeingMetrics:
 @dataclass
 class TimeMetrics:
     free_hours_per_week: float = 70.0
-    commute_burden: float = 70.0
-    admin_overhead: float = 70.0
+    commute_burden: float = 35.0  # inverted: manageable commute at baseline
+    admin_overhead: float = 35.0  # inverted: light overhead at baseline
 
 @dataclass
 class LifeMetrics:
@@ -128,7 +128,10 @@ class DependencyGraph:
                 ("physical_health.energy", 0.35)
             ],
             "physical_health.fitness": [
-                ("physical_health.energy", 0.40)
+                ("physical_health.energy", 0.40),
+                ("physical_health.sleep_quality", 0.30),   # low fitness → worse sleep recovery
+                ("mental_wellbeing.motivation", 0.25),     # low fitness → motivation drops
+                ("mental_wellbeing.stress_level", -0.20),  # low fitness → stress rises
             ],
             "time.commute_burden": [
                 ("physical_health.energy", -0.30),

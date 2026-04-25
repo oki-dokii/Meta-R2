@@ -770,14 +770,12 @@
                     const avgHealth = healthScores.reduce((a, b) => a + b, 0) / healthScores.length;
                     const minHealth = Math.min(...healthScores);
 
-                    // Blend: if ANY metric tanks below 35, drag the whole domain toward it.
-                    // This prevents a crisis in one metric being hidden by healthy siblings.
-                    const blended = minHealth < 35
-                        ? (avgHealth * 0.35 + minHealth * 0.65)
-                        : avgHealth;
+                    // 60% weight on the domain average, 40% on the weakest metric.
+                    // One stressed submetric drags the domain toward yellow/red;
+                    // a single crisis metric can't rescue a struggling domain.
+                    const blended = avgHealth * 0.6 + minHealth * 0.4;
 
-                    // Thresholds calibrated to the actual ~30–70 range of baseline health scores
-                    const color = blended > 58 ? '#4ade80'   // green  — domain healthy
+                    const color = blended > 60 ? '#4ade80'   // green  — domain healthy
                                 : blended > 36 ? '#facc15'   // yellow — domain stressed
                                 :                '#ef4444';  // red    — domain in crisis
 
