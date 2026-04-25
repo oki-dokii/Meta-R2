@@ -52,12 +52,29 @@ LifeStack is grounded in four foundational research traditions:
 3.  **Retrieval-Augmented Moderation (RAM)**: Applied RAG principles to personalized decision-support.
 4.  **Multi-Objective RL (Roijers et al., 2013)**: Guided the weighting of our 7 non-overlapping reward signals.
 
-### 6. Conclusion: The Gym for personal AI
-The final trained **Qwen2.5-1.5B** model achieved a **94% resolution rate** on hard-interdependency tasks, up from 12% at the random baseline. But more importantly, the agent learned **strategic patience**. It learned to trade-off short-term financial liquidity for long-term mental wellbeing—a hallmark of advanced human reasoning.
+### 6. Training Results & What We Learned
 
-**LifeStack proves that Personal AI needs a Gym, not just a Library.** To build a truly useful assistant, we must train it in high-fidelity environments that respect the messy reality of being human. 
+We fine-tuned **Qwen2.5-1.5B-Instruct** using GRPO across a **5-stage difficulty curriculum** on a Tesla T4 GPU.
+
+| Metric | Value |
+|---|---|
+| Base model | Qwen/Qwen2.5-1.5B-Instruct |
+| Trainable parameters | 18.4M / 1,562M (1.18% — LoRA r=16) |
+| Total optimizer steps | 125 (25 per stage × 5 stages) |
+| Total training time | ~45 minutes on T4 |
+| Format compliance (start → end) | 0.075 → 0.195 |
+| Reward (start → end) | −0.568 → −0.396 |
+| Post-training eval reward | −0.10 avg over 50 episodes, 8 domains |
+
+The reward signals that improved most were **format compliance** (the model learns to produce well-structured JSON action plans) and **task success** (applying actions that actually resolve the underlying life conflict).
+
+**What we found hardest:** The model fills its 96-token completion budget on every generation (`clipped_ratio = 1.0`). This is a known GRPO training challenge — the model never naturally stops after the closing `}` during training. We mitigated this at inference time with a `_JsonCompleteStopping` criterion and first-object extraction, so the user always receives a clean JSON plan regardless.
+
+**What actually worked:** The 40-edge dependency graph and 9-signal reward orchestrator produced measurably different behaviour across domains. The model learned to prefer `negotiate` and `reschedule` actions over brute-force `spend` in resource-constrained scenarios — consistent with the Mullainathan & Shafir scarcity decision theory our environment encodes.
+
+**LifeStack proves that Personal AI needs a Gym, not just a Library.** To build a truly useful assistant, we must train it in high-fidelity environments that respect the messy reality of being human.
 
 We built the gym. Now any model can train in it. 🪐🚀
 
 ---
-*For the full source, dataset, and training logs, visit our [GitHub Repository](https://github.com/oki-dokii/Meta-R2).*
+*For the full source, training logs, and model weights, visit our [GitHub Repository](https://github.com/oki-dokii/Meta-R2) and [HuggingFace Hub](https://huggingface.co/jdsb06/lifestack-grpo).*
