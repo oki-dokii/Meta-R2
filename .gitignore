@@ -10,3 +10,10 @@ demo_debug.log
 test_groq.py
 .DS_Store
 .env
+*.png
+*.sqlite3
+*.bin
+*.whl
+test_episode_memory_tmp/
+lifestack_memory/
+data/
