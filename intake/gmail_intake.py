@@ -8,21 +8,59 @@ SETUP:
 4. pip install google-auth google-auth-oauthlib google-api-python-client
 """
 
+import os
 import os.path
 import base64
 import json
 from datetime import datetime, timedelta
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+
+_DEMO_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'demo_signals.json')
 
 # Gmail readonly scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 class GmailIntake:
+    # ── Demo fallback ────────────────────────────────────────────────────
+
+    @staticmethod
+    def demo_signals() -> dict:
+        with open(_DEMO_PATH) as f:
+            return json.load(f)['gmail']
+
+    @staticmethod
+    def demo_life_metrics() -> dict:
+        with open(_DEMO_PATH) as f:
+            d = json.load(f)
+        return {k: v for k, v in d['derived_metric_deltas'].items()
+                if k.startswith('mental_wellbeing.') or k.startswith('relationships.')
+                or k.startswith('career.') or k.startswith('time.')}
+
+    def sync(self) -> tuple:
+        """
+        Returns (signals, metric_deltas, summary, is_demo).
+        Tries real OAuth first; silently falls back to demo on any failure.
+        """
+        try:
+            svc = self.authenticate()
+            rel = self.extract_relationship_signals(svc)
+            work = self.extract_work_signals(svc)
+            signals = {"rel": rel, "work": work}
+            return signals, self.to_life_metrics(rel, work), self.get_email_summary(rel, work), False
+        except Exception:
+            demo = self.demo_signals()
+            with open(_DEMO_PATH) as f:
+                deltas = json.load(f)['derived_metric_deltas']
+            return demo, deltas, demo['summary'], True
+
+    # ── Real OAuth path ──────────────────────────────────────────────────
+
     def authenticate(self):
         """Authenticate with Gmail API, reusing token.json if possible."""
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        from googleapiclient.discovery import build
+
         creds = None
         if os.path.exists('token.json'):
             creds = Credentials.from_authorized_user_file('token.json', SCOPES)

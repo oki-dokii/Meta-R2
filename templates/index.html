@@ -149,30 +149,78 @@
         </div>
 
         <!-- ── TAB 2: TRY YOUR CASE ── -->
-        <div id="content-custom" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="glass p-6 rounded-2xl space-y-6">
-                <h3 class="text-xl font-bold">Describe Your Situation</h3>
-                <textarea id="custom-situation" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-200 outline-none focus:border-indigo-500 h-32" placeholder="e.g. My boss gave me a huge deadline today, but it's my partner's birthday and I'm already exhausted..."></textarea>
-                <div class="grid grid-cols-2 gap-4 text-xs font-bold uppercase text-slate-500">
-                    <div class="space-y-4">
-                        <label>💼 Work Stress <input type="range" id="custom-work" class="w-full accent-indigo-500"></label>
-                        <label>💰 Money Stress <input type="range" id="custom-money" class="w-full accent-indigo-500"></label>
+        <div id="content-custom" class="hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Left: inputs -->
+                <div class="glass p-6 rounded-2xl space-y-6">
+                    <h3 class="text-xl font-bold">Describe Your Situation</h3>
+                    <textarea id="custom-situation" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-200 outline-none focus:border-indigo-500 h-32" placeholder="e.g. My boss gave me a huge deadline today, but it's my partner's birthday and I'm already exhausted..."></textarea>
+                    <div class="grid grid-cols-2 gap-4 text-xs font-bold uppercase text-slate-500">
+                        <div class="space-y-4">
+                            <label>💼 Work Stress <input type="range" id="custom-work" class="w-full accent-indigo-500"></label>
+                            <label>💰 Money Stress <input type="range" id="custom-money" class="w-full accent-indigo-500"></label>
+                        </div>
+                        <div class="space-y-4">
+                            <label>❤️ Relationships <input type="range" id="custom-rel" class="w-full accent-indigo-500"></label>
+                            <label>⚡ Energy <input type="range" id="custom-energy" class="w-full accent-indigo-500"></label>
+                        </div>
                     </div>
-                    <div class="space-y-4">
-                        <label>❤️ Relationships <input type="range" id="custom-rel" class="w-full accent-indigo-500"></label>
-                        <label>⚡ Energy <input type="range" id="custom-energy" class="w-full accent-indigo-500"></label>
+                    <button onclick="runDigitalSync()" id="digital-sync-btn" class="w-full py-3 bg-gradient-to-r from-cyan-700 to-indigo-700 rounded-xl text-sm font-bold shadow-lg hover:opacity-90 transition flex items-center justify-center gap-2">
+                        <span id="sync-icon">📡</span> <span id="sync-text">Sync Digital Life (Gmail + Calendar + Fitness)</span>
+                    </button>
+                    <button onclick="runCustom()" class="w-full py-3 bg-indigo-600 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20">Analyze & Plan</button>
+                </div>
+
+                <!-- Centre: Digital Sync panel -->
+                <div id="digital-sync-panel" class="glass p-6 rounded-2xl space-y-4">
+                    <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Digital Life Signals</div>
+                    <div id="sync-idle" class="text-center py-16 text-slate-600 text-sm italic">Click "Sync Digital Life" to pull signals from your connected services.</div>
+                    <div id="sync-sources" class="hidden space-y-4">
+                        <!-- Gmail source card -->
+                        <div class="p-4 rounded-xl border border-slate-700 bg-slate-900/50">
+                            <div class="flex justify-between items-center mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-base">📧</span>
+                                    <span class="text-xs font-black text-slate-300 uppercase tracking-wider">Gmail</span>
+                                </div>
+                                <span id="gmail-badge" class="text-[8px] font-black px-2 py-0.5 rounded-full border uppercase"></span>
+                            </div>
+                            <p id="gmail-sync-summary" class="text-[10px] text-slate-400 italic leading-relaxed"></p>
+                            <div id="gmail-threads" class="mt-2 space-y-1"></div>
+                        </div>
+                        <!-- Calendar source card -->
+                        <div class="p-4 rounded-xl border border-slate-700 bg-slate-900/50">
+                            <div class="flex justify-between items-center mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-base">📅</span>
+                                    <span class="text-xs font-black text-slate-300 uppercase tracking-wider">Google Calendar</span>
+                                </div>
+                                <span id="cal-badge" class="text-[8px] font-black px-2 py-0.5 rounded-full border uppercase"></span>
+                            </div>
+                            <p id="cal-sync-summary" class="text-[10px] text-slate-400 italic leading-relaxed"></p>
+                            <div id="cal-deadlines" class="mt-2 space-y-1"></div>
+                        </div>
+                        <!-- Fitness source card -->
+                        <div class="p-4 rounded-xl border border-slate-700 bg-slate-900/50">
+                            <div class="flex justify-between items-center mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-base">💪</span>
+                                    <span class="text-xs font-black text-slate-300 uppercase tracking-wider">Fitness</span>
+                                </div>
+                                <span id="fit-badge" class="text-[8px] font-black px-2 py-0.5 rounded-full border uppercase bg-amber-500/10 border-amber-500/30 text-amber-400">Demo</span>
+                            </div>
+                            <p id="fit-sync-summary" class="text-[10px] text-slate-400 italic leading-relaxed"></p>
+                            <div id="fit-stats" class="mt-2 grid grid-cols-3 gap-2"></div>
+                        </div>
                     </div>
                 </div>
-                <div class="flex gap-4">
-                    <button onclick="syncGmail()" id="gmail-btn" class="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold hover:bg-white/10 transition">📧 Sync Digital (Gmail)</button>
-                    <button onclick="runCustom()" class="flex-[2] py-3 bg-indigo-600 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20">Analyze & Plan</button>
+
+                <!-- Right: result -->
+                <div id="custom-result" class="hidden glass p-6 rounded-2xl overflow-y-auto max-h-[620px]">
+                    <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold">Personalised Resolution</h3><span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span></div>
+                    <div id="custom-metrics-grid" class="mb-8"></div>
+                    <div id="custom-plan" class="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-4"></div>
                 </div>
-                <p id="gmail-status" class="text-[10px] text-center text-slate-500 italic"></p>
-            </div>
-            <div id="custom-result" class="hidden glass p-6 rounded-2xl overflow-y-auto max-h-[600px]">
-                <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold">Personized Resolution</h3><span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span></div>
-                <div id="custom-metrics-grid" class="grid grid-cols-2 gap-4 mb-8"></div>
-                <div id="custom-plan" class="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-4"></div>
             </div>
         </div>
 
@@ -751,23 +799,80 @@
             btn.disabled = false; btn.innerText = "▶ Start Simulation";
         }
 
-        async function syncGmail() {
-            const btn = document.getElementById('gmail-btn');
-            const status = document.getElementById('gmail-status');
-            btn.innerText = "📧 Syncing...";
+        async function runDigitalSync() {
+            const btn = document.getElementById('digital-sync-btn');
+            const icon = document.getElementById('sync-icon');
+            const txt = document.getElementById('sync-text');
+            btn.disabled = true;
+            icon.innerText = '🔄'; txt.innerText = 'Syncing...';
+            document.getElementById('sync-idle').classList.add('hidden');
+
             try {
-                const res = await fetch('/api/gmail/sync', { method: 'POST' });
+                const res = await fetch('/api/digital/sync', { method: 'POST' });
                 const data = await res.json();
-                if (data.status === 'success') {
-                    globalGmailSignals = data.signals;
-                    status.innerText = `✅ Synced! ${data.summary}`;
-                    status.classList.add('text-green-400');
-                }
+
+                globalGmailSignals = data.merged_deltas;
+
+                document.getElementById('sync-sources').classList.remove('hidden');
+
+                // Badge helper
+                const badge = (id, isDemo) => {
+                    const el = document.getElementById(id);
+                    if (isDemo) {
+                        el.innerText = 'Demo'; el.className = 'text-[8px] font-black px-2 py-0.5 rounded-full border uppercase bg-amber-500/10 border-amber-500/30 text-amber-400';
+                    } else {
+                        el.innerText = 'Live'; el.className = 'text-[8px] font-black px-2 py-0.5 rounded-full border uppercase bg-green-500/10 border-green-500/30 text-green-400';
+                    }
+                };
+
+                // Gmail
+                const gs = data.sources.gmail;
+                badge('gmail-badge', gs.is_demo);
+                document.getElementById('gmail-sync-summary').innerText = gs.summary;
+                const threads = (gs.signals.notable_threads || []);
+                document.getElementById('gmail-threads').innerHTML = threads.map(t =>
+                    `<div class="flex justify-between text-[9px] text-slate-500 border-t border-slate-800 pt-1">
+                        <span class="italic truncate w-48">${t.subject}</span>
+                        <span class="text-slate-600 whitespace-nowrap ml-2">${t.time}</span>
+                    </div>`
+                ).join('');
+
+                // Calendar
+                const cs = data.sources.calendar;
+                badge('cal-badge', cs.is_demo);
+                document.getElementById('cal-sync-summary').innerText = cs.summary;
+                const deadlines = (cs.signals.upcoming_deadlines || []);
+                document.getElementById('cal-deadlines').innerHTML = deadlines.map(d => {
+                    const col = d.priority === 'critical' ? 'text-red-400' : 'text-yellow-400';
+                    return `<div class="flex justify-between text-[9px] border-t border-slate-800 pt-1">
+                        <span class="${col} font-bold truncate w-40">${d.title}</span>
+                        <span class="text-slate-600">in ${d.due_in_hours}h</span>
+                    </div>`;
+                }).join('');
+
+                // Fitness
+                const fs = data.sources.fitness;
+                document.getElementById('fit-sync-summary').innerText = fs.summary;
+                const fsig = fs.signals;
+                document.getElementById('fit-stats').innerHTML = [
+                    ['Sleep', `${fsig.avg_sleep_hours}h`, fsig.avg_sleep_hours < 6 ? 'text-red-400' : 'text-green-400'],
+                    ['HR', `${fsig.resting_heart_rate}bpm`, fsig.resting_heart_rate > 75 ? 'text-yellow-400' : 'text-green-400'],
+                    ['Steps', `${(fsig.daily_steps_avg/1000).toFixed(1)}k`, fsig.daily_steps_avg < 5000 ? 'text-red-400' : 'text-green-400'],
+                ].map(([label, val, cls]) =>
+                    `<div class="text-center bg-slate-800/50 rounded-lg p-2">
+                        <div class="${cls} font-black text-xs">${val}</div>
+                        <div class="text-[8px] text-slate-600 uppercase font-bold mt-0.5">${label}</div>
+                    </div>`
+                ).join('');
+
+                icon.innerText = '✅'; txt.innerText = 'Synced — 3 Sources Active';
+                btn.className = btn.className.replace('from-cyan-700 to-indigo-700', 'from-green-800 to-emerald-700');
             } catch (e) {
-                status.innerText = "❌ Sync failed (Auth required)";
-                status.classList.add('text-red-400');
+                icon.innerText = '❌'; txt.innerText = 'Sync Failed';
+                console.error(e);
+            } finally {
+                btn.disabled = false;
             }
-            btn.innerText = "📧 Sync Digital (Gmail)";
         }
 
         async function runCustom() {

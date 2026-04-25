@@ -1,0 +1,75 @@
+{
+  "persona": "Jordan (PM at Series-B startup)",
+  "generated_at": "2026-04-25T09:00:00",
+  "note": "Pre-baked demo payload — represents a stressed product manager mid-sprint",
+
+  "gmail": {
+    "unread_count": 47,
+    "late_night_count": 8,
+    "weekend_count": 11,
+    "overtime_count": 14,
+    "social_activity": 3.2,
+    "work_pressure": 8.7,
+    "relationship_neglect_risk": 7.4,
+    "responsiveness": 2.1,
+    "email_overload": 9.4,
+    "work_bleeding_personal": 7.2,
+    "key_contacts": [
+      "priya.shah@acme-ventures.com",
+      "cto@startupco.io",
+      "hr@startupco.io",
+      "mom@gmail.com",
+      "alex@cofounder.io"
+    ],
+    "notable_threads": [
+      {"subject": "URGENT: Board deck needs rework before Friday", "sender": "cto@startupco.io", "time": "11:47 PM"},
+      {"subject": "Re: Q2 roadmap — are we on track?", "sender": "priya.shah@acme-ventures.com", "time": "Saturday 10:12 AM"},
+      {"subject": "Have you eaten today?", "sender": "mom@gmail.com", "time": "7:03 PM"}
+    ],
+    "summary": "47 unread. 8 emails sent after 10 PM. Board deck deadline pressure. Investor checking roadmap. Family reaching out."
+  },
+
+  "calendar": {
+    "week_occupancy_pct": 91,
+    "days_with_no_breaks": 4,
+    "avg_meeting_hours_per_day": 6.2,
+    "focus_blocks_count": 0,
+    "upcoming_deadlines": [
+      {"title": "Board Deck Final Draft", "due_in_hours": 38, "priority": "critical"},
+      {"title": "Sprint Review with Engineering", "due_in_hours": 52, "priority": "high"},
+      {"title": "Investor 1:1 (Priya Shah)", "due_in_hours": 72, "priority": "high"}
+    ],
+    "back_to_back_blocks": 3,
+    "personal_events_this_week": 1,
+    "cancelled_personal_events": 2,
+    "summary": "91% of working hours booked. Zero deep-work blocks. Board deck in 38h. 3 back-to-back meeting chains. 2 personal events cancelled this week."
+  },
+
+  "fitness": {
+    "avg_sleep_hours": 5.3,
+    "sleep_quality_score": 38,
+    "resting_heart_rate": 82,
+    "hrv_score": 24,
+    "daily_steps_avg": 2800,
+    "active_minutes_avg": 9,
+    "stress_score": 78,
+    "recovery_score": 31,
+    "last_workout_days_ago": 9,
+    "summary": "5.3h sleep avg. Resting HR 82 bpm (elevated). HRV 24 (low — high stress load). 2,800 steps/day. Last workout 9 days ago."
+  },
+
+  "derived_metric_deltas": {
+    "career.workload": 28.0,
+    "mental_wellbeing.stress_level": 32.0,
+    "mental_wellbeing.focus_quality": -25.0,
+    "mental_wellbeing.emotional_regulation": -18.0,
+    "physical_health.sleep_quality": -30.0,
+    "physical_health.energy_level": -22.0,
+    "physical_health.exercise_consistency": -35.0,
+    "time.free_hours_per_week": -18.0,
+    "time.schedule_control": -24.0,
+    "relationships.romantic": -15.0,
+    "relationships.family": -12.0,
+    "finances.liquidity": 0.0
+  }
+}

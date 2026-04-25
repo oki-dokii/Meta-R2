@@ -24,6 +24,7 @@ from agent.conflict_predictor import ConflictPredictor
 from agent.counterfactuals import generate_counterfactuals
 from scripts.longitudinal_demo import LongitudinalDemo
 from intake.gmail_intake import GmailIntake
+from intake.calendar_intake import CalendarIntake
 from core.task import Task, ExoEvent, Route, Milestone
 from core.feedback import OutcomeFeedback, compute_human_feedback_reward
 from core.cascade_utils import animate_cascade
@@ -41,7 +42,8 @@ EPISODE_HISTORY = [] # Store last 5 episodes
 def get_history():
     return jsonify(EPISODE_HISTORY)
 
-GMAIL  = GmailIntake()
+GMAIL    = GmailIntake()
+CALENDAR = CalendarIntake()
 LONG_DEMO = LongitudinalDemo()
 DEMO_PREDICTOR = ConflictPredictor()
 
@@ -289,15 +291,74 @@ def run_custom():
 
 @app.route('/api/gmail/sync', methods=['POST'])
 def sync_gmail():
-    try:
-        service = GMAIL.authenticate()
-        rel = GMAIL.extract_relationship_signals(service)
-        work = GMAIL.extract_work_signals(service)
-        signals = GMAIL.to_life_metrics(rel, work)
-        summary = GMAIL.get_email_summary(rel, work)
-        return jsonify({"status": "success", "signals": signals, "summary": summary})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+    signals, metric_deltas, summary, is_demo = GMAIL.sync()
+    return jsonify({
+        "status": "success",
+        "signals": metric_deltas,
+        "raw": signals,
+        "summary": summary,
+        "is_demo": is_demo,
+    })
+
+
+@app.route('/api/digital/sync', methods=['POST'])
+def digital_sync():
+    """
+    Unified Digital Sync — Gmail + Google Calendar + Fitness (demo payload).
+    Tries real OAuth for Gmail and Calendar; falls back to demo_signals.json on failure.
+    Fitness is always served from the demo payload (no first-party fitness API scope).
+    Returns merged metric deltas, per-source raw signals, and a demo flag per source.
+    """
+    import json as _json
+    demo_path = os.path.join(os.path.dirname(__file__), 'data', 'demo_signals.json')
+
+    with open(demo_path) as f:
+        demo_full = _json.load(f)
+
+    # Gmail
+    gmail_signals, gmail_deltas, gmail_summary, gmail_is_demo = GMAIL.sync()
+
+    # Calendar
+    cal_signals, cal_deltas, cal_is_demo = CALENDAR.sync()
+
+    # Fitness — always demo (no live fitness API)
+    fitness_signals = demo_full['fitness']
+    fitness_deltas = {
+        "physical_health.sleep_quality": demo_full['derived_metric_deltas']['physical_health.sleep_quality'],
+        "physical_health.energy_level": demo_full['derived_metric_deltas']['physical_health.energy_level'],
+        "physical_health.exercise_consistency": demo_full['derived_metric_deltas']['physical_health.exercise_consistency'],
+        "mental_wellbeing.stress_level": demo_full['derived_metric_deltas']['mental_wellbeing.stress_level'],
+    }
+    fitness_is_demo = True
+
+    # Merge all deltas (last writer wins — Calendar > Gmail for overlapping keys)
+    merged_deltas = {}
+    merged_deltas.update(gmail_deltas)
+    merged_deltas.update(cal_deltas)
+    merged_deltas.update(fitness_deltas)
+
+    return jsonify({
+        "status": "success",
+        "merged_deltas": merged_deltas,
+        "sources": {
+            "gmail": {
+                "signals": gmail_signals if isinstance(gmail_signals, dict) else {},
+                "summary": gmail_summary,
+                "is_demo": gmail_is_demo,
+            },
+            "calendar": {
+                "signals": cal_signals,
+                "summary": cal_signals.get("summary", ""),
+                "is_demo": cal_is_demo,
+            },
+            "fitness": {
+                "signals": fitness_signals,
+                "summary": fitness_signals.get("summary", ""),
+                "is_demo": True,
+            },
+        },
+        "persona_note": demo_full.get("persona", "Jordan (PM at Series-B startup)"),
+    })
 
 @app.route('/api/arjun/activate', methods=['POST'])
 def activate_arjun():
