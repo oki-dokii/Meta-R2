@@ -1208,6 +1208,8 @@ def train_curriculum(
     output_dir="./lifestack_model",
     resume=False,
     start_stage=None,
+    max_prompt_length: int | None = 2048,
+    max_completion_length: int = 224,
 ):
     """
     Curriculum training with automatic checkpoint saving and resume.
@@ -1266,9 +1268,9 @@ def train_curriculum(
             gradient_accumulation_steps=4,
             learning_rate=stage_lr,
             warmup_ratio=0.05,           # 5% warmup steps — smoother convergence
-            # 224 tokens avoids clipping valid nested JSON while the EOS-clean
-            # reward still discourages trailing explanation text.
-            max_completion_length=224,
+            max_prompt_length=max_prompt_length,
+            # Completion budget for GRPO generations (separate from model max context).
+            max_completion_length=max_completion_length,
             temperature=0.7,
             # TRL rule: num_generations must divide per_device_train_batch_size.
             num_generations=4,
@@ -1293,6 +1295,8 @@ def train_curriculum(
             # Warm-up: learn valid JSON structure first, then optimize decisions.
             stage_reward_funcs = [reward_format_fn, reward_clean_eos_fn, reward_route_target_fn]
             print("  Warm-up reward mode: format + EOS-cleanliness")
+            # Encourage real EOS: format + route are larger-magnitude; keep EOS nontrivial.
+            config.reward_weights = [1.0, 1.5, 1.0]
         else:
             stage_reward_funcs = [
                 reward_format_fn,
@@ -1306,6 +1310,7 @@ def train_curriculum(
                 reward_human_feedback_fn,
                 reward_longterm_fn,
             ]
+            config.reward_weights = [1.0, 1.25, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.25, 0.5]
 
         trainer = GRPOTrainer(
             model=model,
@@ -1365,6 +1370,8 @@ def train_episodic_curriculum(
     tokenizer=None,
     resume=False,
     start_stage=None,
+    max_prompt_length: int | None = 2048,
+    max_completion_length: int | None = None,
 ):
     """
     GRPO fine-tuning where each completion is rewarded by an environment episode.
@@ -1403,7 +1410,11 @@ def train_episodic_curriculum(
 
         stage_lr_schedule = {1: 3e-6, 2: 2e-6}
         stage_lr = stage_lr_schedule.get(stage, 1e-6)
-        max_completion = min(640, max(256, 160 * episode_horizon))
+        if max_completion_length is None:
+            # ~256 tokens of JSON headroom per proposed action, capped for VRAM.
+            max_completion = min(1024, max(512, 256 * episode_horizon))
+        else:
+            max_completion = int(max_completion_length)
 
         config = GRPOConfig(
             output_dir=stage_dir,
@@ -1412,6 +1423,7 @@ def train_episodic_curriculum(
             gradient_accumulation_steps=4,
             learning_rate=stage_lr,
             warmup_ratio=0.05,
+            max_prompt_length=max_prompt_length,
             max_completion_length=max_completion,
             temperature=0.7,
             num_generations=4,
@@ -1424,6 +1436,8 @@ def train_episodic_curriculum(
             report_to="tensorboard" if _tensorboard_available() else "none",
         )
         config.unsloth_num_chunks = -1
+        # Episode return drives behavior; up-weight EOS or verbose completions stay "worth it".
+        config.reward_weights = [1.0, 2.0, 0.75, 1.0]
 
         trainer = GRPOTrainer(
             model=model,
@@ -1622,6 +1636,9 @@ def dry_run(
     output_dir: str = "./lifestack_model_dryrun",
     episode_train: bool = False,
     episode_horizon: int = 2,
+    max_prompt_length: int | None = 2048,
+    max_completion_length: int = 224,
+    episodic_max_completion: int | None = None,
 ):
     """
     Runs a single GRPO training step on a minimal dataset (4 prompts).
@@ -1647,13 +1664,22 @@ def dry_run(
         dataset = generate_dataset(n_prompts=4, difficulty=1)
     print(f"  Dataset size : {len(dataset)} prompts")
 
+    if episode_train:
+        if episodic_max_completion is None:
+            comp = min(1024, max(512, 256 * episode_horizon))
+        else:
+            comp = int(episodic_max_completion)
+    else:
+        comp = int(max_completion_length)
+
     config = GRPOConfig(
         output_dir=output_dir,
         num_train_epochs=1,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=1,
         learning_rate=1e-5,
-        max_completion_length=320 if episode_train else 224,
+        max_prompt_length=max_prompt_length,
+        max_completion_length=comp,
         temperature=0.7,
         num_generations=4,
         max_steps=1,          # ONE step — just proves the pipeline works
@@ -2016,6 +2042,18 @@ Examples:
         "--hub-repo-id", type=str, default="lifestack-grpo",
         help="HuggingFace Hub repository ID for --push-to-hub (default: lifestack-grpo)."
     )
+    parser.add_argument(
+        "--max-prompt-length", type=int, default=2048,
+        help="Token budget for the left-truncated prompt in GRPO (default: 2048).",
+    )
+    parser.add_argument(
+        "--max-completion-length", type=int, default=224,
+        help="Token budget for each GRPO completion in single-step curriculum training (default: 224).",
+    )
+    parser.add_argument(
+        "--episodic-max-completion", type=int, default=0,
+        help="Override episodic max completion length; 0 = auto (default: 0).",
+    )
     args = parser.parse_args()
 
     if args.dry_run:
@@ -2023,6 +2061,11 @@ Examples:
             output_dir="./lifestack_model_dryrun",
             episode_train=args.episode_train,
             episode_horizon=args.episode_horizon,
+            max_prompt_length=args.max_prompt_length,
+            max_completion_length=args.max_completion_length,
+            episodic_max_completion=None
+            if args.episodic_max_completion == 0
+            else int(args.episodic_max_completion),
         )
     elif args.full_episode:
         run_full_episode(
@@ -2039,6 +2082,8 @@ Examples:
                 output_dir=args.output_dir,
                 resume=False,
                 start_stage=args.start_stage,
+                max_prompt_length=args.max_prompt_length,
+                max_completion_length=args.max_completion_length,
             )
         trainer = train_episodic_curriculum(
             n_stages=args.stages,
@@ -2049,6 +2094,10 @@ Examples:
             tokenizer=warmup_trainer.processing_class if warmup_trainer else None,
             resume=args.resume,
             start_stage=args.start_stage if not warmup_trainer else None,
+            max_prompt_length=args.max_prompt_length,
+            max_completion_length=None
+            if args.episodic_max_completion == 0
+            else int(args.episodic_max_completion),
         )
         validate_saved_model(args.output_dir)
         if args.push_to_hub and trainer:
@@ -2066,6 +2115,8 @@ Examples:
             output_dir=args.output_dir,
             resume=args.resume,
             start_stage=args.start_stage,
+            max_prompt_length=args.max_prompt_length,
+            max_completion_length=args.max_completion_length,
         )
         validate_saved_model(args.output_dir)
         evaluate_and_plot(args.output_dir)
