@@ -9,7 +9,7 @@ import json
 from openai import OpenAI
 from core.life_state import LifeMetrics, ResourceBudget
 from core.metric_schema import VALID_METRIC_PATHS, normalize_metric_path, is_valid_metric_path
-from agent.conflict_generator import ConflictEvent
+from agent.conflict_generator import ConflictEvent, TEMPLATES
 
 
 class LifeIntake:
@@ -33,14 +33,47 @@ class LifeIntake:
                 base_url="https://api.groq.com/openai/v1",
                 api_key=self.api_key,
             )
+
+        # HuggingFace Inference API — primary LLM path when HF_TOKEN is set
+        self.hf_client = None
+        hf_token = os.getenv("HF_TOKEN")
+        if hf_token:
+            try:
+                from huggingface_hub import InferenceClient
+                self.hf_client = InferenceClient(
+                    model="Qwen/Qwen2.5-1.5B-Instruct",
+                    token=hf_token,
+                )
+            except ImportError:
+                pass
+
         self.model = "llama-3.1-8b-instant"
         self.conversation_history = []
 
     def _call_llm(self, prompt: str, max_tokens: int = 300) -> str:
-        """Internal LLM call with basic retry on rate limit."""
+        """Internal LLM call — cascades HF Inference API → Groq → empty-string fallback."""
         import time as _t
         import re
 
+        def _strip_fences(text: str) -> str:
+            if text.startswith("```json"):
+                return text[7:].rsplit("```", 1)[0].strip()
+            if text.startswith("```"):
+                return text[3:].rsplit("```", 1)[0].strip()
+            return text
+
+        # ── 1. HuggingFace Inference API (primary) ──────────────────────────
+        if self.hf_client:
+            try:
+                resp = self.hf_client.chat_completion(
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                )
+                return _strip_fences(resp.choices[0].message.content.strip())
+            except Exception as e:
+                print(f"  ⚠️  HF Inference failed ({e}), falling back to Groq.")
+
+        # ── 2. Groq fallback ─────────────────────────────────────────────────
         if not self.client:
             return ""
 
@@ -52,13 +85,7 @@ class LifeIntake:
                     temperature=0.2,
                     max_tokens=max_tokens,
                 )
-                content = response.choices[0].message.content.strip()
-                # Strip markdown fences if present
-                if content.startswith("```json"):
-                    content = content[7:].rsplit("```", 1)[0].strip()
-                elif content.startswith("```"):
-                    content = content[3:].rsplit("```", 1)[0].strip()
-                return content
+                return _strip_fences(response.choices[0].message.content.strip())
             except Exception as e:
                 err = str(e)
                 if "429" in err and attempt < 2:
@@ -71,13 +98,24 @@ class LifeIntake:
                         if m:
                             wait_secs = float(m.group(1))
                     if wait_secs > 5.0:
-                        print(f"  ⚠️  Rate limit — skipping LLM call ({wait_secs:.0f}s wait)")
+                        print(f"  ⚠️  Rate limit — skipping Groq call ({wait_secs:.0f}s wait)")
                         return ""
                     _t.sleep(wait_secs)
                 else:
-                    print(f"  ⚠️  LLM call failed: {e}")
+                    print(f"  ⚠️  Groq call failed: {e}")
                     return ""
         return ""
+
+    def _match_template_by_keywords(self, text: str):
+        """Keyword-overlap fallback: find the best-matching built-in template."""
+        user_words = set(text.lower().split())
+        best, best_score = None, 0
+        for tpl in TEMPLATES:
+            kw = set((tpl.title + " " + tpl.story).lower().split())
+            score = len(kw & user_words)
+            if score > best_score:
+                best_score, best = score, tpl
+        return best if best_score >= 2 else None
 
     # ─── 1. Slider → LifeMetrics ──────────────────────────────────────────────
     def extract_life_state(
@@ -171,7 +209,11 @@ class LifeIntake:
                 difficulty=int(data.get("difficulty", 3)),
             )
         except Exception as e:
-            print(f"  ⚠️  Conflict parsing failed ({e}). Using fallback.")
+            print(f"  ⚠️  Conflict parsing failed ({e}). Trying keyword match.")
+            kw = self._match_template_by_keywords(user_description)
+            if kw:
+                print(f"  ✅  Keyword match: {kw.title}")
+                return kw
             return ConflictEvent(
                 id="custom_intake",
                 title="Your Situation",

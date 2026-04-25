@@ -35,3 +35,9 @@ bitsandbytes>=0.46.1
 google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.128.0
+
+# HuggingFace Hub (F3 InferenceClient, F8 push_to_hub)
+huggingface_hub>=0.23.0
+
+# Calendar upload parsing (F10)
+icalendar>=5.0.0

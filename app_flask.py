@@ -9,6 +9,7 @@ import json
 import copy
 import uuid
 import datetime
+from collections import deque
 from flask import Flask, render_template, request, jsonify, session
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.lifestack_env import LifeStackEnv, LifeStackAction
@@ -36,11 +37,30 @@ app.secret_key = "lifestack_secret_key_2026"
 AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
 INTAKE = LifeIntake()
-EPISODE_HISTORY = [] # Store last 5 episodes
+USER_HEALTH_OVERRIDES: dict = {}          # persisted health/calendar metric deltas
+EPISODE_HISTORY: deque = deque(maxlen=5)  # ring buffer, most recent first
 
 @app.route('/api/history', methods=['GET'])
+@app.route('/api/history/list', methods=['GET'])
 def get_history():
-    return jsonify(EPISODE_HISTORY)
+    summaries = [
+        {
+            "id":        ep.get("action", {}).get("id", ""),
+            "conflict":  ep.get("conflict", {}).get("title", "Unknown"),
+            "person":    ep.get("conflict", {}).get("person", "Unknown"),
+            "reward":    ep.get("action", {}).get("reward", 0.0),
+            "timestamp": ep.get("timestamp", ""),
+        }
+        for ep in EPISODE_HISTORY
+    ]
+    return jsonify(summaries)
+
+@app.route('/api/history/replay/<episode_id>', methods=['GET'])
+def replay_episode(episode_id):
+    for ep in EPISODE_HISTORY:
+        if ep.get("action", {}).get("id", "") == episode_id:
+            return jsonify(ep)
+    return jsonify({"error": "Episode not found"}), 404
 
 GMAIL    = GmailIntake()
 CALENDAR = CalendarIntake()
@@ -117,6 +137,13 @@ def start_simulation():
     conflict_label = data.get('conflict')
     conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
     base_metrics = LifeMetrics()
+    # Apply any uploaded health/calendar overrides
+    for path, delta in USER_HEALTH_OVERRIDES.items():
+        if '.' in path:
+            dom, sub = path.split('.', 1)
+            dom_obj = getattr(base_metrics, dom, None)
+            if dom_obj and hasattr(dom_obj, sub):
+                setattr(dom_obj, sub, max(0.0, min(100.0, getattr(dom_obj, sub) + delta)))
     flat = base_metrics.flatten()
     return jsonify({
         "status": "success",
@@ -237,9 +264,7 @@ def perform_action():
     }
     
     # Store in history
-    EPISODE_HISTORY.insert(0, result)
-    if len(EPISODE_HISTORY) > 5:
-        EPISODE_HISTORY.pop()
+    EPISODE_HISTORY.appendleft(result)
         
     return jsonify(result)
 
@@ -301,6 +326,14 @@ def run_custom():
     m.physical_health.energy_level = float(data.get('energy_level', 5)) * 10
     m.time.free_time = (10 - float(data.get('time_pressure', 5))) * 10
     
+    # Apply uploaded health/calendar overrides to custom metrics
+    for path, delta in USER_HEALTH_OVERRIDES.items():
+        if '.' in path:
+            dom, sub = path.split('.', 1)
+            dom_obj = getattr(m, dom, None)
+            if dom_obj and hasattr(dom_obj, sub):
+                setattr(dom_obj, sub, max(0.0, min(100.0, getattr(dom_obj, sub) + delta)))
+
     gmail_signals = data.get('gmail_signals')
     if gmail_signals:
         # Merge digital signals if provided
@@ -341,6 +374,7 @@ def run_custom():
     return jsonify({
         "before_metrics": m.flatten(),
         "after_metrics": obs.metrics,
+        "domain_health": compute_domain_health(obs.metrics),
         "action": {
             "type": action.primary.action_type,
             "target": action.primary.target_domain,
@@ -797,6 +831,8 @@ def upload_health_data():
         "mental_wellbeing.stress_level": round(max(0.0, 80.0 - hr), 1),
     }
     summary = f"Sleep {sleep:.1f}h | HR {hr:.0f}bpm | Steps {int(steps):,}/day"
+    # Persist overrides so future simulations use the uploaded health data
+    USER_HEALTH_OVERRIDES.update(deltas)
     return jsonify({"status": "success", "deltas": deltas, "summary": summary,
                     "signals": {"avg_sleep_hours": sleep, "resting_heart_rate": hr, "daily_steps_avg": steps}})
 
