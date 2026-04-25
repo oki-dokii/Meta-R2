@@ -201,7 +201,7 @@ def perform_action():
     person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
     
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
     
     before_metrics = copy.deepcopy(env.state.current_metrics)
     before_budget = copy.deepcopy(env.state.budget)
@@ -282,7 +282,7 @@ def get_trajectory():
     person   = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
 
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
 
     before_metrics = copy.deepcopy(env.state.current_metrics)
     before_budget  = copy.deepcopy(env.state.budget)
@@ -529,7 +529,7 @@ def _random_action(conflict, person):
     """Purely random action baseline — worst possible agent, used for ablation floor."""
     import random as _r
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
     flat = env.state.current_metrics.flatten()
     atype = _r.choice(_ACTION_TYPES)
     dom = _r.choice(_DOMAINS)
@@ -559,7 +559,7 @@ BASELINE_ACTION_MAP = {
 def _run_baseline(conflict, person):
     """Rule-based baseline: pick the action for the worst-scoring domain."""
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
     flat = env.state.current_metrics.flatten()
 
     domain_scores = {}
@@ -597,7 +597,7 @@ def _run_baseline(conflict, person):
 def _run_agent_comparison_side(conflict, person, api_only: bool):
     """Run one side of the comparison: api_only=True → untrained LLM, False → GRPO-trained."""
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
     before_metrics = copy.deepcopy(env.state.current_metrics)
     before_budget = copy.deepcopy(env.state.budget)
     action = AGENT.get_action(before_metrics, before_budget, conflict, person, api_only=api_only)
@@ -657,7 +657,7 @@ def memory_compare():
 
         def _run_episode(use_memory: bool):
             env = LifeStackEnv()
-            env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+            env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
             before_metrics = copy.deepcopy(env.state.current_metrics)
             before_budget = copy.deepcopy(env.state.budget)
             few_shot = ""
@@ -718,7 +718,7 @@ def personality_compare():
     def _run_person(person_label):
         person = PERSONS.get(person_label, list(PERSONS.values())[0])
         env = LifeStackEnv()
-        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+        env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
         before_m = copy.deepcopy(env.state.current_metrics)
         before_b = copy.deepcopy(env.state.budget)
         action = AGENT.get_action(before_m, before_b, conflict, person)
@@ -765,7 +765,7 @@ def counterfactuals_generate():
     person = PERSONS.get(person_label, list(PERSONS.values())[0])
 
     env = LifeStackEnv()
-    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
     before_m = copy.deepcopy(env.state.current_metrics)
     before_b = copy.deepcopy(env.state.budget)
     action = AGENT.get_action(before_m, before_b, conflict, person)
@@ -793,7 +793,7 @@ def memory_ablation():
 
     def _run(use_memory):
         env = LifeStackEnv()
-        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+        env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
         before_m = copy.deepcopy(env.state.current_metrics)
         before_b = copy.deepcopy(env.state.budget)
         few_shot, retrieved = "", []
