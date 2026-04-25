@@ -245,11 +245,12 @@ class LifeIntake:
         prompt = (
             f"Based on this description of someone's situation:\n{user_description}\n\n"
             "Infer their likely OCEAN personality traits as float values between 0.0 and 1.0. "
-            "Also infer a likely first name that fits the personality. "
+            "Do NOT invent a name unless a specific name is explicitly mentioned in the text description. "
+            "If no name is found, return exactly \"Inferred Self\" for the name field. "
             "Respond ONLY with valid JSON, no extra text:\n"
             '{"openness": 0.65, "conscientiousness": 0.75, '
             '"extraversion": 0.30, "agreeableness": 0.55, '
-            '"neuroticism": 0.80, "name": "Sam"}'
+            '"neuroticism": 0.80, "name": "Inferred Self"}'
         )
 
         raw = self._call_llm(prompt, max_tokens=200)

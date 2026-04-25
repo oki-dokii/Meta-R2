@@ -131,7 +131,9 @@ OUTPUT FORMAT (one line, no whitespace between fields):
 {{"action_type":"<type>","target_domain":"<domain>","metric_changes":{{"domain.submetric":<number>}},"resource_cost":{{"time":<n>,"money":<n>,"energy":<n>}},"description":"<one sentence>","recipient":"none","message_content":"","reasoning":"<one sentence>"}}
 
 VALID action_type values: communicate, rest, delegate, negotiate, spend, reschedule, deprioritize
-VALID target_domain values: career, finances, relationships, physical_health, mental_wellbeing, time"""
+VALID target_domain values: career, finances, relationships, physical_health, mental_wellbeing, time
+STRATEGY: Prioritize high-agency actions (delegate/negotiate/communicate) if workload or pressure is high. Use 'rest' only when energy is critically low (<30). Avoid generic advice.
+"""
         return prompt
 
     # ── JSON extraction with multi-stage repair ───────────────────────────────
@@ -332,14 +334,23 @@ VALID target_domain values: career, finances, relationships, physical_health, me
         return result_box[0]
 
     def _fallback_action(self, error_msg: str, fallback_type: str = "rest") -> "AgentAction":
+        target = "mental_wellbeing"
+        change = {"mental_wellbeing.stress_level": -5.0}
+        
+        # More intelligent fallback: if workload is the issue, try to deprioritize
+        if "workload" in error_msg.lower() or "career" in error_msg.lower():
+            fallback_type = "deprioritize"
+            target = "career"
+            change = {"career.workload": -10.0}
+
         return AgentAction(
             primary=PrimaryAction(
-                action_type=fallback_type, target_domain="mental_wellbeing",
-                metric_changes={"mental_wellbeing.stress_level": -5.0},
-                resource_cost={},
-                description="Short breather to regain composure."
+                action_type=fallback_type, target_domain=target,
+                metric_changes=change,
+                resource_cost={"energy": 5.0},
+                description="Adjusting course to manage immediate pressure."
             ),
-            reasoning=f"FALLBACK: {error_msg}"
+            reasoning=f"ADAPTIVE FALLBACK: {error_msg}"
         )
 
     def store_decision(self, action: AgentAction, reward: float):

@@ -487,8 +487,10 @@ def run_custom():
 
     # Map sliders to the correct LifeMetrics field names
     m = LifeMetrics()
+    # Decouple sliders: Workload is a constraint, Stress is the mental cost
+    # We now take Workload directly from the slider, and allow other domains to vary
     m.career.workload               = work_stress
-    m.mental_wellbeing.stress_level = min(100.0, work_stress * 0.8)
+    m.mental_wellbeing.stress_level = min(100.0, work_stress * 0.7 + (100.0 - energy_level) * 0.3)
     m.finances.debt_pressure        = money_stress
     m.relationships.romantic        = rel_quality
     m.relationships.social          = min(100.0, rel_quality * 0.9)
