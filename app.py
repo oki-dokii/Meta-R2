@@ -803,17 +803,24 @@ def load_training_tab():
 # ─── Tab: Memory Effect Demo ─────────────────────────────────────────────────
 def run_memory_demo(conflict_label: str, person_label: str):
     """Runs two episodes of the same conflict:
-      Episode 1 — Cold Start (no ChromaDB context, empty few_shot)
-      Episode 2 — RAG-Augmented  (Episode 1 result stored in ChromaDB, retrieved as few-shot)
-    Returns (ep1_html, ep2_html, diff_html) for display.
+      Episode 1 — Cold Start  (no ChromaDB context, empty few_shot)
+      Episode 2 — RAG-Augmented (Episode 1 result injected directly as few-shot,
+                                  bypassing the reward>=0.5 retrieval filter)
+    Returns (ep1_html, ep2_html, diff_html).
     """
     import copy as _cp
+    import time as _t
 
-    conflict = CONFLICT_CHOICES[conflict_label]
-    person   = PERSONS[person_label]
+    _ERROR_STYLE = "background:#1a1a2e;border:2px solid #ef4444;border-radius:10px;padding:20px;font-family:sans-serif;color:#f87171;"
 
-    def _run_single_episode(few_shot_context: str, label: str) -> tuple:
-        """Returns (action, reward, metrics_before, metrics_after) for one episode."""
+    try:
+        conflict = CONFLICT_CHOICES[conflict_label]
+        person   = PERSONS[person_label]
+    except KeyError as e:
+        err = f"<div style='{_ERROR_STYLE}'>❌ Invalid selection: {e}</div>"
+        return err, err, err
+
+    def _run_single_episode(few_shot_context: str) -> tuple:
         env = _init_env(conflict)
         metrics_before = _cp.deepcopy(env.state.current_metrics)
         budget = _cp.deepcopy(env.state.budget)
@@ -839,102 +846,70 @@ def run_memory_demo(conflict_label: str, person_label: str):
         env_action.metric_changes = scaled_changes
         obs = env.step(env_action)
         reward = obs.reward or 0.0
-        metrics_after = env.state.current_metrics
-        return action, reward, uptake, metrics_before, metrics_after
+        return action, reward, uptake, metrics_before, env.state.current_metrics
 
-    # ── Episode 1: Cold Start (no memory) ─────────────────────────────────────
-    ep1_action, ep1_reward, ep1_uptake, ep1_before, ep1_after = _run_single_episode("", "Cold")
+    # ── Episode 1: Cold Start ─────────────────────────────────────────────────
+    try:
+        ep1_action, ep1_reward, ep1_uptake, ep1_before, ep1_after = _run_single_episode("")
+    except Exception as e:
+        err = f"<div style='{_ERROR_STYLE}'>❌ Episode 1 failed: {e}</div>"
+        return err, err, err
 
-    # Store Episode 1 result into ChromaDB so Episode 2 can retrieve it
-    MEMORY.store_decision(
-        conflict_title=conflict.title,
-        action_type=ep1_action.primary.action_type,
-        target_domain=ep1_action.primary.target_domain,
-        reward=ep1_reward,
-        metrics_snapshot=ep1_before.flatten(),
-        reasoning=ep1_action.reasoning,
+    # Store Episode 1 in ChromaDB (for longitudinal memory across sessions)
+    try:
+        MEMORY.store_decision(
+            conflict_title=conflict.title,
+            action_type=ep1_action.primary.action_type,
+            target_domain=ep1_action.primary.target_domain,
+            reward=ep1_reward,
+            metrics_snapshot=ep1_before.flatten(),
+            reasoning=ep1_action.reasoning,
+        )
+    except Exception:
+        pass  # Don't let a ChromaDB write failure block the demo
+
+    # ── Build Episode 2 few-shot DIRECTLY from Episode 1 ─────────────────────
+    # BUG FIX: MEMORY.retrieve_similar() filters out reward < 0.5, so Episode 1's
+    # result (often 0.1-0.3) would be silently dropped. We bypass that filter by
+    # constructing the few-shot string directly from Ep1's data.
+    outcome_label = "Good — build on this approach" if ep1_reward >= 0.4 else "Suboptimal — consider a different strategy"
+    few_shot = (
+        f"RETRIEVED MEMORY — Previous attempt at '{conflict.title}':\n"
+        f"  Action chosen: {ep1_action.primary.action_type} → {ep1_action.primary.target_domain}\n"
+        f"  What was done: {ep1_action.primary.description}\n"
+        f"  Reward received: {ep1_reward:.3f} ({outcome_label})\n"
+        f"  Agent's reasoning: {ep1_action.reasoning[:150]}\n"
+        f"Use this precedent to make a better-informed decision. "
+        f"{'Refine or improve upon this approach.' if ep1_reward >= 0.4 else 'Try a meaningfully different action type or domain.'}"
     )
 
-    # ── Episode 2: RAG-Augmented (retrieves Episode 1 from ChromaDB) ──────────
-    few_shot = MEMORY.build_few_shot_prompt(conflict.title, ep1_before.flatten())
-    ep2_action, ep2_reward, ep2_uptake, ep2_before, ep2_after = _run_single_episode(few_shot, "Warm")
+    # ── Rate limit guard: space out the two Groq API calls ───────────────────
+    _t.sleep(2)
+
+    # ── Episode 2: RAG-Augmented ──────────────────────────────────────────────
+    try:
+        ep2_action, ep2_reward, ep2_uptake, ep2_before, ep2_after = _run_single_episode(few_shot)
+    except Exception as e:
+        err = f"<div style='{_ERROR_STYLE}'>❌ Episode 2 failed (possible rate limit — wait 30s and retry): {e}</div>"
+        ep1_html_fallback = _build_ep_card(1, "No Memory", ep1_action, ep1_reward, ep1_uptake,
+                                            ep1_before, ep1_after, "#4b5563", "")
+        return ep1_html_fallback, err, err
 
     # ── Build HTML cards ──────────────────────────────────────────────────────
-    def _episode_card(ep_num: int, label: str, action, reward: float, uptake: float,
-                      before, after, border_color: str, few_shot_ctx: str = "") -> str:
-        before_flat = before.flatten()
-        after_flat  = after.flatten()
-        r_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
-        cost    = action.primary.resource_cost
-        cost_str = (f"⏱ {cost.get('time', 0):.1f}h  "
-                    f"💵 ${cost.get('money', 0):.0f}  "
-                    f"⚡ {cost.get('energy', 0):.0f}")
-        changed_rows = ""
-        for k, v_after in after_flat.items():
-            v_before = before_flat.get(k, v_after)
-            delta = v_after - v_before
-            if abs(delta) > 0.5:
-                name  = k.replace(".", " › ").replace("_", " ")
-                arrow = "↑" if delta > 0 else "↓"
-                dc    = "#4ade80" if delta > 0 else "#f87171"
-                changed_rows += (
-                    f"<div style='display:flex;justify-content:space-between;"
-                    f"font-size:11px;color:#ccc;padding:2px 0'>"
-                    f"<span>{name}</span>"
-                    f"<span style='color:{dc}'>{arrow} {delta:+.1f}</span>"
-                    f"</div>"
-                )
-        if not changed_rows:
-            changed_rows = "<div style='font-size:11px;color:#666'>No significant metric changes</div>"
+    ep1_html = _build_ep_card(1, "No Memory",     ep1_action, ep1_reward, ep1_uptake,
+                               ep1_before, ep1_after, "#4b5563", "")
+    ep2_html = _build_ep_card(2, "RAG-Augmented", ep2_action, ep2_reward, ep2_uptake,
+                               ep2_before, ep2_after, "#22c55e", few_shot)
 
-        memory_badge = ""
-        if few_shot_ctx:
-            preview = few_shot_ctx[:120].replace("<", "&lt;").replace(">", "&gt;")
-            memory_badge = (
-                f"<div style='margin-top:10px;padding:8px;background:#0d2a1a;"
-                f"border:1px solid #166534;border-radius:6px;font-size:11px;color:#86efac'>"
-                f"🧠 <b>Memory retrieved:</b> {preview}…"
-                f"</div>"
-            )
-
-        return f"""
-<div style='background:#12122a;border:2px solid {border_color};border-radius:10px;
-            padding:16px;font-family:sans-serif'>
-  <div style='font-size:12px;font-weight:700;color:#888;letter-spacing:2px;margin-bottom:4px'>
-    EPISODE {ep_num} — {label.upper()}
-  </div>
-  <div style='font-size:18px;font-weight:900;color:#eee;margin-bottom:8px'>
-    {action.primary.action_type.upper()} → {action.primary.target_domain}
-  </div>
-  <div style='font-size:13px;color:#ccc;margin-bottom:10px'>{action.primary.description}</div>
-  <div style='margin-bottom:10px;padding:8px;background:#1e1e2f;border-radius:6px;
-              font-size:11px;color:#94a3b8'>
-    <b>Reasoning:</b> {action.reasoning[:160]}{'…' if len(action.reasoning) > 160 else ''}
-  </div>
-  <div style='display:flex;gap:12px;font-size:13px;margin-bottom:10px'>
-    <span style='color:{r_color};font-weight:700'>★ Reward: {reward:.3f}</span>
-    <span style='color:#94a3b8'>🎯 Uptake: {uptake:.0%}</span>
-    <span style='color:#6b7280'>{cost_str}</span>
-  </div>
-  <div style='border-top:1px solid #333;padding-top:10px'>
-    <div style='font-size:11px;color:#888;margin-bottom:4px'>METRIC CHANGES</div>
-    {changed_rows}
-  </div>
-  {memory_badge}
-</div>"""
-
-    ep1_html = _episode_card(1, "No Memory",  ep1_action, ep1_reward, ep1_uptake,
-                              ep1_before, ep1_after, "#4b5563", "")
-    ep2_html = _episode_card(2, "RAG-Augmented", ep2_action, ep2_reward, ep2_uptake,
-                              ep2_before, ep2_after, "#22c55e", few_shot)
-
-    # ── Comparison / Diff block ───────────────────────────────────────────────
-    reward_delta = ep2_reward - ep1_reward
+    # ── Delta / comparison block ──────────────────────────────────────────────
+    reward_delta   = ep2_reward - ep1_reward
     efficiency_pct = (reward_delta / max(abs(ep1_reward), 0.01)) * 100
-    delta_color = "#4ade80" if reward_delta >= 0 else "#f87171"
-    same_action = ep1_action.primary.action_type == ep2_action.primary.action_type
-    strategy_changed = "✅ Different strategy chosen" if not same_action else "⚠️ Same action type (memory reinforced this choice)"
-    strategy_color   = "#4ade80" if not same_action else "#facc15"
+    delta_color    = "#4ade80" if reward_delta >= 0 else "#f87171"
+    same_action    = ep1_action.primary.action_type == ep2_action.primary.action_type
+    strategy_label = ("✅ Different strategy — memory triggered a better approach"
+                      if not same_action
+                      else "⚠️ Same action type chosen (memory reinforced this choice)")
+    strategy_color = "#4ade80" if not same_action else "#facc15"
 
     diff_html = f"""
 <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;
@@ -960,7 +935,7 @@ def run_memory_demo(conflict_label: str, person_label: str):
   </div>
   <div style='display:flex;align-items:center;gap:8px;padding:10px;
               background:#0d2a1a;border-radius:6px;margin-bottom:10px'>
-    <span style='color:{strategy_color};font-weight:700'>{strategy_changed}</span>
+    <span style='color:{strategy_color};font-weight:700'>{strategy_label}</span>
   </div>
   <div style='font-size:12px;color:#6b7280;border-top:1px solid #222;padding-top:10px'>
     Episode 1 chose <b style='color:#ccc'>{ep1_action.primary.action_type}</b> →
@@ -970,6 +945,74 @@ def run_memory_demo(conflict_label: str, person_label: str):
 </div>"""
 
     return ep1_html, ep2_html, diff_html
+
+
+def _build_ep_card(ep_num: int, label: str, action, reward: float, uptake: float,
+                   before, after, border_color: str, few_shot_ctx: str = "") -> str:
+    """Shared HTML card renderer for a single episode result."""
+    before_flat = before.flatten()
+    after_flat  = after.flatten()
+    r_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
+    cost     = action.primary.resource_cost
+    cost_str = (f"⏱ {cost.get('time', 0):.1f}h  "
+                f"💵 ${cost.get('money', 0):.0f}  "
+                f"⚡ {cost.get('energy', 0):.0f}")
+
+    changed_rows = ""
+    for k, v_after in after_flat.items():
+        v_before = before_flat.get(k, v_after)
+        delta = v_after - v_before
+        if abs(delta) > 0.5:
+            name  = k.replace(".", " › ").replace("_", " ")
+            arrow = "↑" if delta > 0 else "↓"
+            dc    = "#4ade80" if delta > 0 else "#f87171"
+            changed_rows += (
+                f"<div style='display:flex;justify-content:space-between;"
+                f"font-size:11px;color:#ccc;padding:2px 0'>"
+                f"<span>{name}</span>"
+                f"<span style='color:{dc}'>{arrow} {delta:+.1f}</span>"
+                f"</div>"
+            )
+    if not changed_rows:
+        changed_rows = "<div style='font-size:11px;color:#666'>No significant metric changes</div>"
+
+    memory_badge = ""
+    if few_shot_ctx:
+        preview = few_shot_ctx[:160].replace("<", "&lt;").replace(">", "&gt;")
+        memory_badge = (
+            f"<div style='margin-top:10px;padding:8px;background:#0d2a1a;"
+            f"border:1px solid #166534;border-radius:6px;font-size:11px;color:#86efac'>"
+            f"🧠 <b>Memory injected:</b><br><span style='color:#ccc'>{preview}…</span>"
+            f"</div>"
+        )
+
+    return f"""
+<div style='background:#12122a;border:2px solid {border_color};border-radius:10px;
+            padding:16px;font-family:sans-serif'>
+  <div style='font-size:12px;font-weight:700;color:#888;letter-spacing:2px;margin-bottom:4px'>
+    EPISODE {ep_num} — {label.upper()}
+  </div>
+  <div style='font-size:18px;font-weight:900;color:#eee;margin-bottom:8px'>
+    {action.primary.action_type.upper()} → {action.primary.target_domain}
+  </div>
+  <div style='font-size:13px;color:#ccc;margin-bottom:10px'>{action.primary.description}</div>
+  <div style='margin-bottom:10px;padding:8px;background:#1e1e2f;border-radius:6px;
+              font-size:11px;color:#94a3b8'>
+    <b>Reasoning:</b> {action.reasoning[:180]}{'…' if len(action.reasoning) > 180 else ''}
+  </div>
+  <div style='display:flex;gap:12px;font-size:13px;margin-bottom:10px'>
+    <span style='color:{r_color};font-weight:700'>★ Reward: {reward:.3f}</span>
+    <span style='color:#94a3b8'>🎯 Uptake: {uptake:.0%}</span>
+    <span style='color:#6b7280'>{cost_str}</span>
+  </div>
+  <div style='border-top:1px solid #333;padding-top:10px'>
+    <div style='font-size:11px;color:#888;margin-bottom:4px'>METRIC CHANGES</div>
+    {changed_rows}
+  </div>
+  {memory_badge}
+</div>"""
+
+
 
 
 def submit_outcome_feedback(ep_id, score, domains_up, domains_down, notes, time_spent):
