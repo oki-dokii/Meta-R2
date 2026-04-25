@@ -143,6 +143,7 @@ def perform_action():
     data = request.json
     person_label = data.get('person')
     conflict_label = data.get('conflict')
+    memory_enabled = data.get('use_memory', False)
     
     conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
     person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
@@ -153,7 +154,14 @@ def perform_action():
     before_metrics = copy.deepcopy(env.state.current_metrics)
     before_budget = copy.deepcopy(env.state.budget)
     
-    action = AGENT.get_action(before_metrics, before_budget, conflict, person)
+    # RAG: Build few-shot context from ChromaDB if enabled
+    few_shot = ""
+    retrieved = []
+    if memory_enabled:
+        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
+        retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten())
+        
+    action = AGENT.get_action(before_metrics, before_budget, conflict, person, few_shot_context=few_shot)
     _normalize_action_metric_changes(action)
     
     uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, 
@@ -163,6 +171,16 @@ def perform_action():
     env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
     
     obs = env.step(env_action)
+    
+    # Store decision in memory for future RAG
+    MEMORY.store_decision(
+        conflict_title=conflict.title,
+        action_type=action.primary.action_type,
+        target_domain=action.primary.target_domain,
+        reward=obs.reward,
+        metrics_snapshot=before_metrics.flatten(),
+        reasoning=action.reasoning
+    )
     
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
     episode_id = "".join(str(uuid.uuid4()).split("-")[:2]).upper()
@@ -177,7 +195,8 @@ def perform_action():
             "reward": obs.reward,
             "uptake": uptake,
             "cost": action.primary.resource_cost,
-            "id": episode_id
+            "id": episode_id,
+            "memories_retrieved": retrieved
         },
         "counterfactuals": cf_data,
         "prediction": {

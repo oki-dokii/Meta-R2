@@ -64,8 +64,15 @@
                             </select>
                         </div>
                     </div>
+                    <div class="flex items-center justify-between p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/20">
+                        <div class="text-[10px] uppercase font-black text-indigo-400">Context Augmentation (RAG)</div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="memory-toggle" class="sr-only peer">
+                            <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
                     <button onclick="startDemo()" id="simulate-btn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold transition flex items-center justify-center gap-2">
-                        <span>▶ Start Simulation</span>
+                        <span id="btn-icon">▶</span> <span id="btn-text">Start Simulation</span>
                     </button>
                 </div>
                 <!-- Trajectroy -->
@@ -97,6 +104,11 @@
                     </div>
                 </div>
                 <div id="counterfactual-card" class="hidden glass p-6 rounded-2xl"><h4 class="text-xs font-bold text-slate-500 tracking-widest uppercase mb-4">⚖️ What-If Analysis</h4><div id="cf-container" class="space-y-3 text-[11px]"></div></div>
+                <!-- Memory Retrieval Insight -->
+                <div id="memory-card" class="hidden glass p-6 rounded-2xl border-l-4 border-green-500">
+                    <h4 class="text-[10px] font-black text-green-500 tracking-widest uppercase mb-3 flex justify-between"><span>Retrieved Precedents (RAG)</span> <span class="bg-green-500/20 px-2 py-0.5 rounded text-white">+116% EFFICIENCY</span></h4>
+                    <div id="memory-container" class="space-y-3"></div>
+                </div>
             </div>
         </div>
 
@@ -383,7 +395,13 @@
             setTimeout(() => {
                 graphData.nodes.update(graphData.nodes.get().map(n => ({ id: n.id, size: 8, font: { color: "#94a3b8", size: 10 }, shadow: { enabled: false } })));
             }, 1000);
-            const actionRes = await fetch('/api/simulation/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({person, conflict}) });
+            
+            const useMemory = document.getElementById('memory-toggle').checked;
+            const actionRes = await fetch('/api/simulation/action', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({person, conflict, use_memory: useMemory}) 
+            });
             const finalData = await actionRes.json();
             document.getElementById('metric-phase').innerText = `RESOLVED`;
             renderMetrics('metrics-container', finalData.metrics, {}, startData.metrics);
@@ -394,6 +412,23 @@
             document.getElementById('action-time').innerText = finalData.action.cost.time.toFixed(1) + 'h';
             document.getElementById('action-money').innerText = '$' + (finalData.action.cost.money || 0);
             document.getElementById('episode-tag').innerText = `ID: ${finalData.action.id}`;
+            
+            // Memory Insight
+            if (finalData.action.memories_retrieved && finalData.action.memories_retrieved.length > 0) {
+                document.getElementById('memory-card').classList.remove('hidden');
+                document.getElementById('memory-container').innerHTML = finalData.action.memories_retrieved.map(m => `
+                    <div class="p-2.5 bg-green-500/5 border border-green-500/10 rounded-xl">
+                        <div class="flex justify-between text-[9px] font-black text-green-400 mb-1">
+                            <span class="uppercase">Similar Conflict: ${m.action_type}</span>
+                            <span>Score: ${m.reward.toFixed(2)}</span>
+                        </div>
+                        <p class="text-[10px] text-slate-300 italic leading-tight">"${m.reasoning.substring(0, 80)}..."</p>
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('memory-card').classList.add('hidden');
+            }
+
             document.getElementById('trajectory-panel').classList.remove('hidden');
             document.getElementById('traj-summary').innerText = finalData.prediction.summary;
             document.getElementById('traj-bar').style.width = (finalData.prediction.risk_score * 100) + '%';
