@@ -945,6 +945,12 @@ def train_curriculum(
         save_stage_state(output_dir, stage, curr_diff)
 
     # ── Final model save ─────────────────────────────────────────────────
+    # Guard: if all stages were already complete (resume from finished run),
+    # the loop body never executed and trainer/tokenizer are not bound.
+    if 'trainer' not in dir() and first_stage > n_stages:
+        print(f"\n✅ All {n_stages} stages already complete. Model is at {output_dir}")
+        print("   Run --full-episode to evaluate, or --push-to-hub to upload.")
+        return None
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
     print(f"\n🏁 Training complete. Final model → {output_dir}")
