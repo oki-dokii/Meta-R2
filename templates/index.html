@@ -42,7 +42,7 @@
         <div class="flex gap-6 border-b border-slate-800 mb-8 overflow-x-auto no-scrollbar whitespace-nowrap">
             <button onclick="showTab('situation')" id="tab-situation" class="pb-4 text-sm font-semibold transition tab-active">Situational Portal</button>
             <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
-            <button onclick="showTab('compare')" id="tab-compare" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">⚡ Trained vs Baseline</button>
+            <button onclick="showTab('compare')" id="tab-compare" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">⚡ Untrained vs GRPO-Trained</button>
             <button onclick="showTab('memeffect')" id="tab-memeffect" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧠 Memory Effect</button>
             <button onclick="showTab('arjun')" id="tab-arjun" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗓️ Arjun's Journey</button>
             <button onclick="showTab('history')" id="tab-history" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📼 Episode Replay</button>
@@ -1237,11 +1237,12 @@
                 const data = await res.json();
 
                 const fillSide = (prefix, side) => {
-                    document.getElementById(`mem-reward-${prefix}`).innerText = side.action.reward.toFixed(3);
+                    if (!side || !side.action) return;
+                    document.getElementById(`mem-reward-${prefix}`).innerText = (side.action.reward || 0).toFixed(3);
                     document.getElementById(`mem-action-${prefix}`).innerText =
-                        `${side.action.type.toUpperCase()} → ${side.action.target.toUpperCase()}`;
-                    document.getElementById(`mem-reason-${prefix}`).innerText = side.action.reasoning;
-                    renderMetrics(`mem-metrics-${prefix}`, side.metrics);
+                        `${(side.action.type || 'N/A').toUpperCase()} → ${(side.action.target || 'N/A').toUpperCase()}`;
+                    document.getElementById(`mem-reason-${prefix}`).innerText = side.action.reasoning || 'No reasoning provided.';
+                    renderMetrics(`mem-metrics-${prefix}`, side.metrics || {});
                 };
                 fillSide('cold', data.cold);
                 fillSide('warm', data.warm);

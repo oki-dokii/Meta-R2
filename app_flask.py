@@ -648,52 +648,55 @@ def run_comparison():
 @app.route('/api/memory/compare', methods=['POST'])
 def memory_compare():
     """Show the same conflict resolved cold (no memory) vs warm (with RAG memory)."""
-    data = request.json
-    conflict_label = data.get('conflict')
-    person_label = data.get('person')
-    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
-    person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
+    try:
+        data = request.json
+        conflict_label = data.get('conflict')
+        person_label = data.get('person')
+        conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+        person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
 
-    def _run_episode(use_memory: bool):
-        env = LifeStackEnv()
-        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
-        before_metrics = copy.deepcopy(env.state.current_metrics)
-        before_budget = copy.deepcopy(env.state.budget)
-        few_shot = ""
-        retrieved = []
-        if use_memory:
-            few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
-            retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten())
-        action = AGENT.get_action(before_metrics, before_budget, conflict, person, few_shot_context=few_shot)
-        _normalize_action_metric_changes(action)
-        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
-                                          before_metrics.mental_wellbeing.stress_level)
-        env_action = LifeStackAction.from_agent_action(action)
-        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
-        obs = env.step(env_action)
-        MEMORY.store_decision(
-            conflict_title=conflict.title,
-            action_type=action.primary.action_type,
-            target_domain=action.primary.target_domain,
-            reward=obs.reward,
-            metrics_snapshot=before_metrics.flatten(),
-            reasoning=action.reasoning,
-        )
-        return {
-            "metrics": obs.metrics,
-            "action": {
-                "type": action.primary.action_type,
-                "target": action.primary.target_domain,
-                "description": action.primary.description,
-                "reasoning": action.reasoning,
-                "reward": obs.reward,
-                "memories_retrieved": retrieved,
+        def _run_episode(use_memory: bool):
+            env = LifeStackEnv()
+            env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+            before_metrics = copy.deepcopy(env.state.current_metrics)
+            before_budget = copy.deepcopy(env.state.budget)
+            few_shot = ""
+            retrieved = []
+            if use_memory:
+                few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
+                retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten())
+            action = AGENT.get_action(before_metrics, before_budget, conflict, person, few_shot_context=few_shot)
+            _normalize_action_metric_changes(action)
+            uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                              before_metrics.mental_wellbeing.stress_level)
+            env_action = LifeStackAction.from_agent_action(action)
+            env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+            obs = env.step(env_action)
+            MEMORY.store_decision(
+                conflict_title=conflict.title,
+                action_type=action.primary.action_type,
+                target_domain=action.primary.target_domain,
+                reward=obs.reward,
+                metrics_snapshot=before_metrics.flatten(),
+                reasoning=action.reasoning,
+            )
+            return {
+                "metrics": obs.metrics,
+                "action": {
+                    "type": action.primary.action_type,
+                    "target": action.primary.target_domain,
+                    "description": action.primary.description,
+                    "reasoning": action.reasoning,
+                    "reward": obs.reward,
+                    "memories_retrieved": retrieved,
+                }
             }
-        }
 
-    cold = _run_episode(use_memory=False)
-    warm = _run_episode(use_memory=True)
-    return jsonify({"cold": cold, "warm": warm})
+        cold = _run_episode(use_memory=False)
+        warm = _run_episode(use_memory=True)
+        return jsonify({"cold": cold, "warm": warm})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ─── F2: /api/cascade/frames alias ───
