@@ -108,7 +108,6 @@ class LifeStackState(State):
     person: Optional[Any] = None
     agent_history: List[tuple] = Field(default_factory=list)
     current_conflict: Optional[Any] = None
-    rollback_penalty_charged: bool = Field(default=False)
     cumulative_rel_delta: float = Field(default=0.0)
 class LifeStackRubric(Rubric):
     """Standard reward rubric for LifeStack."""

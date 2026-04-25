@@ -418,6 +418,9 @@ SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 # from a previous GRPO generation cycle never bleed through.
 _EVAL_CACHE: dict[tuple[str, str], dict] = {}
 
+# Guard: print reward_human_feedback_fn unavailability warning only once per run.
+_HFB_WARN_SHOWN: bool = False
+
 
 def _cached_lifestack_evaluation(completion: str, prompt: str) -> dict:
     """Return get_lifestack_evaluation result, caching by (completion, prompt) pair.
@@ -685,13 +688,16 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
       - the memory DB is empty or unreachable
     Returns 0.0 (abstain) rather than penalising the model.
     """
+    global _HFB_WARN_SHOWN
     # ── Guard: skip gracefully if chromadb / memory unavailable ──────────
     try:
         from core.feedback import OutcomeFeedback, compute_human_feedback_reward
         from agent.memory import LifeStackMemory
         memo = LifeStackMemory(silent=True)
     except (ImportError, Exception) as e:
-        print(f"[warning] reward_human_feedback_fn unavailable ({e}), applying small penalty.")
+        if not _HFB_WARN_SHOWN:
+            print(f"[warning] reward_human_feedback_fn unavailable ({e}), applying small penalty.")
+            _HFB_WARN_SHOWN = True
         # chromadb not installed or DB init failed — apply small penalty
         return [-0.01] * len(completions)
 
@@ -885,8 +891,10 @@ def train_curriculum(
             bf16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8),
             fp16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8),
             # ── Checkpoint settings ──────────────────────────────────────
+            # 100 prompts / (batch=4 × accum=4) ≈ 6 optimizer steps per stage.
+            # save_steps=25 would never fire; use 5 to save at step 5 of ~6.
             save_strategy="steps",
-            save_steps=25,
+            save_steps=5,
             save_total_limit=3,
             # ── Logging ─────────────────────────────────────────────────
             logging_steps=5,
