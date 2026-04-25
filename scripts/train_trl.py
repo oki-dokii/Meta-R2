@@ -651,6 +651,7 @@ def train_curriculum(
             # tensorboard only if installed; fall back to none to avoid ImportError on Colab/Kaggle
             report_to="tensorboard" if _tensorboard_available() else "none",
         )
+        config.unsloth_num_chunks = -1
 
         trainer = GRPOTrainer(
             model=model,
@@ -895,6 +896,7 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
         report_to="none",     # No tensorboard for dry-run
         logging_steps=1,
     )
+    config.unsloth_num_chunks = -1
 
     trainer = GRPOTrainer(
         model=model,
