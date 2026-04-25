@@ -873,8 +873,10 @@ def train_curriculum(
             gradient_accumulation_steps=4,
             learning_rate=stage_lr,
             warmup_ratio=0.05,           # 5% warmup steps — smoother convergence
-            # Keep completion short to avoid clipped mid-JSON outputs.
-            max_completion_length=192,   # slightly more room for clean JSON close
+            # 96 tokens is enough for one compact JSON action (~60 tokens) plus small margin.
+            # Keeping it tight forces the model to stop generating after the first JSON
+            # instead of filling the buffer with repeated/trailing objects.
+            max_completion_length=96,
             temperature=0.9,
             # TRL rule: num_generations must divide per_device_train_batch_size.
             num_generations=4,

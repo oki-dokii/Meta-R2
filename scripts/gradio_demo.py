@@ -77,24 +77,73 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
         return {"raw_output": text, "parse_error": "no valid JSON object found"}
 
 
-def _generate_completion(prompt: str, temperature: float = 0.4) -> str:
+class _JsonCompleteStopping(torch.nn.Module):
+    """Stop generation as soon as the first complete JSON object is closed.
+
+    Tracks open/close brace balance across already-decoded tokens.
+    When balance drops to 0 after having been > 0, the JSON is complete
+    and we signal the trainer to stop.
+    """
+
+    def __init__(self, tokenizer, prompt_len: int):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.prompt_len = prompt_len
+
+    def __call__(self, input_ids: torch.LongTensor, scores, **kwargs) -> bool:
+        # Only look at tokens generated after the prompt
+        gen_ids = input_ids[0][self.prompt_len:]
+        if len(gen_ids) == 0:
+            return False
+        text = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
+        depth = 0
+        entered = False
+        for ch in text:
+            if ch == "{":
+                depth += 1
+                entered = True
+            elif ch == "}":
+                depth -= 1
+            if entered and depth == 0:
+                return True  # first complete JSON object closed — stop
+        return False
+
+
+def _generate_completion(prompt: str, temperature: float = 0.3) -> str:
     _ensure_model_loaded()
     device = _device_for(MODEL)
     inputs = TOKENIZER(prompt, return_tensors="pt").to(device)
     pad_token_id = TOKENIZER.pad_token_id if TOKENIZER.pad_token_id is not None else TOKENIZER.eos_token_id
+    prompt_len = inputs["input_ids"].shape[1]
+
+    stopper = _JsonCompleteStopping(TOKENIZER, prompt_len)
 
     with torch.no_grad():
         outputs = MODEL.generate(
             **inputs,
-            max_new_tokens=128,
+            max_new_tokens=160,
             temperature=temperature,
-            do_sample=True,
+            do_sample=temperature > 0,
             top_p=0.9,
             pad_token_id=pad_token_id,
             eos_token_id=TOKENIZER.eos_token_id,
+            stopping_criteria=[stopper],
         )
 
-    return TOKENIZER.decode(outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True).strip()
+    raw = TOKENIZER.decode(outputs[0][prompt_len:], skip_special_tokens=True).strip()
+
+    # Extract only the first complete JSON object — discard any trailing text
+    import re as _re
+    import json as _json
+    decoder = _json.JSONDecoder()
+    for _m in _re.finditer(r"\{", raw):
+        try:
+            obj, end = decoder.raw_decode(raw[_m.start():].strip())
+            if isinstance(obj, dict):
+                return _json.dumps(obj)
+        except _json.JSONDecodeError:
+            continue
+    return raw  # fallback: return as-is if no JSON found
 
 
 def _build_crisis_prompt(crisis_text: str, domain: str, difficulty: int) -> tuple[str, dict[str, float]]:
