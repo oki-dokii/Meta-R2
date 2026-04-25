@@ -1175,6 +1175,14 @@
                 borderWidth: 2,
             }));
 
+            // ── Auto-scale Y-axis to actual data range so 5-15pt changes are visible ──
+            const allVals = datasets.flatMap(d => d.data).filter(v => v != null);
+            const dataMin = Math.min(...allVals);
+            const dataMax = Math.max(...allVals);
+            const padding = Math.max(5, (dataMax - dataMin) * 0.25);
+            const yMin = Math.max(0,   Math.floor(dataMin - padding));
+            const yMax = Math.min(100, Math.ceil(dataMax  + padding));
+
             const ctx = document.getElementById('trajectoryChart').getContext('2d');
             if (window.trajChartInstance instanceof Chart) window.trajChartInstance.destroy();
             window.trajChartInstance = new Chart(ctx, {
