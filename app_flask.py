@@ -551,6 +551,10 @@ def run_custom():
                                           m.mental_wellbeing.stress_level)
 
         env = LifeStackEnv()
+        # reset() initializes the world_engine and task constraints
+        env.reset(conflict=conflict, person=person)
+        
+        # Restore the custom-mapped metrics (which include synced digital signals)
         env.state.current_metrics = copy.deepcopy(m)
         env.state.budget = copy.deepcopy(budget)
 
