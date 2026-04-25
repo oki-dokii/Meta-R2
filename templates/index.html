@@ -692,6 +692,12 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             initGraph();
+            fetch('/api/simulation/state')
+                .then(r => r.json())
+                .then(data => {
+                    renderMetrics('metrics-container', data.metrics);
+                })
+                .catch(e => console.warn("Initial state load failed", e));
         });
 
         async function initGraph() {

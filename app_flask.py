@@ -138,7 +138,7 @@ def start_simulation():
     conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
     base_metrics = LifeMetrics()
     # Apply any uploaded health/calendar overrides
-    for path, delta in USER_HEALTH_OVERRIDES.items():
+    for path, delta in USER_STATE_OVERRIDES.items():
         if '.' in path:
             dom, sub = path.split('.', 1)
             dom_obj = getattr(base_metrics, dom, None)
@@ -149,10 +149,24 @@ def start_simulation():
     return jsonify({
         "status": "success",
         "metrics": flat,
-        "prediction": {
-            "summary": DEMO_PREDICTOR.get_prediction_summary(),
-            "risk_score": DEMO_PREDICTOR.get_risk_score()
-        }
+        "health": compute_domain_health(flat)
+    })
+
+@app.route('/api/simulation/state', methods=['GET'])
+def get_state():
+    """Return the current metrics and domain health for UI initialization."""
+    metrics = LifeMetrics()
+    # Apply overrides
+    for path, delta in USER_STATE_OVERRIDES.items():
+        if '.' in path:
+            dom, sub = path.split('.', 1)
+            dom_obj = getattr(metrics, dom, None)
+            if dom_obj and hasattr(dom_obj, sub):
+                setattr(dom_obj, sub, max(0.0, min(100.0, getattr(dom_obj, sub) + delta)))
+    flat = metrics.flatten()
+    return jsonify({
+        "metrics": flat,
+        "health": compute_domain_health(flat)
     })
 
 @app.route('/api/simulation/cascade', methods=['POST'])
@@ -1188,5 +1202,8 @@ def server_error_handler(e):
     return jsonify({"error": "Internal server error. The agent might be overwhelmed.", "details": str(e)}), 500
 
 if __name__ == '__main__':
-    LONG_DEMO.pre_seed_arjun()
+    try:
+        LONG_DEMO.pre_seed_arjun()
+    except Exception as e:
+        print(f"⚠️ Pre-seeding failed (likely ChromaDB lock): {e}")
     app.run(host='0.0.0.0', port=7860, debug=False)
