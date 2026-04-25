@@ -865,6 +865,15 @@ def upload_calendar_data():
                                 "upcoming_deadlines": deadlines}})
 
 
+# ─── Global Error Handlers ───
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({"error": "Rate limit exceeded. Slow down!", "details": str(e)}), 429
+
+@app.errorhandler(500)
+def server_error_handler(e):
+    return jsonify({"error": "Internal server error. The agent might be overwhelmed.", "details": str(e)}), 500
+
 if __name__ == '__main__':
     LONG_DEMO.pre_seed_arjun()
     app.run(host='0.0.0.0', port=7860, debug=True)

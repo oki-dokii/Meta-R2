@@ -61,10 +61,10 @@ class LifeStackAgent:
             self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
             self.local_model = AutoModelForCausalLM.from_pretrained(
                 self.local_model_path,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto" if torch.cuda.is_available() else None
+                torch_dtype=torch.float32,
+                device_map=None
             )
-            print("✅ GRPO model loaded.")
+            print("✅ GRPO model loaded (CPU mode).")
         except Exception as e:
             print(f"⚠️ Failed to load local model: {e}. Falling back to Groq.")
             self.local_model_path = None
