@@ -32,7 +32,7 @@ from core.metric_schema import normalize_metric_path, is_valid_metric_path
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MIN_REWARD = 0.05          # Store decisions at or above this threshold (env reward range: -1.0 to 1.0)
-RATE_LIMIT_SLEEP = 0.6     # Seconds between Groq API calls (stay under rate limit)
+RATE_LIMIT_SLEEP = 2.5     # Seconds between Groq API calls — 30 RPM limit = 2.0s minimum, 2.5s with buffer
 MAX_RETRIES = 2            # Per scenario before skipping
 
 # ── Diverse persona pool ──────────────────────────────────────────────────────

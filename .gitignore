@@ -1,6 +1,5 @@
 .env
 __pycache__/
-lifestack_memory/
 *.pyc
 
 # scratch/debug files
@@ -15,5 +14,4 @@ test_groq.py
 *.bin
 *.whl
 test_episode_memory_tmp/
-lifestack_memory/
 data/
