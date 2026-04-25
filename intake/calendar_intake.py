@@ -15,13 +15,16 @@ import json
 from datetime import datetime, timedelta, timezone
 
 # Monkeypatch for Python 3.9 compatibility with modern google-auth
-import importlib.metadata
-if not hasattr(importlib.metadata, 'packages_distributions'):
+try:
+    import importlib.metadata as metadata
+except ImportError:
     try:
-        import importlib_metadata
-        importlib.metadata.packages_distributions = importlib_metadata.packages_distributions
+        import importlib_metadata as metadata
     except ImportError:
-        importlib.metadata.packages_distributions = lambda: {}
+        metadata = None
+
+if metadata and not hasattr(metadata, 'packages_distributions'):
+    metadata.packages_distributions = lambda: {}
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 _DEMO_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'demo_signals.json')

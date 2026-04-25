@@ -10,11 +10,20 @@ from typing import Optional
 
 class LifeStackMemory:
     def __init__(self, silent: bool = False, path: str = "./lifestack_memory"):
-        self.client = chromadb.PersistentClient(path=path)
-        self.collection = self.client.get_or_create_collection(name='decisions')
-        self.traj_collection = self.client.get_or_create_collection(name='trajectories')
-        self.feedback_collection = self.client.get_or_create_collection(name='feedback') # New for OutcomeFeedback
         self.silent = silent
+        try:
+            self.client = chromadb.PersistentClient(path=path)
+            self.collection = self.client.get_or_create_collection(name='decisions')
+            self.traj_collection = self.client.get_or_create_collection(name='trajectories')
+            self.feedback_collection = self.client.get_or_create_collection(name='feedback')
+        except Exception as e:
+            if not self.silent:
+                print(f"⚠️ Memory persistence failed ({e}). Falling back to episodic (in-memory) mode.")
+            self.client = chromadb.Client()
+            self.collection = self.client.get_or_create_collection(name='decisions')
+            self.traj_collection = self.client.get_or_create_collection(name='trajectories')
+            self.feedback_collection = self.client.get_or_create_collection(name='feedback')
+        
         self.encoder = self._load_encoder()
         if not self.silent:
             print("Memory system initialized")
