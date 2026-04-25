@@ -96,7 +96,8 @@ def generate_counterfactuals(agent, metrics, budget, conflict, person, chosen_ac
                 "description": alt_action.primary.description,
                 "reward": reward,
                 "trade_off": trade_off,
-                "uptake": uptake
+                "uptake": uptake,
+                "metrics": state_after.flatten(),
             })
             
         except Exception as e:

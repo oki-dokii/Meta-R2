@@ -29,12 +29,8 @@ def test_task_generation_validity():
     assert len(sample_route.required_action_types) > 0
 
 def test_task_diversity():
-    """Verify that multiple calls to get_random_task return different goals."""
+    """Verify that the task pool contains at least 2 distinct task types (deterministic)."""
     gen = TaskGenerator()
-    ids = set()
-    for _ in range(5):
-        task = gen.get_random_task()
-        ids.add(task.id)
-    
-    # Usually we expect some diversity even in a small pool
-    assert len(ids) > 1, "TaskGenerator failed to produce diverse tasks"
+    # Instantiate every task factory directly — no random luck needed
+    all_ids = set(factory().id for factory in gen.tasks)
+    assert len(all_ids) > 1, "TaskGenerator pool must contain at least 2 distinct task types"

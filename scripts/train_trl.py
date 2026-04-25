@@ -35,6 +35,14 @@ from intake.simperson import SimPerson
 from core.task import Task, FlightCrisisTask
 
 
+def _tensorboard_available() -> bool:
+    try:
+        import tensorboard  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 # ──────────────────────────────────────────────
 # 1. MODEL SETUP (Unsloth for 4-bit efficiency)
 # ──────────────────────────────────────────────
@@ -483,7 +491,7 @@ def reward_replan_fn(completions, prompts, **kwargs) -> list[float]:
 # 4. CHECKPOINT HELPERS
 # ──────────────────────────────────────────────
 
-def find_latest_checkpoint(stage_dir: str) -> str | None:
+def find_latest_checkpoint(stage_dir: str):
     """
     Scan a stage output directory for the most recent Trainer checkpoint.
     Returns the checkpoint path, or None if none exist.
@@ -593,7 +601,8 @@ def train_curriculum(
             save_total_limit=3,
             # ── Logging ─────────────────────────────────────────────────
             logging_steps=5,
-            report_to="tensorboard",
+            # tensorboard only if installed; fall back to none to avoid ImportError on Colab/Kaggle
+            report_to="tensorboard" if _tensorboard_available() else "none",
         )
 
         trainer = GRPOTrainer(
@@ -625,10 +634,9 @@ def train_curriculum(
         print(f"  ✅ Stage {stage} model saved → {stage_dir}")
 
         # ── Curriculum progression logic ─────────────────────────────────
-        avg_reward = (
-            trainer.state.log_history[-1].get("reward", 0.0)
-            if trainer.state.log_history else 0.0
-        )
+        # TRL 1.x logs mean reward as "reward"; some builds use "train/reward" — check both
+        last_log = trainer.state.log_history[-1] if trainer.state.log_history else {}
+        avg_reward = last_log.get("reward", last_log.get("train/reward", 0.0))
         if avg_reward > 0.6 and curr_diff < 5:
             print(f"  ✅ Reward {avg_reward:.3f} > 0.6 — advancing to difficulty {curr_diff + 1}")
             curr_diff += 1

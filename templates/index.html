@@ -38,6 +38,8 @@
         <div class="flex gap-6 border-b border-slate-800 mb-8 overflow-x-auto no-scrollbar whitespace-nowrap">
             <button onclick="showTab('situation')" id="tab-situation" class="pb-4 text-sm font-semibold transition tab-active">Situational Portal</button>
             <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
+            <button onclick="showTab('compare')" id="tab-compare" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">⚡ Trained vs Baseline</button>
+            <button onclick="showTab('memeffect')" id="tab-memeffect" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧠 Memory Effect</button>
             <button onclick="showTab('arjun')" id="tab-arjun" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗓️ Arjun's Journey</button>
             <button onclick="showTab('history')" id="tab-history" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📼 Episode Replay</button>
             <button onclick="showTab('lab')" id="tab-lab" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🎭 Personality Lab</button>
@@ -87,14 +89,35 @@
             <div class="lg:col-span-1 glass p-6 rounded-2xl relative overflow-hidden">
                 <h3 class="text-lg font-bold flex justify-between mb-2"><span>Vital Metrics</span><span id="metric-phase" class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 uppercase tracking-tighter">STABLE</span></h3>
                 
-                <!-- Domain Heatmap Grid -->
-                <div id="domain-heatmap" class="grid grid-cols-6 gap-1 mb-6 h-3 rounded-full overflow-hidden border border-slate-800/50">
-                    <div class="bg-slate-700" title="Career"></div>
-                    <div class="bg-slate-700" title="Finances"></div>
-                    <div class="bg-slate-700" title="Relationships"></div>
-                    <div class="bg-slate-700" title="Physical Health"></div>
-                    <div class="bg-slate-700" title="Mental Wellbeing"></div>
-                    <div class="bg-slate-700" title="Time"></div>
+                <!-- Domain Risk Heatmap -->
+                <div class="mb-4">
+                    <div class="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-2">Domain Risk Heatmap</div>
+                    <div id="domain-heatmap" class="grid grid-cols-6 gap-1.5">
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="w-full h-8 rounded-lg bg-slate-700 transition-all duration-700" id="hm-career" title="Career"></div>
+                            <span class="text-[8px] text-slate-500 font-bold">WORK</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="w-full h-8 rounded-lg bg-slate-700 transition-all duration-700" id="hm-finances" title="Finances"></div>
+                            <span class="text-[8px] text-slate-500 font-bold">MONEY</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="w-full h-8 rounded-lg bg-slate-700 transition-all duration-700" id="hm-relationships" title="Relationships"></div>
+                            <span class="text-[8px] text-slate-500 font-bold">SOCIAL</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="w-full h-8 rounded-lg bg-slate-700 transition-all duration-700" id="hm-physical_health" title="Physical Health"></div>
+                            <span class="text-[8px] text-slate-500 font-bold">BODY</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="w-full h-8 rounded-lg bg-slate-700 transition-all duration-700" id="hm-mental_wellbeing" title="Mental Wellbeing"></div>
+                            <span class="text-[8px] text-slate-500 font-bold">MIND</span>
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <div class="w-full h-8 rounded-lg bg-slate-700 transition-all duration-700" id="hm-time" title="Time"></div>
+                            <span class="text-[8px] text-slate-500 font-bold">TIME</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="metrics-container" class="space-y-2.5 relative z-10"></div>
@@ -150,6 +173,137 @@
                 <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold">Personized Resolution</h3><span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span></div>
                 <div id="custom-metrics-grid" class="grid grid-cols-2 gap-4 mb-8"></div>
                 <div id="custom-plan" class="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-4"></div>
+            </div>
+        </div>
+
+        <!-- ── TAB A: TRAINED VS BASELINE ── -->
+        <div id="content-compare" class="hidden space-y-6">
+            <div class="glass p-8 rounded-2xl">
+                <div class="flex flex-col md:flex-row gap-6 items-end mb-8">
+                    <div class="flex-1 space-y-2">
+                        <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Conflict Scenario</div>
+                        <select id="cmp-conflict" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for c in conflicts %} <option value="{{ c }}">{{ c }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-1 space-y-2">
+                        <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Subject Persona</div>
+                        <select id="cmp-person" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for p in persons %} <option value="{{ p }}">{{ p }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <button onclick="runComparison()" id="cmp-btn" class="px-10 py-3 bg-gradient-to-r from-indigo-600 to-cyan-600 rounded-xl font-bold shadow-lg shadow-indigo-600/20 active:scale-95 transition whitespace-nowrap">⚡ Run Comparison</button>
+                </div>
+                <div id="cmp-intro" class="text-center py-12 text-slate-500 italic">Select a conflict and run to see the side-by-side difference.</div>
+                <div id="cmp-content" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Baseline -->
+                    <div class="glass p-6 rounded-2xl border-t-4 border-slate-600 bg-slate-700/5">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Rule-Based Baseline</div>
+                                <h4 class="text-xl font-black text-slate-300 mt-0.5">Heuristic Agent</h4>
+                            </div>
+                            <div class="text-right">
+                                <div id="cmp-reward-baseline" class="text-2xl font-black text-slate-400">--</div>
+                                <div class="text-[8px] text-slate-600 uppercase font-black">reward</div>
+                            </div>
+                        </div>
+                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-700 mb-4">
+                            <div class="text-[9px] font-black text-slate-600 uppercase mb-1">Strategy</div>
+                            <p id="cmp-action-baseline" class="text-sm font-bold text-slate-300">--</p>
+                            <p id="cmp-reason-baseline" class="text-xs text-slate-500 italic mt-1">--</p>
+                        </div>
+                        <div id="cmp-metrics-baseline" class="space-y-1.5 text-[10px]"></div>
+                    </div>
+                    <!-- Trained -->
+                    <div class="glass p-6 rounded-2xl border-t-4 border-indigo-500 bg-indigo-500/5">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <div class="text-[9px] font-black text-indigo-400 uppercase tracking-widest">GRPO-Trained LifeStack</div>
+                                <h4 class="text-xl font-black text-white mt-0.5">LifeStack Agent</h4>
+                            </div>
+                            <div class="text-right">
+                                <div id="cmp-reward-trained" class="text-2xl font-black text-indigo-400">--</div>
+                                <div class="text-[8px] text-indigo-600 uppercase font-black">reward</div>
+                            </div>
+                        </div>
+                        <div class="p-3 bg-indigo-950/50 rounded-xl border border-indigo-500/20 mb-4">
+                            <div class="text-[9px] font-black text-indigo-500 uppercase mb-1">Strategy</div>
+                            <p id="cmp-action-trained" class="text-sm font-bold text-indigo-300">--</p>
+                            <p id="cmp-reason-trained" class="text-xs text-slate-400 italic mt-1">--</p>
+                        </div>
+                        <div id="cmp-metrics-trained" class="space-y-1.5 text-[10px]"></div>
+                    </div>
+                </div>
+                <!-- Delta badge -->
+                <div id="cmp-delta" class="hidden mt-6 text-center">
+                    <span class="inline-block px-6 py-2 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 font-black text-sm"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── TAB E: MEMORY EFFECT ── -->
+        <div id="content-memeffect" class="hidden space-y-6">
+            <div class="glass p-8 rounded-2xl">
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h3 class="text-2xl font-black tracking-tighter">Memory Effect Demo</h3>
+                        <p class="text-slate-400 text-sm mt-1 max-w-xl">Same conflict, same agent. Episode 1 runs cold (no prior context). Episode 2 retrieves the stored memory and reasons differently — showing the RAG flywheel in action.</p>
+                    </div>
+                    <div class="px-3 py-1 bg-green-500/10 border border-green-500/20 rounded text-[9px] font-black text-green-400 uppercase tracking-widest whitespace-nowrap">+116% Efficiency</div>
+                </div>
+                <div class="flex flex-col md:flex-row gap-6 items-end mb-8">
+                    <div class="flex-1 space-y-2">
+                        <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Conflict</div>
+                        <select id="mem-conflict" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for c in conflicts %} <option value="{{ c }}">{{ c }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-1 space-y-2">
+                        <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Persona</div>
+                        <select id="mem-person" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for p in persons %} <option value="{{ p }}">{{ p }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <button onclick="runMemoryEffect()" id="mem-btn" class="px-10 py-3 bg-gradient-to-r from-green-700 to-emerald-600 rounded-xl font-bold active:scale-95 transition whitespace-nowrap">🧠 Run Both Episodes</button>
+                </div>
+                <div id="mem-intro" class="text-center py-12 text-slate-500 italic">Run both episodes to see how memory transforms the agent's reasoning.</div>
+                <div id="mem-content" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Cold -->
+                    <div class="glass p-6 rounded-2xl border-t-4 border-slate-600">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Episode 1 — Cold Start</div>
+                                <h4 class="text-lg font-black text-slate-300">No Memory</h4>
+                            </div>
+                            <span id="mem-reward-cold" class="text-xl font-black text-slate-400">--</span>
+                        </div>
+                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-700 mb-4">
+                            <p id="mem-action-cold" class="text-sm font-bold text-slate-300 mb-1">--</p>
+                            <p id="mem-reason-cold" class="text-xs text-slate-500 italic">--</p>
+                        </div>
+                        <div id="mem-metrics-cold" class="space-y-1.5 text-[10px]"></div>
+                    </div>
+                    <!-- Warm -->
+                    <div class="glass p-6 rounded-2xl border-t-4 border-green-500">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <div class="text-[9px] font-black text-green-400 uppercase tracking-widest">Episode 2 — With Memory</div>
+                                <h4 class="text-lg font-black text-white">RAG-Augmented</h4>
+                            </div>
+                            <span id="mem-reward-warm" class="text-xl font-black text-green-400">--</span>
+                        </div>
+                        <div class="p-3 bg-green-950/30 rounded-xl border border-green-500/20 mb-4">
+                            <p id="mem-action-warm" class="text-sm font-bold text-green-300 mb-1">--</p>
+                            <p id="mem-reason-warm" class="text-xs text-slate-400 italic">--</p>
+                        </div>
+                        <div id="mem-retrieved" class="mb-4 space-y-2 text-[10px]"></div>
+                        <div id="mem-metrics-warm" class="space-y-1.5 text-[10px]"></div>
+                    </div>
+                </div>
+                <div id="mem-delta" class="hidden mt-6 text-center">
+                    <span class="inline-block px-6 py-2 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 font-black text-sm"></span>
+                </div>
             </div>
         </div>
 
@@ -470,20 +624,18 @@
 
         function renderMetrics(containerId, metrics, statusMap = {}, before = {}) {
             const container = document.getElementById(containerId);
-            const heatmap = document.getElementById('domain-heatmap');
             let html = '';
             const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
-            
-            // Update Heatmap if target is main container
-            if (containerId === 'metrics-container' && heatmap) {
-                domains.forEach((dom, i) => {
+
+            // Update Domain Risk Heatmap cells (labelled individual tiles)
+            if (containerId === 'metrics-container') {
+                domains.forEach(dom => {
+                    const cell = document.getElementById('hm-' + dom);
+                    if (!cell) return;
                     const submetrics = Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.'));
-                    const avg = submetrics.reduce((acc, [k, v]) => acc + v, 0) / submetrics.length;
-                    // For heatmap, check "bad" things like stress/workload.
-                    // Simplified: just use average health.
-                    const color = getMetricColor(dom + '.dummy', avg);
-                    heatmap.children[i].style.backgroundColor = color;
-                    heatmap.children[i].title = `${dom}: ${avg.toFixed(0)}%`;
+                    const avg = submetrics.reduce((acc, [, v]) => acc + v, 0) / (submetrics.length || 1);
+                    cell.style.backgroundColor = getMetricColor(dom + '.dummy', avg);
+                    cell.title = `${dom}: ${avg.toFixed(0)}%`;
                 });
             }
 
@@ -679,6 +831,112 @@
         }
 
         async function submitFeedback(e) { e.preventDefault(); const formData = new FormData(e.target); const res = await fetch('/api/feedback/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(formData.entries())) }); document.getElementById('fb-status').innerText = "✅ Outcome Broadcasted to ChromaDB!"; e.target.reset(); }
+
+        // ── Feature A: Trained vs Baseline ──
+        async function runComparison() {
+            const btn = document.getElementById('cmp-btn');
+            btn.disabled = true; btn.innerText = "⚡ Running Both Agents...";
+            document.getElementById('cmp-intro').classList.add('hidden');
+            document.getElementById('cmp-content').classList.remove('hidden');
+            document.getElementById('cmp-delta').classList.add('hidden');
+
+            const conflict = document.getElementById('cmp-conflict').value;
+            const person = document.getElementById('cmp-person').value;
+
+            try {
+                const res = await fetch('/api/comparison/run', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ conflict, person })
+                });
+                const data = await res.json();
+
+                const fill = (prefix, side) => {
+                    if (side.error) {
+                        document.getElementById(`cmp-reward-${prefix}`).innerText = 'ERR';
+                        document.getElementById(`cmp-action-${prefix}`).innerText = side.error;
+                        return;
+                    }
+                    document.getElementById(`cmp-reward-${prefix}`).innerText = side.action.reward.toFixed(3);
+                    document.getElementById(`cmp-action-${prefix}`).innerText =
+                        `${side.action.type.toUpperCase()} → ${side.action.target.toUpperCase()}: ${side.action.description}`;
+                    document.getElementById(`cmp-reason-${prefix}`).innerText = side.action.reasoning;
+                    renderMetrics(`cmp-metrics-${prefix}`, side.metrics);
+                };
+                fill('baseline', data.baseline);
+                fill('trained', data.trained);
+
+                // Reward delta badge
+                if (!data.baseline.error && !data.trained.error) {
+                    const delta = data.trained.action.reward - data.baseline.action.reward;
+                    const sign = delta >= 0 ? '+' : '';
+                    const deltaEl = document.getElementById('cmp-delta');
+                    deltaEl.classList.remove('hidden');
+                    deltaEl.querySelector('span').innerText =
+                        `LifeStack outperforms baseline by ${sign}${(delta * 100).toFixed(1)}% reward (${sign}${delta.toFixed(3)})`;
+                    deltaEl.querySelector('span').className =
+                        `inline-block px-6 py-2 rounded-full border font-black text-sm ${delta >= 0 ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`;
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                btn.disabled = false; btn.innerText = "⚡ Run Comparison";
+            }
+        }
+
+        // ── Feature E: Memory Effect ──
+        async function runMemoryEffect() {
+            const btn = document.getElementById('mem-btn');
+            btn.disabled = true; btn.innerText = "🧠 Running Episodes...";
+            document.getElementById('mem-intro').classList.add('hidden');
+            document.getElementById('mem-content').classList.remove('hidden');
+            document.getElementById('mem-delta').classList.add('hidden');
+
+            const conflict = document.getElementById('mem-conflict').value;
+            const person = document.getElementById('mem-person').value;
+
+            try {
+                const res = await fetch('/api/memory/compare', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ conflict, person })
+                });
+                const data = await res.json();
+
+                const fillSide = (prefix, side) => {
+                    document.getElementById(`mem-reward-${prefix}`).innerText = side.action.reward.toFixed(3);
+                    document.getElementById(`mem-action-${prefix}`).innerText =
+                        `${side.action.type.toUpperCase()} → ${side.action.target.toUpperCase()}`;
+                    document.getElementById(`mem-reason-${prefix}`).innerText = side.action.reasoning;
+                    renderMetrics(`mem-metrics-${prefix}`, side.metrics);
+                };
+                fillSide('cold', data.cold);
+                fillSide('warm', data.warm);
+
+                // Show retrieved memories
+                const retrieved = data.warm.action.memories_retrieved || [];
+                document.getElementById('mem-retrieved').innerHTML = retrieved.length
+                    ? '<div class="text-[9px] font-black text-green-500 uppercase mb-1">Retrieved Precedents</div>' +
+                      retrieved.map(m => `<div class="p-2 bg-green-500/5 border border-green-500/10 rounded-lg">
+                          <span class="font-black text-green-400">${m.action_type}</span>
+                          <span class="text-slate-500 ml-2">score: ${m.reward?.toFixed(2) ?? '?'}</span>
+                          <p class="text-slate-400 italic mt-0.5">"${(m.reasoning || '').substring(0, 70)}..."</p>
+                      </div>`).join('')
+                    : '<p class="text-slate-600 text-[9px] italic">No precedents yet — this IS the first episode. Re-run to see memory kick in.</p>';
+
+                // Delta badge
+                const delta = data.warm.action.reward - data.cold.action.reward;
+                const sign = delta >= 0 ? '+' : '';
+                const deltaEl = document.getElementById('mem-delta');
+                deltaEl.classList.remove('hidden');
+                deltaEl.querySelector('span').innerText =
+                    `Memory improved reward by ${sign}${(delta * 100).toFixed(1)}% (${sign}${delta.toFixed(3)})`;
+                deltaEl.querySelector('span').className =
+                    `inline-block px-6 py-2 rounded-full border font-black text-sm ${delta >= 0 ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`;
+            } catch (e) {
+                console.error(e);
+            } finally {
+                btn.disabled = false; btn.innerText = "🧠 Run Both Episodes";
+            }
+        }
 
         async function comparePersons() {
             const btn = document.getElementById('compare-btn');

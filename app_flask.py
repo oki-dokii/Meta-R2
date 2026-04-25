@@ -10,7 +10,7 @@ import copy
 import uuid
 import datetime
 from flask import Flask, render_template, request, jsonify, session
-from core.life_state import LifeMetrics, ResourceBudget
+from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.lifestack_env import LifeStackEnv, LifeStackAction
 from agent.agent import LifeStackAgent
 from intake.simperson import SimPerson
@@ -213,7 +213,7 @@ def perform_action():
             "title": conflict.title,
             "person": person.name
         },
-        "timestamp": datetime.now().strftime("%H:%M:%S")
+        "timestamp": datetime.datetime.now().strftime("%H:%M:%S")
     }
     
     # Store in history
@@ -335,6 +335,16 @@ def get_demo_task():
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     stats = MEMORY.get_stats()
+    # Normalise for frontend: inject feedback_count and reward_history
+    all_records = []
+    try:
+        raw = MEMORY.collection.get(include=["metadatas"])
+        all_records = raw.get("metadatas", [])
+    except Exception:
+        pass
+    stats["feedback_count"] = len([m for m in all_records if m.get("type") == "feedback"])
+    rewards = [m.get("reward", 0.0) for m in all_records if "reward" in m]
+    stats["reward_history"] = rewards[-20:] if rewards else []
     return jsonify(stats)
 
 @app.route('/api/feedback/submit', methods=['POST'])
@@ -354,6 +364,151 @@ def submit_feedback():
         return jsonify({"status": "success", "message": f"Feedback stored for episode {feedback.episode_id}"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+
+# ─── Feature A: Trained vs Untrained Comparison ───
+BASELINE_ACTION_MAP = {
+    "career":           ("negotiate",    {"career.workload": -12.0, "mental_wellbeing.stress_level": -4.0},    {"time": 1.5, "energy": 20.0}, "Negotiate workload with manager."),
+    "finances":         ("spend",        {"finances.liquidity": -200.0, "mental_wellbeing.stress_level": -8.0}, {"time": 1.0, "energy": 10.0}, "Spend to resolve financial pressure."),
+    "relationships":    ("communicate",  {"relationships.romantic": 8.0, "mental_wellbeing.stress_level": -5.0},{"time": 0.5, "energy": 8.0},  "Call partner to check in."),
+    "physical_health":  ("rest",         {"physical_health.energy_level": 12.0, "mental_wellbeing.stress_level": -6.0}, {"time": 1.0}, "Rest to recover energy."),
+    "mental_wellbeing": ("rest",         {"mental_wellbeing.stress_level": -15.0, "physical_health.sleep_quality": 5.0},  {"time": 1.0}, "Take a break to reduce stress."),
+    "time":             ("reschedule",   {"time.free_hours_per_week": 6.0, "career.workload": -8.0},            {"time": 1.5, "energy": 12.0}, "Reschedule non-critical tasks."),
+}
+
+def _run_baseline(conflict, person):
+    """Rule-based baseline: pick the action for the worst-scoring domain."""
+    env = LifeStackEnv()
+    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    flat = env.state.current_metrics.flatten()
+
+    domain_scores = {}
+    for dom in ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]:
+        subs = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
+        domain_scores[dom] = sum(subs.values()) / len(subs) if subs else 70.0
+
+    worst_dom = min(domain_scores, key=domain_scores.get)
+    atype, mc, rc, desc = BASELINE_ACTION_MAP.get(worst_dom, BASELINE_ACTION_MAP["mental_wellbeing"])
+
+    uptake = person.respond_to_action(atype, rc, flat.get("mental_wellbeing.stress_level", 70))
+    scaled_mc = {k: v * uptake for k, v in mc.items()}
+
+    env_action = LifeStackAction(
+        action_type=atype,
+        target=worst_dom,
+        metric_changes=scaled_mc,
+        resource_cost=rc,
+        reasoning=f"Rule-based: {worst_dom} scored {domain_scores[worst_dom]:.1f} — lowest domain.",
+        actions_taken=1,
+    )
+    obs = env.step(env_action)
+    return {
+        "metrics": obs.metrics,
+        "action": {
+            "type": atype,
+            "target": worst_dom,
+            "description": desc,
+            "reasoning": env_action.reasoning,
+            "reward": obs.reward,
+            "cost": rc,
+        }
+    }
+
+@app.route('/api/comparison/run', methods=['POST'])
+def run_comparison():
+    """Run same conflict through baseline rule-based agent AND trained LifeStack agent."""
+    data = request.json
+    conflict_label = data.get('conflict')
+    person_label = data.get('person')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+    person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
+
+    # Baseline path
+    try:
+        baseline = _run_baseline(conflict, person)
+    except Exception as e:
+        baseline = {"error": str(e)}
+
+    # Trained agent path (reuse existing /api/simulation/action logic)
+    try:
+        env = LifeStackEnv()
+        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+        before_metrics = copy.deepcopy(env.state.current_metrics)
+        before_budget = copy.deepcopy(env.state.budget)
+        action = AGENT.get_action(before_metrics, before_budget, conflict, person)
+        _normalize_action_metric_changes(action)
+        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                          before_metrics.mental_wellbeing.stress_level)
+        env_action = LifeStackAction.from_agent_action(action)
+        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+        obs = env.step(env_action)
+        trained = {
+            "metrics": obs.metrics,
+            "action": {
+                "type": action.primary.action_type,
+                "target": action.primary.target_domain,
+                "description": action.primary.description,
+                "reasoning": action.reasoning,
+                "reward": obs.reward,
+                "cost": action.primary.resource_cost,
+            }
+        }
+    except Exception as e:
+        trained = {"error": str(e)}
+
+    return jsonify({"baseline": baseline, "trained": trained})
+
+
+# ─── Feature E: Memory Effect Comparison ───
+@app.route('/api/memory/compare', methods=['POST'])
+def memory_compare():
+    """Show the same conflict resolved cold (no memory) vs warm (with RAG memory)."""
+    data = request.json
+    conflict_label = data.get('conflict')
+    person_label = data.get('person')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+    person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
+
+    def _run_episode(use_memory: bool):
+        env = LifeStackEnv()
+        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+        before_metrics = copy.deepcopy(env.state.current_metrics)
+        before_budget = copy.deepcopy(env.state.budget)
+        few_shot = ""
+        retrieved = []
+        if use_memory:
+            few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
+            retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten())
+        action = AGENT.get_action(before_metrics, before_budget, conflict, person, few_shot_context=few_shot)
+        _normalize_action_metric_changes(action)
+        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                          before_metrics.mental_wellbeing.stress_level)
+        env_action = LifeStackAction.from_agent_action(action)
+        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+        obs = env.step(env_action)
+        MEMORY.store_decision(
+            conflict_title=conflict.title,
+            action_type=action.primary.action_type,
+            target_domain=action.primary.target_domain,
+            reward=obs.reward,
+            metrics_snapshot=before_metrics.flatten(),
+            reasoning=action.reasoning,
+        )
+        return {
+            "metrics": obs.metrics,
+            "action": {
+                "type": action.primary.action_type,
+                "target": action.primary.target_domain,
+                "description": action.primary.description,
+                "reasoning": action.reasoning,
+                "reward": obs.reward,
+                "memories_retrieved": retrieved,
+            }
+        }
+
+    cold = _run_episode(use_memory=False)
+    warm = _run_episode(use_memory=True)
+    return jsonify({"cold": cold, "warm": warm})
+
 
 if __name__ == '__main__':
     LONG_DEMO.pre_seed_arjun()
