@@ -1230,10 +1230,34 @@
                 renderMetrics('custom-metrics-grid', data.after_metrics, {}, data.before_metrics);
 
                 document.getElementById('custom-plan').innerHTML = `
-                    <h4 class="font-black text-indigo-400 uppercase tracking-tighter text-lg">THE PLAN: ${data.action.type} → ${data.action.target}</h4>
-                    <p class="text-sm font-bold text-slate-200">"${data.action.description}"</p>
-                    <div class="text-xs text-indigo-300 italic p-3 bg-indigo-500/10 rounded-lg"><b>Strategy:</b> ${data.action.reasoning}</div>
-                    <div class="text-[10px] uppercase font-black text-slate-500 mt-2">Inferred persona: ${data.person.name}</div>`;
+                    <div class="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <div class="flex items-center gap-3">
+                            <div class="h-10 w-1 bg-indigo-500 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>
+                            <div>
+                                <h4 class="font-black text-indigo-400 uppercase tracking-tighter text-xl leading-none">${data.action.type} → ${data.action.target}</h4>
+                                <div class="text-[9px] font-black text-indigo-500/50 uppercase tracking-[0.2em] mt-1">Recommended Strategy</div>
+                            </div>
+                        </div>
+
+                        <div class="relative group">
+                            <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl blur opacity-20 group-hover:opacity-30 transition duration-1000"></div>
+                            <div class="relative p-4 bg-slate-950/80 rounded-xl border border-indigo-500/20 backdrop-blur-xl">
+                                <p class="text-md font-bold text-slate-100 leading-relaxed mb-3">"${data.action.description}"</p>
+                                <div class="flex items-start gap-2 p-3 bg-indigo-500/5 rounded-lg border border-indigo-500/10">
+                                    <span class="text-indigo-400 text-xs">💡</span>
+                                    <p class="text-xs text-indigo-300 leading-relaxed font-medium"><b>Rationale:</b> ${data.action.reasoning}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-2">
+                             <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-full">
+                                <span class="text-[10px]">👤</span>
+                                <span class="text-[10px] uppercase font-black text-slate-400 tracking-widest">Persona: ${data.person.name}</span>
+                             </div>
+                             <div class="text-[9px] font-black text-slate-600 uppercase tracking-widest">ID: ${data.action.id}</div>
+                        </div>
+                    </div>`;
             } catch (e) {
                 console.error(e);
                 errBox.innerText = e.message;
