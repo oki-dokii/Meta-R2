@@ -625,8 +625,29 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             initGraph();
-            // We'll init the full system map the first time the tab is opened to save resources
         });
+
+        async function initGraph() {
+            try {
+                const res = await fetch('/api/simulation/graph');
+                const data = await res.json();
+                const container = document.getElementById('cascade-graph');
+                if (!container) return;
+                
+                const groupColors = { career: "#818cf8", finances: "#fbbf24", relationships: "#f87171", physical_health: "#4ade80", mental_wellbeing: "#22d3ee", time: "#a78bfa" };
+                const nodes = data.nodes.map(n => ({
+                    ...n,
+                    color: { background: "#1e293b", border: groupColors[n.group] },
+                    size: 8, shape: "dot", font: { size: 0 } // Hide labels in background
+                }));
+                
+                const options = {
+                    physics: { stabilization: true, barnesHut: { gravitationalConstant: -2000 } },
+                    interaction: { dragNodes: false, zoomView: false, dragView: false }
+                };
+                new vis.Network(container, { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(data.edges) }, options);
+            } catch(e) { console.warn("Background graph load failed", e); }
+        }
 
         let systemNetwork = null;
         let systemGraphData = { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) };
