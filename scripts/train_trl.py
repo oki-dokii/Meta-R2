@@ -24,8 +24,10 @@ import numpy as np
 # Unsloth MUST be imported before transformers/trl to apply its patches
 try:
     import unsloth
-except ImportError:
-    pass
+except Exception as e:
+    # Colab environments can fail inside unsloth import with non-ImportError
+    # exceptions (for example NameError from incompatible dependency combos).
+    print(f"[warning] Unsloth import failed, continuing with HF fallback: {e}")
 
 import torch
 from datasets import Dataset
@@ -85,8 +87,9 @@ def load_model():
             use_gradient_checkpointing="unsloth",
         )
         return model, tokenizer
-    except ImportError:
-        # Fallback: standard HF + PEFT LoRA (Unsloth not installed)
+    except Exception as e:
+        # Fallback: standard HF + PEFT LoRA when Unsloth is missing or broken
+        print(f"[warning] Unsloth model load failed, using HF+PEFT fallback: {e}")
         # MUST apply LoRA here — training the full 1.5B model requires ~24GB
         # VRAM for Adam states and breaks the PeftModel loader in inference.py.
         from transformers import AutoModelForCausalLM
