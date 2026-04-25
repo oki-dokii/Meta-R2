@@ -495,23 +495,28 @@ def run_custom():
     m.physical_health.energy        = energy_level
     m.time.free_hours_per_week      = max(10.0, 100.0 - work_stress)
 
-    # Apply uploaded health/calendar overrides
-    for path, delta in USER_STATE_OVERRIDES.items():
+    # Apply: 1. Manual global overrides (from upload) 
+    #        2. Per-request digital signals (from Sync button)
+    digital_signals = data.get('gmail_signals', {})
+    all_overrides = {**USER_STATE_OVERRIDES, **digital_signals}
+    
+    for path, delta in all_overrides.items():
         if '.' in path:
-            dom, sub = path.split('.', 1)
-            dom_obj = getattr(m, dom, None)
-            if dom_obj and hasattr(dom_obj, sub):
-                setattr(dom_obj, sub, max(0.0, min(100.0, getattr(dom_obj, sub) + delta)))
-
-    gmail_signals = data.get('gmail_signals')
-    if gmail_signals:
-        for k, v in gmail_signals.items():
-            parts = k.split(".")
-            if len(parts) == 2:
-                dom = getattr(m, parts[0], None)
-                if dom and hasattr(dom, parts[1]):
-                    cur = getattr(dom, parts[1], 70.0)
-                    setattr(dom, parts[1], max(0.0, min(100.0, cur + float(v))))
+            dom_name, sub_name = path.split('.', 1)
+            dom_obj = getattr(m, dom_name, None)
+            if dom_obj and hasattr(dom_obj, sub_name):
+                cur = getattr(dom_obj, sub_name)
+                setattr(dom_obj, sub_name, max(0.0, min(100.0, cur + float(delta))))
+    
+    # Also apply direct request overrides if any
+    req_overrides = data.get('overrides', {})
+    for path, delta in req_overrides.items():
+        if '.' in path:
+            dom_name, sub_name = path.split('.', 1)
+            dom_obj = getattr(m, dom_name, None)
+            if dom_obj and hasattr(dom_obj, sub_name):
+                cur = getattr(dom_obj, sub_name)
+                setattr(dom_obj, sub_name, max(0.0, min(100.0, cur + float(delta))))
 
     conflict = INTAKE.extract_conflict(situation_input, m)
     pers_dict = INTAKE.get_personality_from_description(situation_input)
