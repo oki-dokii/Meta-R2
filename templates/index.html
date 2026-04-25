@@ -379,25 +379,45 @@
         }
 
         async function runCustom() {
+            const btn = document.querySelector('button[onclick="runCustom()"]');
             const sit = document.getElementById('custom-situation').value;
             if (!sit) return alert("Describe your situation first!");
-            const res = await fetch('/api/custom/run', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    situation: sit, 
-                    work_stress: document.getElementById('custom-work').value,
-                    money_stress: document.getElementById('custom-money').value,
-                    rel_quality: document.getElementById('custom-rel').value,
-                    energy_level: document.getElementById('custom-energy').value,
-                    time_pressure: document.getElementById('custom-time')?.value || 5,
-                    gmail_signals: globalGmailSignals
-                })
-            });
-            const data = await res.json();
-            document.getElementById('custom-result').classList.remove('hidden');
-            document.getElementById('custom-id').innerText = `ID: ${data.action.id}`;
-            renderMetrics('custom-metrics-grid', data.after_metrics, {}, data.before_metrics);
-            document.getElementById('custom-plan').innerHTML = `<h4 class="font-black text-indigo-400 uppercase tracking-tighter text-xl">THE PLAN: ${data.action.type} → ${data.action.target}</h4><p class="text-sm font-bold text-slate-200">"${data.action.description}"</p><div class="text-xs text-indigo-300 italic p-3 bg-indigo-500/10 rounded-lg"><b>Strategy:</b> ${data.action.reasoning}</div><div class="text-[10px] uppercase font-black text-slate-500">Subject: ${data.person.name}</div>`;
+            
+            const originalText = btn.innerText;
+            btn.disabled = true; btn.innerText = "🧠 Analyzing NLP Context...";
+            
+            try {
+                const res = await fetch('/api/custom/run', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        situation: sit, 
+                        work_stress: document.getElementById('custom-work').value,
+                        money_stress: document.getElementById('custom-money').value,
+                        rel_quality: document.getElementById('custom-rel').value,
+                        energy_level: document.getElementById('custom-energy').value,
+                        time_pressure: 5, // Default
+                        gmail_signals: globalGmailSignals
+                    })
+                });
+                const data = await res.json();
+                
+                // Show "Before" metrics first
+                document.getElementById('custom-result').classList.remove('hidden');
+                document.getElementById('custom-id').innerText = `ID: ${data.action.id}`;
+                renderMetrics('custom-metrics-grid', data.before_metrics);
+                
+                // Fetch and run cascade animation for this custom conflict
+                // (Note: custom conflicts don't have a label, we'd need a separate logic or pass disruption)
+                // For simplicity in the demo, we show the jump, but we can animate the delta
+                await new Promise(r => setTimeout(r, 800));
+                
+                renderMetrics('custom-metrics-grid', data.after_metrics, {}, data.before_metrics);
+                document.getElementById('custom-plan').innerHTML = `<h4 class="font-black text-indigo-400 uppercase tracking-tighter text-xl">THE PLAN: ${data.action.type} → ${data.action.target}</h4><p class="text-sm font-bold text-slate-200">"${data.action.description}"</p><div class="text-xs text-indigo-300 italic p-3 bg-indigo-500/10 rounded-lg"><b>Strategy:</b> ${data.action.reasoning}</div><div class="text-[10px] uppercase font-black text-slate-500">Subject: ${data.person.name}</div>`;
+            } catch (e) {
+                console.error(e);
+            } finally {
+                btn.disabled = false; btn.innerText = originalText;
+            }
         }
 
         async function activateArjun() {

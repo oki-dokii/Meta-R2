@@ -211,8 +211,16 @@ def run_custom():
                     setattr(dom, parts[1], v)
 
     # Extract conflict from text using LLM
-    conflict = INTAKE.extract_conflict(situation_input)
-    person = AGENT.infer_personality(situation_input)
+    conflict = INTAKE.extract_conflict(situation_input, m)
+    pers_dict = INTAKE.get_personality_from_description(situation_input)
+    person = SimPerson(
+        name=pers_dict.get("name", "Inferred Self"),
+        openness=pers_dict.get("openness", 0.5),
+        conscientiousness=pers_dict.get("conscientiousness", 0.5),
+        extraversion=pers_dict.get("extraversion", 0.5),
+        agreeableness=pers_dict.get("agreeableness", 0.5),
+        neuroticism=pers_dict.get("neuroticism", 0.5)
+    )
     
     budget = ResourceBudget(time=24, money=1000, energy=100)
     action = AGENT.get_action(m, budget, conflict, person)
