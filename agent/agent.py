@@ -100,11 +100,17 @@ class LifeStackAgent:
             for mem in recent:
                 memory_str += f"Past decision that worked: [{mem['action']}] → reward [{mem['reward']}]\n"
 
+        persona_hint = person.get_personality_hint() if person else ""
+
         prompt = f"""ROLE: You are the LifeStack AI Agent. Your goal is to help the user navigate a life crisis.
 
 CURRENT CONFLICT:
 Title: {conflict.title}
 Story: {conflict.story}
+
+SUBJECT PERSONA:
+{persona_hint}
+Choose an action that fits this person's personality and coping style.
 
 --- LIFE STATUS BOARD ---
 {status_board}
@@ -115,10 +121,13 @@ Energy: {budget.energy_units:.1f} units
 {memory_str}
 {few_shot_context}
 TASK:
-Choose the best action to address the conflict. Respond ONLY with valid JSON following the schema below. No prose, no markdown fences, no trailing commas.
+Respond with a SINGLE LINE of minified JSON only. No newlines inside the JSON. No pretty-printing. No prose. No markdown. No trailing commas.
 
-SCHEMA:
-{{"action_type":"communicate|rest|delegate|negotiate|spend|reschedule|deprioritize","target_domain":"career|finances|relationships|physical_health|mental_wellbeing|time","metric_changes":{{"domain.submetric":delta_number}},"resource_cost":{{"time":0.0,"money":0.0,"energy":0.0}},"description":"one sentence action","recipient":"none|boss|partner|family","message_content":"text","reasoning":"strategy explanation"}}"""
+OUTPUT FORMAT (one line, no whitespace between fields):
+{{"action_type":"<type>","target_domain":"<domain>","metric_changes":{{"domain.submetric":<number>}},"resource_cost":{{"time":<n>,"money":<n>,"energy":<n>}},"description":"<one sentence>","recipient":"none","message_content":"","reasoning":"<one sentence>"}}
+
+VALID action_type values: communicate, rest, delegate, negotiate, spend, reschedule, deprioritize
+VALID target_domain values: career, finances, relationships, physical_health, mental_wellbeing, time"""
         return prompt
 
     # ── JSON extraction with multi-stage repair ───────────────────────────────
@@ -231,7 +240,7 @@ SCHEMA:
         forced_prompt = base_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST set 'action_type' to exactly '{forced_type}'."
         return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type, force_api=force_api)
 
-    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "", api_only: bool = False) -> "AgentAction":
+    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "", api_only: bool = False, timeout: int = 55) -> "AgentAction":
         force_api = self.api_only or api_only
         if not force_api and not self._model_load_attempted:
             self._try_load_model()
@@ -240,11 +249,13 @@ SCHEMA:
             return self._fallback_action("Error: No model configured (set GROQ_API_KEY, HF_TOKEN, or LIFESTACK_MODEL_PATH).")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
-        return self._get_action_from_prompt(prompt, force_api=force_api)
+        # API-only path (Groq) is fast; local GPU path needs more headroom for 512-token generation + retry
+        effective_timeout = 25 if force_api else timeout
+        return self._get_action_from_prompt(prompt, force_api=force_api, timeout=effective_timeout)
 
     # ── Core inference + parse loop ───────────────────────────────────────────
 
-    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False) -> "AgentAction":
+    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False, timeout: int = 55) -> "AgentAction":
         result_box = [None]
 
         def _call():
@@ -310,7 +321,7 @@ SCHEMA:
 
         t = threading.Thread(target=_call, daemon=True)
         t.start()
-        t.join(timeout=25)
+        t.join(timeout=timeout)
 
         if result_box[0] is None:
             return self._fallback_action("LLM timed out.", fallback_type)
