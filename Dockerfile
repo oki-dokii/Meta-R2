@@ -27,6 +27,5 @@ EXPOSE 8000
 # Gradio demo port
 EXPOSE 7860
 
-# Default command: run the OpenEnv FastAPI server (judges evaluate this)
-# For Gradio demo, override with: docker run ... python scripts/gradio_demo.py
-CMD ["python", "server.py"]
+# Default command: run the Flask Dashboard
+CMD ["python", "app_flask.py"]
