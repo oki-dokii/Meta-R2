@@ -17,7 +17,7 @@ pinned: true
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-0.2.3-blue?style=for-the-badge)](https://github.com/facebookresearch/openenv)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-[**Live Demo**](https://huggingface.co/spaces/BholeChature/LifeStack) • [**Technical Blog**](BLOG.md) • [**Source Code**](https://github.com/oki-dokii/Meta-R2)
+[**Live Demo**](https://huggingface.co/spaces/jdsb06/meta-r2) • [**Technical Blog**](BLOG.md) • [**Source Code**](https://github.com/oki-dokii/Meta-R2) • [**Training Notebook**](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb)
 
 ---
 
@@ -36,7 +36,23 @@ pinned: true
 *   **🔗 Causal Cascades**: 40-edge dependency graph based on *Starcke & Brand (2012)* where a $350 flight rebooking (Finance) ripples into stress (Wellbeing) and sleep loss (Health).
 *   **🎭 Personality Lab**: Side-by-side agent comparison using **Big Five (OCEAN)** traits. Validates how `Agreeableness` vs `Neuroticism` changes the reward manifold.
 *   **🧠 Memory RAM**: Retrieval-Augmented Moderation using **ChromaDB**. Shows a **+116% improvement** in strategy efficiency when recall is enabled.
-*   **🧩 What-If Lab**: Counterfactual explorer that compares the agent's actual path against the two best alternative "what-if" trajectories.
+*   **🧩 What-If Lab**: Counterfactual explorer that compares the agent's actual path against the three best alternative "what-if" trajectories.
+
+---
+
+## 📊 Training Evidence
+
+### GRPO Curriculum Training (Llama-3.2-3B + PEFT Adapter)
+
+![Training Curves](docs/training_curves.png)
+
+**Left panel**: Reward progression across 50 curriculum episodes, colored by conflict difficulty (Easy → Hard). The GRPO agent improves from ~0.35 mean reward to ~0.75 over training.
+
+**Right panel**: Policy loss across 3 curriculum stages (Easy → Medium → Hard). Loss decreases from ~2.8 to ~0.4, indicating stable policy improvement with no divergence.
+
+The trained PEFT adapter is available at: [`jdsb06/meta-r2`](https://huggingface.co/spaces/jdsb06/meta-r2)
+
+> Training notebook: [Colab_GRPO_Training.ipynb](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb)
 
 ---
 
@@ -88,8 +104,8 @@ graph TD
 
 ### 1. Installation & Demo
 ```bash
-git clone https://github.com/oki-dokii/LifeStack.git
-cd LifeStack
+git clone https://github.com/oki-dokii/Meta-R2.git
+cd Meta-R2
 pip install -r requirements.txt
 python app_flask.py  # Production Portal → http://127.0.0.1:5000
 ```
@@ -105,6 +121,10 @@ python3 -m pytest tests/
 # Start 5-stage curriculum training with 800-word trajectory logs
 python scripts/train_trl.py
 ```
+
+Or run the full training in Google Colab:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb)
 
 ---
 
@@ -129,6 +149,17 @@ Episodes were run back-to-back testing "Cold Start" vs "Memory-Aware" agents.
 
 ---
 
+## 📝 Writeup & Resources
+
+| Resource | Link |
+| :--- | :--- |
+| Technical Blog / Writeup | [BLOG.md](BLOG.md) |
+| Training Notebook (Colab) | [Colab_GRPO_Training.ipynb](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb) |
+| Live HF Space Demo | [jdsb06/meta-r2](https://huggingface.co/spaces/jdsb06/meta-r2) |
+| Source Code | [oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2) |
+
+---
+
 <div align="center">
 
 ### **Team BholeChature**
@@ -137,4 +168,3 @@ Episodes were run back-to-back testing "Cold Start" vs "Memory-Aware" agents.
 <i>"LifeStack: Measuring the messy reality of human decision making."</i>
 
 </div>
-# Deploy Ping: Sat Apr 25 18:21:07 IST 2026

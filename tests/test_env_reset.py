@@ -24,5 +24,5 @@ def test_env_reset_custom_conflict():
     env.reset(conflict=custom_conflict)
     flat = env.state.current_metrics.flatten()
     
-    assert flat["career.workload"] > 70.0  # Base is usually 70
+    assert flat["career.workload"] > 55.0  # Base is 45.0; +20.0 disruption → expect > 55.0
     assert flat["mental_wellbeing.stress_level"] > 70.0
