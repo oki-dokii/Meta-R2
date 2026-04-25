@@ -378,27 +378,41 @@ def _ensure_trl_model_compat(model):
 # ──────────────────────────────────────────────
 
 def load_model():
-    """Load model with Unsloth 4-bit quantization.
+    """Load model for GRPO training.
 
-    dtype choice: bfloat16 on Ampere+ (compute capability ≥ 8), float16 otherwise.
+    Two paths, controlled by the LIFESTACK_NO_UNSLOTH env var:
 
-    Why bfloat16 is the right choice on A100/H100:
-      - bf16 has the same dynamic range as float32, so no GradScaler is needed.
-      - With fp16, Accelerate creates a GradScaler and calls scaler.unscale_()
-        before clip_grad_norm_. Unsloth's LoRA produces float16 grads, and
-        unscale_() refuses float16 grads → "Attempting to unscale FP16 gradients".
-      - bf16 path skips GradScaler entirely → no unscale crash, no inf/nan from
-        small gradient values getting flushed to zero in fp16.
-      - Unsloth's 4-bit dequantization on Ampere+ targets bf16 correctly when
-        the nominal dtype is bf16, so kernel dtypes stay consistent.
+      LIFESTACK_NO_UNSLOTH=1  → plain HF + PEFT (RECOMMENDED on A100 80GB)
+      anything else (default) → try Unsloth, fall back to HF+PEFT on failure
 
-    Older GPUs (compute < 8) fall back to float16 because they don't support bf16.
+    Why the env-var opt-out exists:
+      Unsloth's pre-quantized checkpoint
+      `unsloth/qwen2.5-1.5b-instruct-unsloth-bnb-4bit` has
+      bnb_4bit_compute_dtype=float16 baked in. The 4-bit dequantization step
+      always emits float16 activations during forward, regardless of the
+      `dtype=` parameter. That collides with the LoRA matrices' dtype:
+        - LoRA float32 → "self and mat2 must have the same dtype, Half vs Float"
+        - LoRA float16 → Unsloth auto-enables fp16 mode → GradScaler crash
+        - LoRA bf16   → still float16 activations → same Half/BFloat16 mismatch
+      No dtype combination satisfies all three constraints simultaneously on
+      this torch / transformers / TRL / Unsloth stack. The HF+PEFT fallback
+      is plain bf16 end-to-end with no kernel surprises and runs comfortably
+      on a single A100 80GB (1.5B params × 2 bytes ≈ 3 GB).
+
+    dtype choice: bfloat16 on Ampere+ (A100/H100), float16 otherwise.
+    bf16 has float32-equivalent dynamic range so no GradScaler is needed.
     """
     _load_dtype = (
         torch.bfloat16
         if (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8)
         else torch.float16
     )
+
+    # Explicit opt-out: skip Unsloth entirely. Stable, predictable, no kernel hell.
+    if os.environ.get("LIFESTACK_NO_UNSLOTH", "").lower() in ("1", "true", "yes"):
+        print("[load_model] LIFESTACK_NO_UNSLOTH set → using plain HF+PEFT path.")
+        return _load_model_hf_peft(_load_dtype)
+
     try:
         from unsloth import FastLanguageModel
         model, tokenizer = FastLanguageModel.from_pretrained(
@@ -417,35 +431,44 @@ def load_model():
             bias="none",
             use_gradient_checkpointing="unsloth",
         )
-        # LoRA A/B matrices default to float32 in PEFT. Cast them to the
-        # compute dtype so all tensors in Unsloth's kernels match.
         for _, param in model.named_parameters():
             if param.requires_grad and param.dtype == torch.float32:
                 param.data = param.data.to(_load_dtype)
         return _ensure_trl_model_compat(model), tokenizer
     except Exception as e:
-        # Fallback: standard HF + PEFT LoRA when Unsloth is missing or broken
         print(f"[warning] Unsloth model load failed, using HF+PEFT fallback: {e}")
-        from transformers import AutoModelForCausalLM
-        from peft import LoraConfig, get_peft_model, TaskType
-        model_name = "Qwen/Qwen2.5-1.5B-Instruct"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name, dtype=_load_dtype, device_map="auto"
-        )
-        lora_cfg = LoraConfig(
-            r=16,
-            lora_alpha=16,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                            "gate_proj", "up_proj", "down_proj"],
-            lora_dropout=0.0,
-            bias="none",
-            task_type=TaskType.CAUSAL_LM,
-        )
-        model = get_peft_model(model, lora_cfg)
-        model = _ensure_trl_model_compat(model)
-        model.print_trainable_parameters()
-        return model, tokenizer
+        return _load_model_hf_peft(_load_dtype)
+
+
+def _load_model_hf_peft(_load_dtype: "torch.dtype"):
+    """Plain HF + PEFT LoRA loader. Stable, predictable, no kernel surprises."""
+    from transformers import AutoModelForCausalLM
+    from peft import LoraConfig, get_peft_model, TaskType
+    model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, dtype=_load_dtype, device_map="auto"
+    )
+    # Enable gradient checkpointing for memory efficiency on the full bf16 model.
+    try:
+        model.gradient_checkpointing_enable()
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+    except Exception:
+        pass
+    lora_cfg = LoraConfig(
+        r=16,
+        lora_alpha=16,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj"],
+        lora_dropout=0.0,
+        bias="none",
+        task_type=TaskType.CAUSAL_LM,
+    )
+    model = get_peft_model(model, lora_cfg)
+    model = _ensure_trl_model_compat(model)
+    model.print_trainable_parameters()
+    return model, tokenizer
 
 
 def load_model_for_dry_run():
