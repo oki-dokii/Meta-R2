@@ -1,3 +1,4 @@
+import os
 import chromadb
 from sentence_transformers import SentenceTransformer
 import uuid
@@ -17,6 +18,49 @@ class LifeStackMemory:
         self.encoder = self._load_encoder()
         if not self.silent:
             print("Memory system initialized")
+        
+        # Auto-hydrate if empty
+        if self.collection.count() == 0:
+            self._hydrate_from_preseeded()
+
+    def _hydrate_from_preseeded(self):
+        import json
+        preseeded_path = "./data/preseeded_memory.json"
+        if not os.path.exists(preseeded_path):
+            return
+            
+        if not self.silent:
+            print(f"🧬 Empty memory detected. Hydrating from {preseeded_path}...")
+            
+        try:
+            with open(preseeded_path, 'r') as f:
+                data = json.load(f)
+            
+            # Hydrate decisions
+            d = data.get("decisions", {})
+            if d.get("ids"):
+                self.collection.add(
+                    ids=d["ids"],
+                    documents=d["documents"],
+                    metadatas=d["metadatas"],
+                    embeddings=d["embeddings"]
+                )
+                
+            # Hydrate trajectories
+            t = data.get("trajectories", {})
+            if t.get("ids"):
+                self.traj_collection.add(
+                    ids=t["ids"],
+                    documents=t["documents"],
+                    metadatas=t["metadatas"],
+                    embeddings=t["embeddings"]
+                )
+            
+            if not self.silent:
+                print(f"✅ Hydration complete: {self.collection.count()} memories restored.")
+        except Exception as e:
+            if not self.silent:
+                print(f"⚠️ Hydration failed: {e}")
 
     def _load_encoder(self):
         try:

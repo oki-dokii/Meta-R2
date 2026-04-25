@@ -13,5 +13,15 @@ test_groq.py
 *.sqlite3
 *.bin
 *.whl
+lifestack_memory/
 test_episode_memory_tmp/
-data/
+data/*
+!data/preseeded_memory.json
+!data/conflicts.json
+!data/simperson_profiles.json
+!data/reward_curve.png
+!data/training_log.json
+!data/trl_reward_curve.png
+!data/before_after_comparison.json
+!data/demo_signals.json
+!data/holdout_tasks.json
