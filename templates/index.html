@@ -84,6 +84,17 @@
             </div>
             <div class="lg:col-span-1 glass p-6 rounded-2xl relative overflow-hidden">
                 <h3 class="text-lg font-bold flex justify-between mb-2"><span>Vital Metrics</span><span id="metric-phase" class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 uppercase tracking-tighter">STABLE</span></h3>
+                
+                <!-- Domain Heatmap Grid -->
+                <div id="domain-heatmap" class="grid grid-cols-6 gap-1 mb-6 h-3 rounded-full overflow-hidden border border-slate-800/50">
+                    <div class="bg-slate-700" title="Career"></div>
+                    <div class="bg-slate-700" title="Finances"></div>
+                    <div class="bg-slate-700" title="Relationships"></div>
+                    <div class="bg-slate-700" title="Physical Health"></div>
+                    <div class="bg-slate-700" title="Mental Wellbeing"></div>
+                    <div class="bg-slate-700" title="Time"></div>
+                </div>
+
                 <div id="metrics-container" class="space-y-2.5 relative z-10"></div>
                 <!-- Mini-Graph Overlay -->
                 <div id="cascade-graph" class="absolute inset-0 opacity-20 pointer-events-none"></div>
@@ -344,8 +355,23 @@
 
         function renderMetrics(containerId, metrics, statusMap = {}, before = {}) {
             const container = document.getElementById(containerId);
+            const heatmap = document.getElementById('domain-heatmap');
             let html = '';
             const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
+            
+            // Update Heatmap if target is main container
+            if (containerId === 'metrics-container' && heatmap) {
+                domains.forEach((dom, i) => {
+                    const submetrics = Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.'));
+                    const avg = submetrics.reduce((acc, [k, v]) => acc + v, 0) / submetrics.length;
+                    // For heatmap, check "bad" things like stress/workload.
+                    // Simplified: just use average health.
+                    const color = getMetricColor(dom + '.dummy', avg);
+                    heatmap.children[i].style.backgroundColor = color;
+                    heatmap.children[i].title = `${dom}: ${avg.toFixed(0)}%`;
+                });
+            }
+
             domains.forEach(dom => {
                 html += `<div class="mt-4 first:mt-0 font-black text-[9px] text-slate-600 uppercase tracking-widest border-b border-slate-800 pb-1 mb-2">${dom}</div>`;
                 Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.')).forEach(([key, val]) => {
