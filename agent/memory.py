@@ -86,7 +86,8 @@ class LifeStackMemory:
         metrics_snapshot: dict,
         reasoning: str,
         trajectory: list[dict] = None,
-        route_outcome: str = None
+        route_outcome: str = None,
+        episode_id: str = None
     ) -> None:
         """Stores individual decision for longitudinal tracking."""
             
@@ -105,6 +106,7 @@ class LifeStackMemory:
                 "reward": float(reward),
                 "reasoning": reasoning,
                 "route_outcome": route_outcome or "",
+                "episode_id": episode_id or "",
                 "timestamp": datetime.now().isoformat()
             }]
         )
@@ -259,6 +261,7 @@ class LifeStackMemory:
                 "metrics_diff": meta.get("metrics_diff", ""),
                 "reward": meta.get("reward", 0.0),
                 "reasoning": meta.get("reasoning", ""),
+                "episode_id": meta.get("episode_id", ""),
                 "similarity_score": similarity
             })
 
@@ -270,14 +273,19 @@ class LifeStackMemory:
         if not memories:
             return ""
 
-        lines = ["Past successful trajectories in similar situations:\n"]
+        lines = ["--- PAST EXPERIENCE & HUMAN VERIFICATION ---"]
         for m in memories:
-            short_reason = m['reasoning'][:80]
-            lines.append(
-                f"  Route [{m['route_taken']}] → impact [{m['metrics_diff']}] → total reward {m['reward']:.2f} "
-                f"(reasoning: {short_reason}...)"
-            )
-
+            episode_id = m.get("episode_id")
+            fb_context = ""
+            if episode_id:
+                fb = self.retrieve_feedback(episode_id)
+                if fb:
+                    fb_context = f"\n  HUMAN FEEDBACK: Rated {fb['effectiveness']}/10. Notes: {fb['unexpected_effects']}"
+            
+            short_reason = m['reasoning'][:120]
+            line = f"- Action Taken: [{m['action_type'].upper()}] on {m['target_domain'].upper()}\n  Agent's Initial Reasoning: {short_reason}{fb_context}"
+            lines.append(line)
+            
         return "\n".join(lines)
 
     def get_stats(self) -> dict:

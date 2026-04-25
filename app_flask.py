@@ -243,7 +243,8 @@ def perform_action():
         target_domain=action.primary.target_domain,
         reward=obs.reward,
         metrics_snapshot=before_metrics.flatten(),
-        reasoning=action.reasoning
+        reasoning=action.reasoning,
+        episode_id=episode_id
     )
     
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
