@@ -137,8 +137,77 @@ def _install_trl_optional_dependency_shims() -> None:
     weave_mod.init = _weave_init
     weave_mod.op = _weave_op
     weave_mod.EvaluationLogger = EvaluationLogger
-    weave_mod.__spec__ = importlib.machinery.ModuleSpec("weave", loader=None)
+    # Mark weave as a package so `from weave.trace.context import X` works.
+    weave_mod.__path__ = []
+    weave_mod.__spec__ = importlib.machinery.ModuleSpec("weave", loader=None, is_package=True)
     sys.modules["weave"] = weave_mod
+
+    # Install a meta-path finder so ANY `weave.<anything>` import resolves to
+    # an empty stub module with permissive attribute access. TRL 1.2 imports
+    # several deep weave submodules (`weave.trace.context`,
+    # `weave.integrations.*`, etc.) that are only used inside callbacks GRPO
+    # never invokes. The finder creates stubs lazily so we don't need to
+    # enumerate every submodule TRL might touch.
+    class _WeaveStubLoader:
+        def create_module(self, spec):
+            mod = types.ModuleType(spec.name)
+            mod.__path__ = []  # treat every level as a package
+            # Permissive attribute access: any `from weave.x.y import Z`
+            # resolves to a no-op callable that also acts as a class.
+            def _stub_attr(name):
+                class _Stub:
+                    def __init__(self, *a, **kw):
+                        pass
+
+                    def __call__(self, *a, **kw):
+                        return None
+
+                    def __getattr__(self, _n):
+                        return _Stub()
+                _Stub.__name__ = name
+                return _Stub
+            mod.__getattr__ = _stub_attr  # type: ignore[attr-defined]
+            return mod
+
+        def exec_module(self, module):
+            return None
+
+    class _WeaveMetaFinder:
+        _loader = _WeaveStubLoader()
+
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname == "weave" or fullname.startswith("weave."):
+                # Don't intercept if a real submodule is already in sys.modules.
+                if fullname in sys.modules:
+                    return None
+                return importlib.machinery.ModuleSpec(
+                    fullname, self._loader, is_package=True
+                )
+            return None
+
+    sys.meta_path.append(_WeaveMetaFinder())
+
+    # Provide weave_client_context up front since TRL imports it explicitly.
+    weave_trace_mod = types.ModuleType("weave.trace")
+    weave_trace_mod.__path__ = []
+    weave_trace_ctx_mod = types.ModuleType("weave.trace.context")
+
+    class _WeaveClientContext:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __getattr__(self, name):
+            return lambda *a, **kw: None
+
+    weave_trace_ctx_mod.weave_client_context = _WeaveClientContext()
+    weave_trace_ctx_mod.__spec__ = importlib.machinery.ModuleSpec(
+        "weave.trace.context", loader=None
+    )
+    weave_trace_mod.__spec__ = importlib.machinery.ModuleSpec(
+        "weave.trace", loader=None, is_package=True
+    )
+    sys.modules["weave.trace"] = weave_trace_mod
+    sys.modules["weave.trace.context"] = weave_trace_ctx_mod
 
     # vLLM is optional for GRPO; provide import-safe shim for environments
     # where import checks pass but real import fails due incomplete installs.
