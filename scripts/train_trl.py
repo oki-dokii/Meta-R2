@@ -24,13 +24,22 @@ import sys
 import importlib.machinery
 
 # ── EARLY PATCHES ─────────────────────────────────────────
-# Unsloth MUST be imported before transformers/trl to apply its patches
-try:
-    import unsloth
-except Exception as e:
-    # Colab environments can fail inside unsloth import with non-ImportError
-    # exceptions (for example NameError from incompatible dependency combos).
-    print(f"[warning] Unsloth import failed, continuing with HF fallback: {e}")
+# Unsloth MUST be imported before transformers/trl to apply its patches.
+# It ALSO globally monkey-patches trl.GRPOTrainer with UnslothGRPOTrainer,
+# which then expects an Unsloth-patched model and calls model.for_training()
+# at runtime. So if we want the plain HF+PEFT path to work, we must skip this
+# import entirely — otherwise we end up with a plain HF model running through
+# Unsloth's patched trainer → AttributeError on for_training().
+if os.environ.get("LIFESTACK_NO_UNSLOTH", "").lower() in ("1", "true", "yes"):
+    print("[early-init] LIFESTACK_NO_UNSLOTH set → skipping `import unsloth` "
+          "to keep trl.GRPOTrainer unpatched.")
+else:
+    try:
+        import unsloth
+    except Exception as e:
+        # Colab environments can fail inside unsloth import with non-ImportError
+        # exceptions (for example NameError from incompatible dependency combos).
+        print(f"[warning] Unsloth import failed, continuing with HF fallback: {e}")
 
 def _install_trl_optional_dependency_shims() -> None:
     """
