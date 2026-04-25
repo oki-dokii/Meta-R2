@@ -133,6 +133,15 @@ def compute_reward(
     if actions_taken == 0:
         penalties -= 0.60
         fired.append("INACTION_PENALTY")
+
+    # -0.25 if choosing rest when energy is NOT critically low
+    # Prevents the agent from defaulting to rest as a zero-cost safe action
+    if action_type == "rest":
+        energy_metrics = [v for k, v in before_flat.items() if "energy" in k]
+        avg_energy = sum(energy_metrics) / len(energy_metrics) if energy_metrics else 60.0
+        if avg_energy > 30:
+            penalties -= 0.25
+            fired.append("REST_NOT_JUSTIFIED")
         
     # -0.15 if relationships domain average dropped more than 20 points
     if delta_rel < -20:
@@ -429,7 +438,7 @@ def reward_reasoning_coherence(reasoning: str, action_type: str = "") -> float:
     # The reasoning MUST logically justify the chosen category.
     action_keywords = {
         "spend": ["cost", "price", "expensive", "money", "budget", "finance"],
-        "rest": ["energy", "sleep", "exhaustion", "recharge", "break"],
+        "rest": ["energy critically", "exhausted", "sleep deprived", "burned out", "recharge", "energy below"],
         "communicate": ["talk", "discuss", "speak", "message", "call", "explain"],
         "delegate": ["hand off", "assign", "help", "junior", "colleague"],
         "negotiate": ["bargain", "trade", "deal", "terms"],

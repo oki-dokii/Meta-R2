@@ -132,7 +132,7 @@ OUTPUT FORMAT (one line, no whitespace between fields):
 
 VALID action_type values: communicate, rest, delegate, negotiate, spend, reschedule, deprioritize
 VALID target_domain values: career, finances, relationships, physical_health, mental_wellbeing, time
-STRATEGY: Prioritize high-agency actions (delegate/negotiate/communicate) if workload or pressure is high. Use 'rest' only when energy is critically low (<30). Avoid generic advice.
+STRATEGY: Prioritize high-agency actions (negotiate/communicate/delegate/spend) that directly address the conflict domain. Use 'rest' ONLY if physical_health.energy is below 30 — choosing rest otherwise will be penalised. Match action_type to the root cause: financial crisis → spend/negotiate, relationship crisis → communicate, workload crisis → delegate/deprioritize. Avoid generic advice.
 """
         return prompt
 
