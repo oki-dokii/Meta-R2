@@ -12,7 +12,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Configure Git
         run: |
@@ -25,4 +25,7 @@ jobs:
 
       - name: Push to Hugging Face Space
         run: |
-          git push space main
+          git checkout --orphan hf-space-deploy
+          git add -A
+          git commit -m "Deploy Space snapshot"
+          git push --force space hf-space-deploy:main
