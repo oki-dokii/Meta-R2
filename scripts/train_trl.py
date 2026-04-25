@@ -223,6 +223,39 @@ def _make_grpo_config(**kwargs) -> GRPOConfig:
     return GRPOConfig(**filtered)
 
 
+def _dtype_flags(model=None) -> tuple[bool, bool]:
+    """
+    Return (bf16, fp16) for GRPOConfig based on the ACTUAL loaded model dtype.
+
+    Why this matters: Unsloth's patched trainer raises TypeError if
+    `bf16=True` but the model was loaded in float16 (or vice versa).
+    Reading the model's own dtype avoids any mismatch regardless of GPU.
+    Falls back to GPU-capability heuristic when no model is provided.
+    """
+    if model is not None:
+        try:
+            for p in model.parameters():
+                if p.dtype == torch.bfloat16:
+                    return True, False
+                if p.dtype == torch.float16:
+                    return False, True
+                # 4-bit params have a quant_state; check their compute dtype
+                qs = getattr(p, "quant_state", None)
+                if qs is not None:
+                    cdtype = getattr(qs, "dtype", None)
+                    if cdtype == torch.bfloat16:
+                        return True, False
+                    if cdtype == torch.float16:
+                        return False, True
+                break
+        except Exception:
+            pass
+    # Fallback: Ampere+ (compute ≥ 8) → bfloat16; older → float16
+    if torch.cuda.is_available():
+        return (torch.cuda.get_device_capability()[0] >= 8, torch.cuda.get_device_capability()[0] < 8)
+    return False, False
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # JSON boundary helper — used by reward_compact_fn AND LifeStackGRPOTrainer
 # ──────────────────────────────────────────────────────────────────────────────
@@ -335,13 +368,19 @@ def _ensure_trl_model_compat(model):
 # ──────────────────────────────────────────────
 
 def load_model():
-    """Load model with Unsloth 4-bit quantization for Colab T4."""
+    """Load model with Unsloth 4-bit quantization. Uses bfloat16 on Ampere+ (A100/H100), float16 elsewhere."""
+    # Pick compute dtype that matches what we'll request in GRPOConfig.
+    # bf16=True in GRPOConfig requires the model to be in bfloat16; mismatch
+    # causes Unsloth's patched trainer to raise TypeError.
+    _ampere_plus = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    _load_dtype = torch.bfloat16 if _ampere_plus else torch.float16
+
     try:
         from unsloth import FastLanguageModel
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name="unsloth/Qwen2.5-1.5B-Instruct",
             max_seq_length=1024,
-            dtype=torch.float16,  # T4-safe; avoid bf16/fp16 mismatch
+            dtype=_load_dtype,
             load_in_4bit=True,
         )
         model = FastLanguageModel.get_peft_model(
@@ -365,7 +404,7 @@ def load_model():
         model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, dtype=torch.float32, device_map="auto"
+            model_name, dtype=_load_dtype, device_map="auto"
         )
         lora_cfg = LoraConfig(
             r=16,
@@ -1418,10 +1457,10 @@ def train_curriculum(
             temperature=0.7,
             # TRL rule: num_generations must divide per_device_train_batch_size.
             num_generations=4,
-            # T4 (compute 7.5) reports bf16 supported via emulation but mismatches fp16 model
-            # → use bf16 only on Ampere+ (compute >= 8), otherwise fp16.
-            bf16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8),
-            fp16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8),
+            # Read actual model dtype so bf16/fp16 flags never mismatch Unsloth's
+            # patched trainer (raises TypeError if both disagree).
+            bf16=_dtype_flags(model)[0],
+            fp16=_dtype_flags(model)[1],
             # ── Checkpoint settings ──────────────────────────────────────
             # 100 prompts / (batch=4 × accum=4) ≈ 6 optimizer steps per stage.
             # save_steps=25 would never fire; use 5 to save at step 5 of ~6.
@@ -1574,8 +1613,8 @@ def train_episodic_curriculum(
             # was nearly deterministic and never explored EOS naturally.
             temperature=0.9,
             num_generations=4,
-            bf16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8),
-            fp16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8),
+            bf16=_dtype_flags(model)[0],
+            fp16=_dtype_flags(model)[1],
             save_strategy="steps",
             save_steps=5,
             save_total_limit=3,
