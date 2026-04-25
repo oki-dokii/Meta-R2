@@ -786,8 +786,8 @@
 
         function initChart(history) {
             const ctx = document.getElementById('performanceChart').getContext('2d');
-            if (window.myChart) window.myChart.destroy();
-            window.myChart = new Chart(ctx, {
+            if (window.perfChartInstance instanceof Chart) window.perfChartInstance.destroy();
+            window.perfChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: history.map((_, i) => `Ep ${i+1}`),
@@ -1053,8 +1053,8 @@
             }));
 
             const ctx = document.getElementById('trajectoryChart').getContext('2d');
-            if (window.trajChart instanceof Chart) window.trajChart.destroy();
-            window.trajChart = new Chart(ctx, {
+            if (window.trajChartInstance instanceof Chart) window.trajChartInstance.destroy();
+            window.trajChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: { labels, datasets },
                 options: {
@@ -1392,8 +1392,8 @@
             const aVals = labels.map(l => personA.ocean[l.toLowerCase()]);
             const bVals = labels.map(l => personB.ocean[l.toLowerCase()]);
             const ctx = document.getElementById('oceanChart').getContext('2d');
-            if (window.oceanChart) window.oceanChart.destroy();
-            window.oceanChart = new Chart(ctx, {
+            if (window.oceanChartInstance instanceof Chart) window.oceanChartInstance.destroy();
+            window.oceanChartInstance = new Chart(ctx, {
                 type: 'radar',
                 data: {
                     labels,
