@@ -313,53 +313,106 @@ def get_trajectory():
     obs = env.step(env_action)
     day0_metrics = dict(obs.metrics)
 
-    # ── 7-day drift simulation ────────────────────────────────────────────────
-    # env.rollout() fires null actions (actions_taken=0) which trigger the
-    # INACTION_PENALTY every step → constant reward and flat metric lines.
-    # Instead: simulate realistic daily drift as the unresolved conflict
-    # continues to erode metrics, modulated by persona neuroticism.
+    # ── 7-day trade-off resolution trajectory ────────────────────────────────
+    # Shows how today's action plays out over the week:
+    #   • Positive effects of the action compound and spread to adjacent metrics
+    #   • Negative side-effects of the action decay (trade-offs resolve)
+    #   • Unresolved portion of the conflict keeps bleeding
+    #   • Untouched domains see gentle passive recovery
+    # Neuroticism amplifies the unresolved-conflict bleed.
     GAMMA = 0.9
+    _INVERTED = {"stress_level", "workload", "debt_pressure",
+                 "commute_burden", "admin_overhead"}
+
+    def _is_good_direction(metric_key: str, delta: float) -> bool:
+        sub = metric_key.split(".")[-1]
+        if sub in _INVERTED:
+            return delta < 0
+        return delta > 0
+
+    # Agent's chosen action after uptake scaling (what actually happened day 0)
+    scaled_action_changes = {
+        k: v * uptake for k, v in action.primary.metric_changes.items()
+    }
+
+    # How much of each conflict metric the agent addressed vs left unresolved.
+    # If action reduced a metric that the conflict damaged, that piece is handled.
+    resolution_ratio = {}
+    for c_key, c_delta in conflict.primary_disruption.items():
+        addressed = 0.0
+        for a_key, a_delta in scaled_action_changes.items():
+            if a_key == c_key and _is_good_direction(a_key, a_delta):
+                addressed = abs(a_delta) / max(abs(c_delta), 1e-6)
+                break
+        resolution_ratio[c_key] = min(addressed, 1.0)
+
+    neuroticism_amp = 1.0 + (person.neuroticism - 0.5) * 0.5   # 0.75–1.25
+
+    current = {k: float(v) for k, v in day0_metrics.items()}
     trajectory = []
     cumulative = 0.0
-
-    # Per-day erosion: 1/10 of the original conflict disruption per day
-    # (representing the unresolved portion gradually worsening).
-    daily_erosion = {k: v * 0.10 for k, v in conflict.primary_disruption.items()}
-
-    # Neuroticism amplifier: anxious people suffer more from unresolved stress
-    neuroticism_amp = 1.0 + (person.neuroticism - 0.5) * 0.6   # 0.7–1.3 range
-
-    current = copy.deepcopy(day0_metrics)   # plain dict, mutated each day
+    hit_domains = {k.split(".")[0] for k in conflict.primary_disruption}
+    target_domain = action.primary.target_domain
 
     for t in range(1, 8):
         prev = dict(current)
-        changes = {}
+        step_changes = {}
 
-        for metric_key, base_delta in daily_erosion.items():
-            # Inverted metrics (stress, workload, etc.) erode UP; others erode DOWN
-            _INVERTED = {"stress_level", "workload", "debt_pressure",
-                         "commute_burden", "admin_overhead"}
-            sub = metric_key.split(".")[-1]
-            direction = 1 if sub in _INVERTED else -1
-            magnitude = abs(base_delta) * neuroticism_amp * direction
-            changes[metric_key] = magnitude
+        # 1) Action ripple: good effects COMPOUND (diminishing), bad effects DECAY.
+        #    Decay curve: day 1 = 100%, day 2 = 70%, day 3 = 49%, ... (0.7^t)
+        ripple_factor = 0.7 ** (t - 1)
+        for a_key, a_delta in scaled_action_changes.items():
+            if _is_good_direction(a_key, a_delta):
+                magnitude = abs(a_delta) * 0.25 * ripple_factor
+                sub = a_key.split(".")[-1]
+                sign = -1 if sub in _INVERTED else 1
+                step_changes[a_key] = step_changes.get(a_key, 0) + magnitude * sign
+            else:
+                magnitude = abs(a_delta) * 0.15 * ripple_factor
+                sub = a_key.split(".")[-1]
+                sign = 1 if sub in _INVERTED else -1
+                step_changes[a_key] = step_changes.get(a_key, 0) + magnitude * sign
 
-        # Small natural recovery on domains NOT hit by the conflict
-        # (life keeps going; effort in other areas pays small dividends)
-        hit_domains = {k.split(".")[0] for k in conflict.primary_disruption}
+        # 2) Target domain spillover: the focus area keeps recovering
+        for k in current:
+            if k.startswith(target_domain + "."):
+                sub = k.split(".")[-1]
+                sign = -1 if sub in _INVERTED else 1
+                step_changes[k] = step_changes.get(k, 0) + 1.2 * sign
+
+        # 3) Unresolved conflict continues to bleed (scaled by neuroticism)
+        for c_key, c_delta in conflict.primary_disruption.items():
+            unresolved = 1.0 - resolution_ratio.get(c_key, 0.0)
+            if unresolved <= 0:
+                continue
+            bleed = abs(c_delta) * 0.12 * unresolved * neuroticism_amp
+            sub = c_key.split(".")[-1]
+            sign = 1 if sub in _INVERTED else -1
+            step_changes[c_key] = step_changes.get(c_key, 0) + bleed * sign
+
+        # 4) Untouched domains: slow passive recovery toward 70 baseline
         for dom in ["career", "finances", "relationships",
                     "physical_health", "mental_wellbeing", "time"]:
-            if dom not in hit_domains:
-                for k in [k for k in current if k.startswith(dom + ".")]:
-                    changes[k] = changes.get(k, 0) + 0.5   # tiny passive gain
+            if dom in hit_domains or dom == target_domain:
+                continue
+            for k in [k for k in current if k.startswith(dom + ".")]:
+                sub = k.split(".")[-1]
+                toward = 70.0
+                gap = toward - current[k]
+                step_changes[k] = step_changes.get(k, 0) + gap * 0.08
 
-        for k, delta in changes.items():
+        # Apply all changes clamped to [0, 100]
+        for k, delta in step_changes.items():
             current[k] = round(max(0.0, min(100.0, current.get(k, 70.0) + delta)), 2)
 
-        # Compute reward as avg change across all metrics
-        total_delta = sum(current[k] - prev.get(k, 70.0) for k in current)
-        avg_delta = total_delta / max(len(current), 1)
-        step_reward = round(max(-1.0, min(1.0, avg_delta / 50.0)), 5)
+        # Per-day reward from real metric delta (inverted metrics count inverted)
+        signed_delta = 0.0
+        for k in current:
+            d = current[k] - prev.get(k, 70.0)
+            sub = k.split(".")[-1]
+            signed_delta += -d if sub in _INVERTED else d
+        avg_delta = signed_delta / max(len(current), 1)
+        step_reward = round(max(-1.0, min(1.0, avg_delta / 8.0)), 5)
 
         disc = round(GAMMA ** t * step_reward, 5)
         cumulative += disc
