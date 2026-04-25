@@ -1219,8 +1219,12 @@
             const errEl = document.getElementById('situation-error');
             
             // Validation: Ensure text is long enough and not just garbage
-            if (sit.length < 20) {
+            const vowelRatio = (sit.match(/[aeiouy]/gi) || []).length / sit.length;
+            const hasSpaces = sit.includes(' ');
+            
+            if (sit.length < 20 || vowelRatio < 0.1 || !hasSpaces) {
                 errEl.classList.remove('hidden');
+                errEl.innerText = "⚠️ Input seems invalid or too random. Please describe your situation in natural language.";
                 return;
             } else {
                 errEl.classList.add('hidden');
