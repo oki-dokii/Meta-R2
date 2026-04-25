@@ -15,7 +15,7 @@ class ToolActionType(str, Enum):
 
 @dataclass
 class PrimaryAction:
-    action_type: str  # reschedule, delegate, negotiate, spend, communicate, rest, deprioritize
+    action_type: str  # reschedule, delegate, negotiate, spend, communicate, rest, deprioritize, prepare, self_care
     target_domain: str
     metric_changes: dict
     resource_cost: dict

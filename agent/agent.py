@@ -130,9 +130,9 @@ Respond with a SINGLE LINE of minified JSON only. No newlines inside the JSON. N
 OUTPUT FORMAT (one line, no whitespace between fields):
 {{"action_type":"<type>","target_domain":"<domain>","metric_changes":{{"domain.submetric":<number>}},"resource_cost":{{"time":<n>,"money":<n>,"energy":<n>}},"description":"<one sentence>","recipient":"none","message_content":"","reasoning":"<one sentence>"}}
 
-VALID action_type values: communicate, rest, delegate, negotiate, spend, reschedule, deprioritize
+VALID action_type values: communicate, rest, delegate, negotiate, spend, reschedule, deprioritize, prepare, self_care
 VALID target_domain values: career, finances, relationships, physical_health, mental_wellbeing, time
-STRATEGY: Prioritize high-agency actions (negotiate/communicate/delegate/spend) that directly address the conflict domain. Use 'rest' ONLY if physical_health.energy is below 30 — choosing rest otherwise will be penalised. Match action_type to the root cause: financial crisis → spend/negotiate, relationship crisis → communicate, workload crisis → delegate/deprioritize. Avoid generic advice.
+STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prepare' for exams/deadlines. Use 'self_care' for emotional stability. Use 'rest' ONLY if energy < 30. Avoid generic advice.
 """
         return prompt
 

@@ -41,6 +41,12 @@ class SimPerson:
             
         if action_type == 'rest' and self.extraversion < 0.4:
             uptake += 0.10
+        
+        if action_type == 'prepare' and self.conscientiousness > 0.6:
+            uptake += 0.15
+            
+        if action_type == 'self_care' and self.openness > 0.6:
+            uptake += 0.10
             
         return max(0.1, min(1.0, uptake))
 
