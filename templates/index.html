@@ -44,8 +44,6 @@
             <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
             <button onclick="showTab('compare')" id="tab-compare" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">⚡ Untrained vs GRPO-Trained</button>
             <button onclick="showTab('memeffect')" id="tab-memeffect" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧠 Memory Effect</button>
-            <button onclick="showTab('arjun')" id="tab-arjun" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗓️ Arjun's Journey</button>
-            <button onclick="showTab('history')" id="tab-history" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📼 Episode Replay</button>
             <button onclick="showTab('lab')" id="tab-lab" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🎭 Personality Lab</button>
             <button onclick="showTab('whatif')" id="tab-whatif" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧩 What-If Lab</button>
             <button onclick="showTab('tasks')" id="tab-tasks" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗺️ Task Explorer</button>
@@ -446,6 +444,12 @@
                     <button onclick="comparePersons()" id="compare-btn" class="px-8 py-3 bg-indigo-600 rounded-xl font-bold shadow-lg shadow-indigo-600/20 active:scale-95 transition">🔥 Compare Response</button>
                 </div>
 
+                <div id="lab-placeholder" class="py-20 text-center glass rounded-2xl mb-8">
+                    <div class="text-4xl mb-4 opacity-50">🎭</div>
+                    <h4 class="text-xl font-black text-slate-400">Persona Conflict Simulator</h4>
+                    <p class="text-sm text-slate-600 mt-2">Select two personas and click "Compare Response" to witness how their <br> different "OCEAN" traits dictate divergent causal paths.</p>
+                </div>
+
                 <!-- OCEAN Radar Chart row -->
                 <div id="ocean-radar-row" class="hidden mb-8 glass p-6 rounded-2xl border border-indigo-500/20">
                     <div class="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-4">OCEAN Personality Radar</div>
@@ -472,22 +476,6 @@
             </div>
         </div>
 
-        <!-- ── TAB 3: ARJUN'S JOURNEY ── -->
-        <div id="content-arjun" class="hidden glass p-8 rounded-2xl">
-            <h3 class="text-2xl font-black mb-4">🗓️ Longitudinal Context Persistence</h3>
-            <p class="text-slate-400 mb-8 max-w-2xl">By activating Arjun's history, the agent retrieves memories of past decisions from **ChromaDB**. This transforms a zero-shot LLM into a context-aware coach that understands your specific relationship dynamics and work history.</p>
-            <div class="bg-indigo-600/20 border border-indigo-500/30 p-6 rounded-2xl mb-8">
-                <h4 class="text-indigo-400 font-bold mb-2">Experience the v3 Flywheel:</h4>
-                <ol class="text-sm list-decimal list-inside space-y-2 text-slate-300">
-                    <li>Click <b>Activate History</b> to seed ChromaDB with Arjun's Week 1 & 2 data.</li>
-                    <li>Go back to <b>Situational Portal</b>.</li>
-                    <li>Select <b>Arjun (Startup Lead)</b> and run the simulation.</li>
-                    <li><b>Observe Reasoning:</b> The agent will explicitly mention precedents from his past (e.g., flight cancellations or funding stress).</li>
-                </ol>
-            </div>
-            <button onclick="activateArjun()" id="arjun-btn" class="px-8 py-4 bg-indigo-600 rounded-xl font-bold shadow-xl shadow-indigo-500/30 active:scale-95 transition">🔗 Activate History (Seed ChromaDB)</button>
-            <p id="arjun-status" class="mt-4 text-xs font-bold text-green-400"></p>
-        </div>
 
         <!-- ── TAB 3.7: WHAT-IF LAB ── -->
         <div id="content-whatif" class="hidden space-y-8">
@@ -535,20 +523,6 @@
             </div>
         </div>
 
-        <!-- ── TAB 3.8: EPISODE HISTORY ── -->
-        <div id="content-history" class="hidden space-y-8">
-            <div class="glass p-8 rounded-2xl">
-                <div class="flex justify-between items-center mb-10">
-                    <div>
-                        <h3 class="text-2xl font-black italic tracking-tighter">EPISODE REPLAY</h3>
-                        <p class="text-xs text-slate-500 uppercase font-bold tracking-widest mt-1">Audit log of agent reasoning & causal chains</p>
-                    </div>
-                </div>
-                <div id="history-container" class="space-y-6">
-                    <div class="text-center py-20 text-slate-500 italic">No episodes logged yet. Start a simulation in the Portal!</div>
-                </div>
-            </div>
-        </div>
 
         <!-- ── TAB 4: TASKS ── -->
         <div id="content-tasks" class="hidden space-y-6">
@@ -1443,6 +1417,7 @@
             const personB = document.getElementById('lab-person-b').value;
 
             btn.disabled = true; btn.innerText = "🌀 Simulating Both Paths...";
+            document.getElementById('lab-placeholder').classList.add('hidden');
             document.getElementById('lab-col-a').classList.remove('hidden');
             document.getElementById('lab-col-b').classList.remove('hidden');
 
