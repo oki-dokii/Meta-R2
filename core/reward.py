@@ -6,6 +6,25 @@ from core.life_state import LifeMetrics
 from core.task import Task
 
 
+def _load_first_json_object(completion: str) -> dict:
+    """Parse the first complete JSON object, ignoring trailing model text."""
+    text = completion.strip()
+    if "```json" in text:
+        text = text.split("```json")[-1].split("```")[0]
+    elif "```" in text:
+        text = text.split("```")[-1].split("```")[0]
+
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            data, _ = decoder.raw_decode(text[match.start():].strip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    raise json.JSONDecodeError("No valid JSON object found", text, 0)
+
+
 
 def compute_reward(
     state_before: LifeMetrics, 
@@ -134,8 +153,7 @@ def compute_reward(
         comp_reward = reward_format_compliance(completion)
         try:
             # Simple extract reasoning from JSON if possible
-            import json
-            data = json.loads(completion)
+            data = _load_first_json_object(completion)
             reasoning = data.get("reasoning", "")
         except:
             pass
@@ -314,31 +332,13 @@ def reward_format_compliance(completion: str) -> float:
     if any(x in completion.lower() for x in ["i cannot", "i'm sorry", "as an ai"]):
         return -1.0
 
-    # Extract JSON content from markdown code blocks if present
-    json_str = completion.strip()
-    if "```json" in json_str:
-        json_str = json_str.split("```json")[-1].split("```")[0].strip()
-    elif "```" in json_str:
-        json_str = json_str.split("```")[-1].split("```")[0].strip()
-        
     try:
-        data = json.loads(json_str)
+        data = _load_first_json_object(completion)
         required = ["action_type", "target_domain", "metric_changes", "resource_cost", "reasoning"]
         if isinstance(data, dict) and all(k in data and data.get(k) is not None for k in required):
             return 1.0
         return 0.5
     except json.JSONDecodeError:
-        # Final attempt: try to find anything between { and }
-        match = re.search(r'\{.*\}', json_str, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(0))
-                required = ["action_type", "target_domain", "metric_changes", "resource_cost", "reasoning"]
-                if isinstance(data, dict) and all(k in data and data.get(k) is not None for k in required):
-                    return 1.0
-                return 0.5
-            except:
-                pass
         return -0.5
 
 def reward_plausibility_check(metric_changes: dict, resource_cost: dict) -> float:

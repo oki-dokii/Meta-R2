@@ -413,6 +413,27 @@ LOG_INTERVAL = 20
 LOG_DIR = "training_logs"
 SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 
+
+def _load_first_json_object(completion: str) -> dict:
+    """Parse the first complete JSON object, ignoring trailing model text."""
+    text = completion.strip()
+    if "```json" in text:
+        text = text.split("```json")[-1].split("```")[0]
+    elif "```" in text:
+        text = text.split("```")[-1].split("```")[0]
+
+    decoder = json.JSONDecoder()
+    import re as _re
+    for _m in _re.finditer(r"\{", text):
+        try:
+            data, _ = decoder.raw_decode(text[_m.start():].strip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    raise json.JSONDecodeError("No valid JSON object found", text, 0)
+
+
 def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
     """Run the environment and return the full reward breakdown. Computed fresh per call to prevent hacking."""
     from core.lifestack_env import LifeStackEnv, LifeStackAction
@@ -420,12 +441,7 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
     
     try:
         # 1. Parse JSON
-        text = completion.strip()
-        if "```json" in text:
-            text = text.split("```json")[-1].split("```")[0]
-        elif "```" in text:
-            text = text.split("```")[-1].split("```")[0]
-        data = json.loads(text.strip())
+        data = _load_first_json_object(completion)
 
         # 2. Extract Task Metadata
         m = re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, re.DOTALL)
@@ -544,10 +560,7 @@ def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs)
     results = []
     for c in completions:
         try:
-            text = c.strip()
-            if "```json" in text: text = text.split("```json")[-1].split("```")[0]
-            elif "```" in text: text = text.split("```")[-1].split("```")[0]
-            data = json.loads(text.strip())
+            data = _load_first_json_object(c)
             mc = data.get("metric_changes", {})
             rc = data.get("resource_cost", {})
             results.append(reward_plausibility_check(mc, rc))
@@ -577,10 +590,7 @@ def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) ->
     results = []
     for c in completions:
         try:
-            text = c.strip()
-            if "```json" in text: text = text.split("```json")[-1].split("```")[0]
-            elif "```" in text: text = text.split("```")[-1].split("```")[0]
-            data = json.loads(text.strip())
+            data = _load_first_json_object(c)
             
             reasoning = data.get("reasoning", "")
             a_type = data.get("action_type", "")
@@ -1178,12 +1188,7 @@ def run_full_episode(
             completion = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
                                           skip_special_tokens=True)
             try:
-                text = completion.strip()
-                if "```json" in text:
-                    text = text.split("```json")[-1].split("```")[0]
-                elif "```" in text:
-                    text = text.split("```")[-1].split("```")[0]
-                d = json.loads(text)
+                d = _load_first_json_object(completion)
                 env_action = LifeStackAction(
                     action_type=d.get("action_type", "rest"),
                     target=d.get("target_domain", "time"),
