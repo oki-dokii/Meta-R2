@@ -11,14 +11,17 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0f172a; color: #f8fafc; overflow-x: hidden; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); }
         .tab-active { border-bottom: 2px solid #818cf8; color: #818cf8; }
         .metric-bar { transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
         @keyframes pulse-red { 0%, 100% { background-color: #ef4444; } 50% { background-color: #f87171; } }
         .pulse-red { animation: pulse-red 1s infinite; }
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -121,9 +124,9 @@
                     </div>
                 </div>
 
-                <div id="metrics-container" class="space-y-2.5 relative z-10"></div>
+                <div id="metrics-container" class="space-y-2.5 relative z-10 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar"></div>
                 <!-- Mini-Graph Overlay -->
-                <div id="cascade-graph" class="absolute inset-0 opacity-20 pointer-events-none"></div>
+                <div id="cascade-graph" class="absolute inset-0 opacity-10 pointer-events-none"></div>
             </div>
             <div class="lg:col-span-1 space-y-6">
                 <div id="action-card" class="hidden glass p-6 rounded-2xl border-l-4 border-indigo-500">
@@ -783,13 +786,21 @@
             }
 
             domains.forEach(dom => {
-                html += `<div class="mt-4 first:mt-0 font-black text-[9px] text-slate-600 uppercase tracking-widest border-b border-slate-800 pb-1 mb-2">${dom}</div>`;
+                html += `<div class="mt-5 first:mt-0 font-black text-[10px] text-indigo-400/80 uppercase tracking-widest border-b border-slate-800/50 pb-1.5 mb-2.5">${dom.replace('_',' ')}</div>`;
                 Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.')).forEach(([key, val]) => {
                     const status = statusMap[key] || 'unchanged';
                     const color = status === 'unchanged' ? getMetricColor(key, val) : '';
                     const label = key.split('.')[1].replace(/_/g, ' ');
                     let statusClass = (status === 'primary') ? 'pulse-red' : (status === 'first') ? 'bg-orange-500' : (status === 'second') ? 'bg-yellow-500' : (status === 'improved') ? 'bg-green-500' : 'bg-slate-700';
-                    html += `<div class="flex items-center gap-3 text-[10px] mb-1.5"><div class="w-20 text-slate-500 capitalize truncate">${label}</div><div class="flex-1 h-1.5 bg-slate-900 rounded-full overflow-hidden self-center"><div class="metric-bar h-full rounded-full ${statusClass}" style="width: ${val}%; background-color: ${color}"></div></div><div class="w-6 text-right font-bold tabular-nums">${val.toFixed(0)}</div></div>`;
+                    
+                    html += `
+                    <div class="flex items-center gap-3 text-[11px] mb-2 group">
+                        <div class="w-28 text-slate-400 capitalize truncate group-hover:text-slate-200 transition-colors">${label}</div>
+                        <div class="flex-1 h-2 bg-slate-950 rounded-full overflow-hidden self-center border border-white/5">
+                            <div class="metric-bar h-full rounded-full ${statusClass}" style="width: ${val}%; background-color: ${color}"></div>
+                        </div>
+                        <div class="w-8 text-right font-black tabular-nums text-slate-300">${val.toFixed(0)}</div>
+                    </div>`;
                 });
             });
             container.innerHTML = html;
