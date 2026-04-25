@@ -112,8 +112,42 @@ def _install_trl_optional_dependency_shims() -> None:
     vllm_mod.SamplingParams = SamplingParams
     vllm_mod.LLM = LLM
     vllm_mod.__version__ = "0.11.1"
+    vllm_mod.__path__ = []  # mark as package for TRL optional vLLM imports
     vllm_mod.__spec__ = importlib.machinery.ModuleSpec("vllm", loader=None)
     sys.modules["vllm"] = vllm_mod
+
+    vllm_dist_mod = types.ModuleType("vllm.distributed")
+    vllm_dist_mod.__path__ = []
+    vllm_device_mod = types.ModuleType("vllm.distributed.device_communicators")
+    vllm_device_mod.__path__ = []
+    vllm_pynccl_mod = types.ModuleType("vllm.distributed.device_communicators.pynccl")
+
+    class PyNcclCommunicator:  # noqa: D401
+        """Compatibility placeholder for TRL optional vLLM client imports."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+    vllm_pynccl_mod.PyNcclCommunicator = PyNcclCommunicator
+    vllm_dist_mod.__spec__ = importlib.machinery.ModuleSpec("vllm.distributed", loader=None)
+    vllm_device_mod.__spec__ = importlib.machinery.ModuleSpec("vllm.distributed.device_communicators", loader=None)
+    vllm_pynccl_mod.__spec__ = importlib.machinery.ModuleSpec("vllm.distributed.device_communicators.pynccl", loader=None)
+    sys.modules["vllm.distributed"] = vllm_dist_mod
+    sys.modules["vllm.distributed.device_communicators"] = vllm_device_mod
+    sys.modules["vllm.distributed.device_communicators.pynccl"] = vllm_pynccl_mod
+
+    vllm_tf_mod = types.ModuleType("vllm.transformers_utils")
+    vllm_tf_mod.__path__ = []
+    vllm_tok_mod = types.ModuleType("vllm.transformers_utils.tokenizer")
+
+    def cached_tokenizer(tokenizer, *args, **kwargs):
+        return tokenizer
+
+    vllm_tok_mod.cached_tokenizer = cached_tokenizer
+    vllm_tf_mod.__spec__ = importlib.machinery.ModuleSpec("vllm.transformers_utils", loader=None)
+    vllm_tok_mod.__spec__ = importlib.machinery.ModuleSpec("vllm.transformers_utils.tokenizer", loader=None)
+    sys.modules["vllm.transformers_utils"] = vllm_tf_mod
+    sys.modules["vllm.transformers_utils.tokenizer"] = vllm_tok_mod
 
     # Some HF Spaces images include a partial vLLM install whose package
     # metadata reports version "N/A". TRL checks this before importing GRPO and
