@@ -57,7 +57,7 @@ graph TD
         Env["LifeStackEnv"]
         DG["Dependency Graph (40-Edges)"]
         RT["Route Manager"]
-        RE["Reward Orchestrator (7-Signals)"]
+        RE["Reward Orchestrator (9 GRPO Signals)"]
     end
 
     subgraph "Observability Layer (Flask Portal)"
@@ -125,7 +125,7 @@ Episodes were run back-to-back testing "Cold Start" vs "Memory-Aware" agents.
 
 *   **Conflict Intake**: Uses **NLP-to-Conflict** parsing; users can type natural language crises (e.g., *"I just got fired..."*) and the system generates a personalized 23-metric disruption.
 *   **Observation Space**: 26-dimensional state vector + domain-specific JSON metadata.
-*   **Reward signals**: 7 non-overlapping components (Milestone, Completion, Outcome, Preservation, Replan, Efficiency, Reasoning) weighted iteratively for stability.
+*   **Reward signals**: 9 GRPO signals around 7 core environment components, including format/EOS hygiene, plausibility, milestones, completion, replan recovery, human feedback, and long-term rollout.
 
 ---
 

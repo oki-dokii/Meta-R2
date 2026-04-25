@@ -40,7 +40,7 @@ LifeStack introduces the **Personality Lab**, allowing side-by-side comparison o
 ---
 
 ### 4. Hardened Engineering: The Anti-Hacking Guardrails
-In our pursuit of engineering seriousness, we implemented a **7-Signal Reward Orchestrator**. This system prevents "Reward Hacking" (where an agent might just output 'Good' words to trick the evaluator) by verifying:
+In our pursuit of engineering seriousness, we implemented a **9-signal GRPO reward stack around 7 core environment components**. This system prevents "Reward Hacking" (where an agent might just output 'Good' words to trick the evaluator) by verifying:
 1.  **Reasoning Coherence**: Does the internal text string logically justify the categorical action?
 2.  **Causal Plausibility**: Can a 1-hour `rest` action realistically recover 50 points of Energy? (The answer is no, and the agent is penalized for claiming it).
 3.  **Episode Replay**: We built a full **History Audit Tab** that tracks the last 5 episodes in session, providing a detailed paper trail of how the agent navigated the cascading crises.
@@ -50,7 +50,7 @@ LifeStack is grounded in four foundational research traditions:
 1.  **Cognitive Stress Propagation (Starcke & Brand, 2012)**: Informed our Cascade Dampening Factor (0.6) and the 40-edge graph.
 2.  **Scarcity Decision Theory (Mullainathan & Shafir, 2013)**: Modeled the "Bandwidth Tax" where low resources degrade action effectiveness.
 3.  **Retrieval-Augmented Moderation (RAM)**: Applied RAG principles to personalized decision-support.
-4.  **Multi-Objective RL (Roijers et al., 2013)**: Guided the weighting of our 7 non-overlapping reward signals.
+4.  **Multi-Objective RL (Roijers et al., 2013)**: Guided the weighting of our 9 GRPO signals and 7 core environment components.
 
 ### 6. The Engineering Journey: Four Runs to a Real Signal
 
@@ -94,6 +94,12 @@ Five-stage curriculum, 100 prompts per stage, `max_completion_length=96`, full 9
 | Run 4 (final, 5-stage) | −0.100 | ✅ Consistent |
 
 The degradation from −0.010 to −0.100 between Run 3 and Run 4 is expected: Run 4 uses harder tasks (more domains, multi-domain cascades), more reward signals (7-day rollout now penalises short-sighted actions), and a tighter token budget (96 vs 128). The model is being evaluated more rigorously, not performing worse.
+
+#### V2 — From Single Action to Episode-Level Training
+
+After the first GRPO runs, we found a deeper limitation: the model was trained on one action at a time, while the environment is naturally episodic. The repository now includes a v2 path that keeps the single-step curriculum as a warm-up, then trains on compact `{"actions": [...]}` episode plans. Each proposed sequence is executed inside `LifeStackEnv`, producing a discounted trajectory reward with terminal success shaping.
+
+We also fixed two reward-contract issues before spending more HF credits: route IDs now receive full format credit when the model uses `action_type="execute"` to complete a listed route, and missing ChromaDB human-feedback memory is neutral instead of a hidden global penalty. The new credit gate is intentionally conservative: `--episode-train --dry-run`, then a tiny GPU variance check, then a pushed `jdsb06/lifestack-grpo-v2` adapter only if reward variance is non-degenerate.
 
 #### Engineering Challenges Along the Way
 

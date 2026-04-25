@@ -4,6 +4,7 @@ license: apache-2.0
 tags:
   - reinforcement-learning
   - grpo
+  - episodic-rl
   - life-planning
   - openenv
   - qwen2.5
@@ -162,6 +163,33 @@ Status: ✅ consistent performance, best model
 | Stage 2–5 reward | full 9-signal stack |
 | Total steps | 125 (25/stage × 5 stages) |
 | Total T4 time | ~45 min (Run 4) / ~4–5 hrs across all runs |
+
+---
+
+## V2 Episodic Training Path
+
+The repository now includes a gated v2 path for HF-credit runs:
+
+```bash
+python scripts/train_trl.py --episode-train --dry-run
+python scripts/train_trl.py --episode-train --stages 2 --episodes-per-stage 40 --episode-horizon 3 --hub-repo-id jdsb06/lifestack-grpo-v2 --push-to-hub
+```
+
+V1 trained one JSON action per prompt, then evaluated long-term effects with a
+null/rest rollout. V2 prompts the model to produce `{"actions": [...]}` and
+scores the sequence by executing it step-by-step in `LifeStackEnv`. The separate
+`--full-episode` runner remains closed-loop evaluation: generate one action,
+observe the new state, and repeat.
+
+Two contract fixes are included before spending credits on v2:
+
+- Route ids listed in the prompt now receive full format credit when used as the
+  target for `action_type="execute"`.
+- Missing ChromaDB / human-feedback storage returns neutral reward instead of
+  applying a small penalty to every completion.
+
+The credit gate is: pass `--episode-train --dry-run`, then run a tiny GPU smoke
+run and confirm non-zero episode reward variance before pushing `v2`.
 
 ---
 

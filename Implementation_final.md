@@ -29,7 +29,7 @@ Already wired in `app_flask.py`: `/api/feedback/submit` (Feature 9 backend is do
 4. F2 D3 cascade visualisation
 5. F4 Personality comparison with OCEAN radar
 6. F6 Counterfactual explorer panel
-7. F8 Multi-step GRPO training loop + `push_to_hub`
+7. F8 Episodic GRPO v2 training loop + gated `push_to_hub`
 8. F9 RLHF feedback panel + training integration
 9. F7 Cold-vs-warm memory ablation demo
 10. F10 Health + calendar uploads
@@ -124,15 +124,16 @@ Every new feature adds one new tab button in the nav bar (line 37–44) and one 
 
 **Frontend:** Two-column timeline in a new "Memory" tab. Callout box with `💡 Agent recalled: …` when warm has retrieved context. Big percentage banner at the bottom.
 
-### F8 — Multi-Step GRPO Training
-**`scripts/train_trl.py` (currently 914 lines, single-prompt per scenario):**
-- Add `run_full_episode(task, person, model, tokenizer, max_steps=10) -> tuple[list[step_reward], dict]`:
-  - For each step: build prompt from current `LifeMetrics` + `ResourceBudget` + conflict, call `model.generate`, parse JSON action, call `env.step()`, append step reward from existing `compute_task_reward()`.
-  - Return per-step rewards and a serialised trajectory.
-- New CLI flag `--full-episode`. When set, `generate_dataset()` is replaced by `generate_episodic_dataset()` which calls `run_full_episode` per scenario and uses `sum(step_rewards) / max_steps` as the GRPO reward.
-- `--dry-run` compatibility: 1 episode × 2 steps with a mock model (existing dry-run path stays valid).
-- After `trainer.save_model()` at line 610, add `if not args.dry_run and args.push_to_hub: model.push_to_hub("jdsb06/lifestack-grpo-v2"); tokenizer.push_to_hub("jdsb06/lifestack-grpo-v2")`. New `--push-to-hub` flag guards it.
-- Run on HF A10G once built: `python scripts/train_trl.py --full-episode --stages 5 --push-to-hub` (~$5).
+### F8 — Episodic GRPO v2 Training
+**`scripts/train_trl.py`:**
+- Current status: implemented as a gated v2 path, while keeping the original single-step curriculum.
+- `--full-episode` remains post-training closed-loop evaluation: generate one action, step `LifeStackEnv`, observe, repeat.
+- New `--episode-train` path trains on compact `{"actions": [...]}` episode plans. `reward_episode_return_fn` executes the proposed sequence inside `LifeStackEnv` and scores discounted trajectory return plus terminal success shaping.
+- Contract fixes before spending credits:
+  - Route IDs listed in prompts receive full format credit when used with `action_type="execute"`.
+  - Missing ChromaDB/human-feedback memory returns neutral reward rather than a hidden global penalty.
+- `--dry-run` compatibility: `python scripts/train_trl.py --episode-train --dry-run` validates imports, dataset generation, reward functions, trainer step, and model save on CPU.
+- Gated HF run: first run a tiny GPU smoke test and confirm non-zero reward variance, then run `python scripts/train_trl.py --episode-train --stages 2 --episodes-per-stage 40 --episode-horizon 3 --push-to-hub --hub-repo-id jdsb06/lifestack-grpo-v2`.
 
 ### F9 — RLHF Loop
 - **Backend:** `/api/feedback/submit` already fully implemented (line 267). No route changes needed.
@@ -188,7 +189,7 @@ No other files get edited. No existing route or dataclass is modified.
 python scripts/smoke_test.py
 python scripts/eval.py --episodes 5
 python -m pytest tests/ -v
-python scripts/train_trl.py --full-episode --dry-run   # F8 dry-run
+python scripts/train_trl.py --episode-train --dry-run  # F8 episodic dry-run
 python app_flask.py  # open localhost:7860, click through each new tab
 ```
 
@@ -204,9 +205,9 @@ print(c.chat_completion([{"role":"user","content":"Reply OK"}], max_tokens=5).ch
 2. Secrets: `HF_TOKEN`, `GROQ_API_KEY`.
 3. Push branch → confirm Flask app starts on port 7860 → open every tab.
 
-**A10G training run (F8, ~$5, one-off):** 
+**A10G training run (F8, gated one-off):**
 ```bash
-python scripts/train_trl.py --full-episode --stages 5 --push-to-hub
+python scripts/train_trl.py --episode-train --stages 2 --episodes-per-stage 40 --episode-horizon 3 --push-to-hub --hub-repo-id jdsb06/lifestack-grpo-v2
 ```
 Afterwards: `https://huggingface.co/jdsb06/lifestack-grpo-v2` should show the checkpoint.
 
