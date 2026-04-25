@@ -659,6 +659,13 @@ class LifeStackEnv(_EnvBase):
         print("═"*70)
 
 
+def env_render_compact(env, obs):
+    """Compact printer for testing."""
+    print(f"STEP: {obs.step} | REWARD: {obs.reward:.3f} | DONE: {obs.done}")
+    if obs.metadata.get("breakdown", {}).get("penalties_fired"):
+        print(f"  ⚠️ PENALTIES: {obs.metadata['breakdown']['penalties_fired']}")
+
+
 def main():
     env = LifeStackEnv()
     
@@ -709,13 +716,6 @@ def main():
         env_render_compact(env, obs)
         total_reward += (obs.reward or 0.0)
 
-def env_render_compact(env, obs):
-    """Compact printer for testing."""
-    print(f"STEP: {obs.step} | REWARD: {obs.reward:.3f} | DONE: {obs.done}")
-    if obs.metadata.get("breakdown", {}).get("penalties_fired"):
-        print(f"  ⚠️ PENALTIES: {obs.metadata['breakdown']['penalties_fired']}")
-
-        
     # 3. Final Summary
     final_flat = env.state.current_metrics.flatten()
     critical = [k for k, v in final_flat.items() if v < 20]
