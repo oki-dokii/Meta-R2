@@ -77,7 +77,7 @@ def load_model():
         model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.float16, device_map="auto"
+            model_name, dtype=torch.float16, device_map="auto"
         )
         lora_cfg = LoraConfig(
             r=16,
@@ -717,7 +717,7 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
         from peft import PeftModel
         tokenizer = AutoTokenizer.from_pretrained(model_dir)
         base = AutoModelForCausalLM.from_pretrained(
-            "Qwen/Qwen2.5-1.5B-Instruct", torch_dtype=torch.float16, device_map="auto"
+            "Qwen/Qwen2.5-1.5B-Instruct", dtype=torch.float16, device_map="auto"
         )
         model = PeftModel.from_pretrained(base, model_dir)
     model.eval()
@@ -927,6 +927,137 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
 
 
 # ──────────────────────────────────────────────
+# 8. MULTI-STEP FULL EPISODE RUNNER
+# ──────────────────────────────────────────────
+
+def run_full_episode(
+    model_dir: str = "./lifestack_model",
+    n_episodes: int = 10,
+    push_to_hub: bool = False,
+    hub_repo_id: str = "lifestack-grpo",
+):
+    """
+    Run multi-step episodes with the trained model (post-training evaluation).
+
+    Each episode plays up to 5 sequential env steps so the model handles
+    long-horizon decision chains, not just single actions.
+
+    Args:
+        model_dir:    Saved GRPO model directory.
+        n_episodes:   Number of full episodes to roll out.
+        push_to_hub:  If True, push model + tokenizer to HuggingFace Hub.
+        hub_repo_id:  Hub repo id (e.g. "username/lifestack-grpo").
+    """
+    from core.lifestack_env import LifeStackEnv, LifeStackAction
+
+    print("\n" + "=" * 60)
+    print("🎮 MULTI-STEP FULL EPISODE RUNNER")
+    print("=" * 60)
+
+    # Load model — Unsloth first, HF+PEFT fallback
+    try:
+        from unsloth import FastLanguageModel
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_dir, max_seq_length=1024, load_in_4bit=True,
+        )
+        FastLanguageModel.for_inference(model)
+        print("  Loaded via Unsloth")
+    except Exception as e:
+        print(f"  Unsloth failed ({e}), using AutoModelForCausalLM + PeftModel")
+        from transformers import AutoModelForCausalLM
+        from peft import PeftModel
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        base = AutoModelForCausalLM.from_pretrained(
+            "Qwen/Qwen2.5-1.5B-Instruct", torch_dtype=torch.float16, device_map="auto"
+        )
+        model = PeftModel.from_pretrained(base, model_dir)
+    model.eval()
+
+    generator = TaskGenerator()
+    graph = DependencyGraph()
+    episode_rewards = []
+
+    for ep in range(n_episodes):
+        domain = ALL_DOMAINS[ep % len(ALL_DOMAINS)]
+        ep_seed = ep * 31 + 7
+        random.seed(ep_seed)
+        task = generator.generate(domain=domain, difficulty=min(5, 1 + ep // 2))
+        conflict = generate_conflict(min(5, 1 + ep // 2))
+        random.seed()
+
+        metrics = LifeMetrics()
+        metrics = graph.cascade(metrics, {**task.mutable_world, **conflict.primary_disruption})
+        budget_dict = task.constraints.get("budget", {})
+        budget = ResourceBudget(
+            time_hours=budget_dict.get("time", 20.0),
+            money_dollars=budget_dict.get("money", 500.0),
+            energy_units=budget_dict.get("energy", 100.0),
+        )
+        person = SimPerson(name="EvalAgent", openness=0.6, conscientiousness=0.7,
+                           extraversion=0.5, agreeableness=0.6, neuroticism=0.4)
+
+        env = LifeStackEnv()
+        env.reset(task=task, conflict=task.mutable_world)
+
+        ep_total = 0.0
+        horizon = min(getattr(task, "horizon", 5), 5)
+
+        for step in range(horizon):
+            prompt = build_prompt_for_task(task, person, env.state.current_metrics,
+                                           env.state.budget, seed=ep_seed, step=step)
+            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+            with torch.no_grad():
+                out = model.generate(
+                    **inputs, max_new_tokens=200, temperature=0.3, do_sample=True,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+            completion = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
+                                          skip_special_tokens=True)
+            try:
+                text = completion.strip()
+                if "```json" in text:
+                    text = text.split("```json")[-1].split("```")[0]
+                elif "```" in text:
+                    text = text.split("```")[-1].split("```")[0]
+                d = json.loads(text)
+                env_action = LifeStackAction(
+                    action_type=d.get("action_type", "rest"),
+                    target=d.get("target_domain", "time"),
+                    metric_changes=d.get("metric_changes", {}),
+                    resource_cost=d.get("resource_cost", {}),
+                    reasoning=d.get("reasoning", ""),
+                    actions_taken=1,
+                )
+            except Exception:
+                env_action = LifeStackAction(action_type="rest", target="time",
+                                              metric_changes={}, resource_cost={}, actions_taken=0)
+            obs = env.step(env_action)
+            ep_total += obs.reward
+            if obs.done:
+                break
+
+        episode_rewards.append(ep_total)
+        print(f"  Ep {ep+1:2d}/{n_episodes} | {domain:20s} | reward={ep_total:.3f}")
+
+    mean_r = float(np.mean(episode_rewards)) if episode_rewards else 0.0
+    print(f"\n  Mean episode reward : {mean_r:.3f}")
+    print(f"  Best episode reward : {max(episode_rewards):.3f}")
+
+    if push_to_hub:
+        try:
+            print(f"\n  Pushing to HuggingFace Hub: {hub_repo_id} ...")
+            model.push_to_hub(hub_repo_id)
+            tokenizer.push_to_hub(hub_repo_id)
+            print(f"  ✅ Pushed → https://huggingface.co/{hub_repo_id}")
+        except Exception as e:
+            print(f"  ❌ push_to_hub failed: {e}")
+            print("  Tip: `huggingface-cli login` or set HF_TOKEN env var first.")
+
+    return episode_rewards
+
+
+# ──────────────────────────────────────────────
 # ENTRY POINT
 # ──────────────────────────────────────────────
 
@@ -949,6 +1080,12 @@ Examples:
 
   # Manually restart from stage 3
   python train_trl.py --start-stage 3
+
+  # Run multi-step episodes with the trained model
+  python train_trl.py --full-episode --output-dir ./lifestack_model
+
+  # Train then push to HuggingFace Hub
+  python train_trl.py --stages 5 --push-to-hub --hub-repo-id username/lifestack-grpo
         """
     )
     parser.add_argument(
@@ -975,10 +1112,28 @@ Examples:
         "--start-stage", type=int, default=None,
         help="Force-start from a specific stage number (1-indexed). Ignores curriculum_state.json."
     )
+    parser.add_argument(
+        "--full-episode", action="store_true",
+        help="Run multi-step episodes with the trained model (post-training evaluation)."
+    )
+    parser.add_argument(
+        "--push-to-hub", action="store_true",
+        help="Push trained model to HuggingFace Hub after training or --full-episode."
+    )
+    parser.add_argument(
+        "--hub-repo-id", type=str, default="lifestack-grpo",
+        help="HuggingFace Hub repository ID for --push-to-hub (default: lifestack-grpo)."
+    )
     args = parser.parse_args()
 
     if args.dry_run:
         dry_run(output_dir="./lifestack_model_dryrun")
+    elif args.full_episode:
+        run_full_episode(
+            model_dir=args.output_dir,
+            push_to_hub=args.push_to_hub,
+            hub_repo_id=args.hub_repo_id,
+        )
     else:
         trainer = train_curriculum(
             n_stages=args.stages,
@@ -989,3 +1144,11 @@ Examples:
         )
         validate_saved_model(args.output_dir)
         evaluate_and_plot(args.output_dir)
+        if args.push_to_hub:
+            try:
+                print(f"\nPushing to HuggingFace Hub: {args.hub_repo_id} ...")
+                trainer.model.push_to_hub(args.hub_repo_id)
+                trainer.processing_class.push_to_hub(args.hub_repo_id)
+                print(f"✅ Pushed → https://huggingface.co/{args.hub_repo_id}")
+            except Exception as e:
+                print(f"❌ push_to_hub failed: {e}")

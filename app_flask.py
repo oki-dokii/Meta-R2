@@ -74,6 +74,23 @@ DOMAIN_EMOJI = {
 }
 INVERTED_METRICS = {"stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"}
 
+_DOMAINS = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
+
+def compute_domain_health(metrics_flat: dict) -> dict:
+    """Compute per-domain health score (0-100) from flat metrics. Inverted metrics are flipped."""
+    health = {}
+    for dom in _DOMAINS:
+        subs = {k: v for k, v in metrics_flat.items() if k.startswith(dom + ".")}
+        if not subs:
+            health[dom] = 50.0
+            continue
+        scores = []
+        for k, v in subs.items():
+            sub = k.split(".")[1]
+            scores.append((100.0 - v) if sub in INVERTED_METRICS else float(v))
+        health[dom] = round(sum(scores) / len(scores), 1)
+    return health
+
 def _normalize_action_metric_changes(action) -> None:
     fixed_changes = {}
     for path, delta in action.primary.metric_changes.items():
@@ -195,6 +212,7 @@ def perform_action():
     
     result = {
         "metrics": obs.metrics,
+        "domain_health": compute_domain_health(obs.metrics),
         "action": {
             "type": action.primary.action_type,
             "target": action.primary.target_domain,
@@ -470,6 +488,30 @@ def submit_feedback():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
+# ─── Feature F1 helper: random action baseline ───
+_ACTION_TYPES = ["negotiate", "communicate", "delegate", "spend", "reschedule", "rest", "deprioritize", "execute"]
+
+def _random_action(conflict, person):
+    """Purely random action baseline — worst possible agent, used for ablation floor."""
+    import random as _r
+    env = LifeStackEnv()
+    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    flat = env.state.current_metrics.flatten()
+    atype = _r.choice(_ACTION_TYPES)
+    dom = _r.choice(_DOMAINS)
+    key = f"{dom}.stress_level" if dom in ("career", "mental_wellbeing") else f"{dom}.liquidity" if dom == "finances" else f"{dom}.energy_level"
+    mc = {key: _r.uniform(-20, 20)}
+    rc = {"time": _r.uniform(0.5, 3.0), "energy": _r.uniform(5, 30)}
+    uptake = person.respond_to_action(atype, rc, flat.get("mental_wellbeing.stress_level", 70))
+    env_action = LifeStackAction(action_type=atype, target=dom,
+                                  metric_changes={k: v * uptake for k, v in mc.items()},
+                                  resource_cost=rc, reasoning="Random baseline.", actions_taken=1)
+    obs = env.step(env_action)
+    return {"metrics": obs.metrics, "action": {"type": atype, "target": dom,
+            "description": "Random action (ablation floor).",
+            "reasoning": "Random baseline.", "reward": obs.reward, "cost": rc}}
+
+
 # ─── Feature A: Trained vs Untrained Comparison ───
 BASELINE_ACTION_MAP = {
     "career":           ("negotiate",    {"career.workload": -12.0, "mental_wellbeing.stress_level": -4.0},    {"time": 1.5, "energy": 20.0}, "Negotiate workload with manager."),
@@ -613,6 +655,170 @@ def memory_compare():
     cold = _run_episode(use_memory=False)
     warm = _run_episode(use_memory=True)
     return jsonify({"cold": cold, "warm": warm})
+
+
+# ─── F2: /api/cascade/frames alias ───
+@app.route('/api/cascade/frames', methods=['POST'])
+def cascade_frames_alias():
+    """Alias route for /api/simulation/cascade — same handler."""
+    return get_cascade_frames()
+
+
+# ─── F4: Personality Comparison with OCEAN scores ───
+@app.route('/api/personality/compare', methods=['POST'])
+def personality_compare():
+    data = request.json
+    conflict_label = data.get('conflict')
+    person_a_label = data.get('person_a')
+    person_b_label = data.get('person_b')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+
+    def _run_person(person_label):
+        person = PERSONS.get(person_label, list(PERSONS.values())[0])
+        env = LifeStackEnv()
+        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+        before_m = copy.deepcopy(env.state.current_metrics)
+        before_b = copy.deepcopy(env.state.budget)
+        action = AGENT.get_action(before_m, before_b, conflict, person)
+        _normalize_action_metric_changes(action)
+        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                          before_m.mental_wellbeing.stress_level)
+        env_action = LifeStackAction.from_agent_action(action)
+        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+        obs = env.step(env_action)
+        return {
+            "name": person.name,
+            "ocean": {
+                "openness": round(person.openness * 100),
+                "conscientiousness": round(person.conscientiousness * 100),
+                "extraversion": round(person.extraversion * 100),
+                "agreeableness": round(person.agreeableness * 100),
+                "neuroticism": round(person.neuroticism * 100),
+            },
+            "action": {
+                "type": action.primary.action_type,
+                "target": action.primary.target_domain,
+                "description": action.primary.description,
+                "reasoning": action.reasoning,
+                "reward": obs.reward,
+                "uptake": uptake,
+            },
+            "metrics": obs.metrics,
+            "domain_health": compute_domain_health(obs.metrics),
+        }
+
+    try:
+        return jsonify({"a": _run_person(person_a_label), "b": _run_person(person_b_label)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── F6: Dedicated Counterfactual Generation ───
+@app.route('/api/counterfactuals/generate', methods=['POST'])
+def counterfactuals_generate():
+    data = request.json
+    conflict_label = data.get('conflict')
+    person_label = data.get('person')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+    person = PERSONS.get(person_label, list(PERSONS.values())[0])
+
+    env = LifeStackEnv()
+    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    before_m = copy.deepcopy(env.state.current_metrics)
+    before_b = copy.deepcopy(env.state.budget)
+    action = AGENT.get_action(before_m, before_b, conflict, person)
+    _normalize_action_metric_changes(action)
+    cf_data = generate_counterfactuals(AGENT, before_m, before_b, conflict, person, action)
+    return jsonify({
+        "counterfactuals": cf_data,
+        "actual_action": {
+            "type": action.primary.action_type,
+            "target": action.primary.target_domain,
+            "description": action.primary.description,
+        },
+    })
+
+
+# ─── F7: Memory Ablation Study ───
+@app.route('/api/memory/ablation', methods=['POST'])
+def memory_ablation():
+    """Memory ablation: cold (0 memories) vs warm (RAG-augmented). Surfaces ablation delta."""
+    data = request.json
+    conflict_label = data.get('conflict')
+    person_label = data.get('person')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+    person = PERSONS.get(person_label, list(PERSONS.values())[0])
+
+    def _run(use_memory):
+        env = LifeStackEnv()
+        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+        before_m = copy.deepcopy(env.state.current_metrics)
+        before_b = copy.deepcopy(env.state.budget)
+        few_shot, retrieved = "", []
+        if use_memory:
+            few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_m.flatten())
+            retrieved = MEMORY.retrieve_similar(conflict.title, before_m.flatten())
+        action = AGENT.get_action(before_m, before_b, conflict, person, few_shot_context=few_shot)
+        _normalize_action_metric_changes(action)
+        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                          before_m.mental_wellbeing.stress_level)
+        env_action = LifeStackAction.from_agent_action(action)
+        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+        obs = env.step(env_action)
+        MEMORY.store_decision(conflict_title=conflict.title, action_type=action.primary.action_type,
+                              target_domain=action.primary.target_domain, reward=obs.reward,
+                              metrics_snapshot=before_m.flatten(), reasoning=action.reasoning)
+        return {"metrics": obs.metrics, "action": {
+            "type": action.primary.action_type, "target": action.primary.target_domain,
+            "description": action.primary.description, "reasoning": action.reasoning,
+            "reward": obs.reward, "memories_retrieved": retrieved,
+        }}
+
+    cold = _run(use_memory=False)
+    warm = _run(use_memory=True)
+    delta = warm["action"]["reward"] - cold["action"]["reward"]
+    return jsonify({"cold": cold, "warm": warm,
+                    "ablation_delta": round(delta, 4),
+                    "memory_count": len(warm["action"]["memories_retrieved"])})
+
+
+# ─── F10: Health + Calendar Data Upload ───
+@app.route('/api/data/health/upload', methods=['POST'])
+def upload_health_data():
+    """Accept health/fitness JSON signals and return metric deltas."""
+    data = request.json or {}
+    sleep = float(data.get('sleep_hours', 7.0))
+    hr = float(data.get('resting_heart_rate', 70))
+    steps = float(data.get('daily_steps', 8000))
+    deltas = {
+        "physical_health.sleep_quality": round(min(100, sleep / 8 * 100) - 50, 1),
+        "physical_health.energy_level": round(min(100, steps / 10000 * 100) - 50, 1),
+        "physical_health.exercise_consistency": round(min(100, steps / 8000 * 70), 1),
+        "mental_wellbeing.stress_level": round(max(0.0, 80.0 - hr), 1),
+    }
+    summary = f"Sleep {sleep:.1f}h | HR {hr:.0f}bpm | Steps {int(steps):,}/day"
+    return jsonify({"status": "success", "deltas": deltas, "summary": summary,
+                    "signals": {"avg_sleep_hours": sleep, "resting_heart_rate": hr, "daily_steps_avg": steps}})
+
+
+@app.route('/api/data/calendar/upload', methods=['POST'])
+def upload_calendar_data():
+    """Accept calendar JSON signals and return metric deltas."""
+    data = request.json or {}
+    occupancy = float(data.get('week_occupancy_pct', 50))
+    btb = int(data.get('back_to_back_blocks', 0))
+    deadlines = data.get('upcoming_deadlines', [])
+    critical_count = sum(1 for d in deadlines if d.get('priority') == 'critical')
+    deltas = {
+        "time.free_hours_per_week": round(-((occupancy - 50) / 5), 1),
+        "time.schedule_control": round(-(occupancy / 10), 1),
+        "mental_wellbeing.stress_level": round((occupancy / 10) + (btb * 2), 1),
+        "career.workload": round((occupancy - 50) / 2 + critical_count * 5, 1),
+    }
+    summary = f"Occupancy {occupancy:.0f}% | {len(deadlines)} deadlines ({critical_count} critical)"
+    return jsonify({"status": "success", "deltas": deltas, "summary": summary,
+                    "signals": {"week_occupancy_pct": occupancy, "back_to_back_blocks": btb,
+                                "upcoming_deadlines": deadlines}})
 
 
 if __name__ == '__main__':
