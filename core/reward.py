@@ -301,8 +301,9 @@ def reward_format_compliance(completion: str) -> float:
     Scores the completion based on its format (JSON validity and required fields).
     
     Returns:
-        +1.0: Valid JSON with all required fields (action_type, metric_changes, resource_cost, reasoning)
-        +0.5: Valid JSON but missing one or more required fields
+        +1.0: Valid JSON with all required fields:
+              action_type, target_domain, metric_changes, resource_cost, reasoning
+        +0.5: Any parseable JSON (including partial/incomplete dicts)
         -0.5: Invalid JSON / unparseable
         -1.0: Empty strings or refusal content
     """
@@ -322,8 +323,8 @@ def reward_format_compliance(completion: str) -> float:
         
     try:
         data = json.loads(json_str)
-        required = ["action_type", "metric_changes", "resource_cost", "reasoning"]
-        if all(k in data for k in required):
+        required = ["action_type", "target_domain", "metric_changes", "resource_cost", "reasoning"]
+        if isinstance(data, dict) and all(k in data and data.get(k) is not None for k in required):
             return 1.0
         return 0.5
     except json.JSONDecodeError:
@@ -332,8 +333,8 @@ def reward_format_compliance(completion: str) -> float:
         if match:
             try:
                 data = json.loads(match.group(0))
-                required = ["action_type", "metric_changes", "resource_cost", "reasoning"]
-                if all(k in data for k in required):
+                required = ["action_type", "target_domain", "metric_changes", "resource_cost", "reasoning"]
+                if isinstance(data, dict) and all(k in data and data.get(k) is not None for k in required):
                     return 1.0
                 return 0.5
             except:

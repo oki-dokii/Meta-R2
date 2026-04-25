@@ -115,21 +115,39 @@ def load_model():
 # ──────────────────────────────────────────────
 
 def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_descriptions=None):
-    """Build a structured prompt from task state, embedding hidden metadata for the reward function."""
+    """Build a compact prompt from task state while preserving reward metadata."""
     flat = metrics.flatten()
-    status = "\n".join(f"  {k}: {v:.1f}" for k, v in flat.items())
-    
+
+    # Keep only 5 high-signal metrics to fit prompt+completion in a tight token budget.
+    metric_priority = [
+        "career.workload",
+        "finances.liquidity",
+        "relationships.romantic",
+        "physical_health.energy",
+        "mental_wellbeing.stress_level",
+        "time.free_hours_per_week",
+        "time.commute_burden",
+    ]
+    key_metrics = [k for k in metric_priority if k in flat][:5]
+    if len(key_metrics) < 5:
+        for k in flat:
+            if k not in key_metrics:
+                key_metrics.append(k)
+            if len(key_metrics) == 5:
+                break
+    metrics_str = "\n".join(f"- {k}: {flat[k]:.1f}" for k in key_metrics)
+
     event_context = ""
     if event_descriptions:
-        event_context = "\n\nEXOGENOUS EVENTS ENCOUNTERED:\n" + "\n".join(f"  - {e}" for e in event_descriptions)
+        recent = event_descriptions[-2:]
+        compact_events = [e[:140] for e in recent]
+        event_context = "\nRecent events:\n" + "\n".join(f"- {e}" for e in compact_events)
 
-    # NEW: Store more task metadata for reconstruction, including current step
+    # Keep SYSTEM_METADATA for reward reconstruction.
     metadata = {
-        "goal": task.goal,
         "domain": task.domain,
         "disruption": task.mutable_world,
         "difficulty": task.difficulty,
-        "horizon": task.horizon,
         "seed": seed,
         "step": step,
         "budget": {
@@ -138,24 +156,26 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_
             "energy": budget.energy_units
         }
     }
-    metadata_str = json.dumps(metadata)
+    metadata_str = json.dumps(metadata, separators=(",", ":"))
 
-    # Render viable routes
+    # Cap routes to 2 to keep the context short but actionable.
     routes_str = "\n".join(
-        f"  - {r.id}: {r.name} ({r.description}). Requires: {', '.join(r.required_action_types)}"
-        for r in task.viable_routes
+        f"- {r.id}: {r.name} (needs {', '.join(r.required_action_types[:2])})"
+        for r in task.viable_routes[:2]
     )
+    if not routes_str:
+        routes_str = "- none"
 
     return (
-        f"You are a life management AI. Resolve this crisis optimally.\n\n"
-        f"<SYSTEM_METADATA>\n{metadata_str}\n</SYSTEM_METADATA>\n\n"
-        f"TASK: {task.goal}\n"
-        f"STORY: {task.domain_metadata.get('story', '')}\n\n"
-        f"LIFE METRICS:\n{status}\n\n"
-        f"RESOURCES: Time={budget.time_hours:.1f}h, "
-        f"Money=${budget.money_dollars:.1f}, Energy={budget.energy_units:.1f}\n\n"
-        f"AVAILABLE ROUTES (To execute a route, prerequisites must be met):\n{routes_str}\n\n"
-        f"Respond with ONLY valid JSON:\n"
+        "You are LifeStack. Return ONLY compact JSON.\n"
+        f"<SYSTEM_METADATA>\n{metadata_str}\n</SYSTEM_METADATA>\n"
+        f"Task: {task.goal}\n"
+        f"Story: {task.domain_metadata.get('story', '')[:160]}\n"
+        f"Key metrics:\n{metrics_str}\n"
+        f"Budget: time={budget.time_hours:.1f}, money={budget.money_dollars:.1f}, energy={budget.energy_units:.1f}\n"
+        f"Routes (max 2):\n{routes_str}\n"
+        "Required keys: action_type, target_domain, metric_changes, resource_cost, reasoning.\n"
+        "Keep reasoning under 25 words. No markdown.\n"
         f'{{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute", '
         f'"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time OR <route_id>", '
         f'"metric_changes": {{"domain.submetric": delta}}, '
@@ -635,12 +655,14 @@ def train_curriculum(
         config = GRPOConfig(
             output_dir=stage_dir,
             num_train_epochs=1,
-            per_device_train_batch_size=2,
+            per_device_train_batch_size=4,
             gradient_accumulation_steps=4,
             learning_rate=5e-6,
-            # TRL 1.x rule: num_generations must divide per_device_train_batch_size
-            # batch=2, num_generations=2 → 2 % 2 = 0 ✓
-            num_generations=2,
+            # Keep completion short to avoid clipped mid-JSON outputs.
+            max_completion_length=128,
+            temperature=0.9,
+            # TRL rule: num_generations must divide per_device_train_batch_size.
+            num_generations=4,
             bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
             # ── Checkpoint settings ──────────────────────────────────────
             save_strategy="steps",
@@ -653,16 +675,12 @@ def train_curriculum(
         )
         config.unsloth_num_chunks = -1
 
-        trainer = GRPOTrainer(
-            model=model,
-            processing_class=tokenizer,  # TRL 1.x: renamed from tokenizer=
-            args=config,
-            train_dataset=dataset if not resume_ckpt else generate_dataset(n_prompts_per_stage, difficulty=curr_diff),
-            reward_funcs=[
-                # reward_format_fn MUST be first: it's the only signal that varies
-                # between completions in early training (partial JSON vs garbage).
-                # Without it, all completions fail JSON parse with the same default
-                # score → reward_std=0 → zero GRPO gradient.
+        if stage == 1:
+            # Warm-up: learn valid JSON structure first, then optimize decisions.
+            stage_reward_funcs = [reward_format_fn]
+            print("  Warm-up reward mode: format-only")
+        else:
+            stage_reward_funcs = [
                 reward_format_fn,
                 reward_plausibility_fn,
                 reward_task_success_fn,
@@ -670,8 +688,15 @@ def train_curriculum(
                 reward_replan_fn,
                 reward_reasoning_fn,
                 reward_human_feedback_fn,
-                reward_longterm_fn,   # 7-day discounted rollout — real long-term signal
-            ],
+                reward_longterm_fn,
+            ]
+
+        trainer = GRPOTrainer(
+            model=model,
+            processing_class=tokenizer,  # TRL 1.x: renamed from tokenizer=
+            args=config,
+            train_dataset=dataset if not resume_ckpt else generate_dataset(n_prompts_per_stage, difficulty=curr_diff),
+            reward_funcs=stage_reward_funcs,
         )
 
         # Pass the checkpoint path — Trainer will reload weights + optimizer state
@@ -770,7 +795,7 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
 
         with torch.no_grad():
             outputs = model.generate(
-                **inputs, max_new_tokens=256, temperature=0.3,
+                **inputs, max_new_tokens=128, temperature=0.3,
                 do_sample=True,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
@@ -882,14 +907,12 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
     config = GRPOConfig(
         output_dir=output_dir,
         num_train_epochs=1,
-        # TRL 1.x has two hard rules:
-        #   1. num_generations >= 2  (needs ≥2 samples to compute advantages)
-        #   2. per_device_train_batch_size % num_generations == 0
-        # Minimum valid config: batch=2, num_generations=2
-        per_device_train_batch_size=2,
+        per_device_train_batch_size=4,
         gradient_accumulation_steps=1,
         learning_rate=1e-5,
-        num_generations=2,
+        max_completion_length=128,
+        temperature=0.9,
+        num_generations=4,
         max_steps=1,          # ONE step — just proves the pipeline works
         bf16=False,
         fp16=False,
@@ -904,8 +927,7 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
         args=config,
         train_dataset=dataset,
         reward_funcs=[
-            reward_plausibility_fn,
-            reward_task_success_fn,
+            reward_format_fn,
         ],
     )
 
@@ -1026,7 +1048,7 @@ def run_full_episode(
             inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
             with torch.no_grad():
                 out = model.generate(
-                    **inputs, max_new_tokens=200, temperature=0.3, do_sample=True,
+                    **inputs, max_new_tokens=128, temperature=0.3, do_sample=True,
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                 )
