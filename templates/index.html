@@ -50,6 +50,7 @@
             <button onclick="showTab('whatif')" id="tab-whatif" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧩 What-If Lab</button>
             <button onclick="showTab('tasks')" id="tab-tasks" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗺️ Task Explorer</button>
             <button onclick="showTab('performance')" id="tab-performance" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📊 Analytics</button>
+            <button onclick="showTab('system-map')" id="tab-system-map" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🌍 System Map</button>
             <button onclick="showTab('verification')" id="tab-verification" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📬 Verification</button>
         </div>
 
@@ -609,6 +610,37 @@
                 <button type="submit" class="w-full py-4 bg-indigo-600 rounded-xl font-bold shadow-lg shadow-indigo-600/20 active:scale-95 transition mt-4">Broadcast Feedback</button>
                 <p id="fb-status" class="text-center font-bold text-xs mt-4"></p>
             </form>
+        <!-- ── TAB 7: SYSTEM MAP ── -->
+        <div id="content-system-map" class="hidden glass p-8 rounded-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h3 class="text-2xl font-black italic tracking-tighter">CAUSAL DEPENDENCY MAP</h3>
+                    <p class="text-xs text-slate-500 uppercase font-bold tracking-widest mt-1">Live visualization of metric propagation & cross-domain impact</p>
+                </div>
+                <div class="flex gap-3">
+                    <div class="flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-lg">
+                        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                        <span class="text-[9px] text-green-400 font-bold uppercase">Positive Boost</span>
+                    </div>
+                    <div class="flex items-center gap-2 px-3 py-1 bg-red-500/10 border border-red-500/20 rounded-lg">
+                        <div class="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span class="text-[9px] text-red-400 font-bold uppercase">Negative Drag</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="interactive-map-container" class="relative h-[600px] w-full bg-slate-950/50 rounded-2xl border border-slate-800 overflow-hidden">
+                <div id="system-map-graph" class="h-full w-full"></div>
+                <!-- Control Overlay -->
+                <div class="absolute bottom-4 left-4 flex gap-2">
+                    <button onclick="initSystemMap(true)" class="px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 rounded-lg text-[10px] font-bold transition">🔄 RECENTER MAP</button>
+                    <button onclick="toggleMapPhysics()" id="physics-btn" class="px-4 py-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 rounded-lg text-[10px] font-bold transition">⏸ FREEZE NODES</button>
+                </div>
+            </div>
+            
+            <div class="mt-6 p-4 bg-indigo-500/5 rounded-xl border border-indigo-500/10">
+                <p class="text-xs text-slate-400 leading-relaxed"><span class="font-black text-indigo-400 uppercase">Engine Note:</span> The edges represent the weight of influence. A thick red line from <b>Workload</b> to <b>Stress</b> indicates that a 10-point increase in workload directly triggers a significant stress spike, which then ripples into your <b>Clarity</b> and <b>Physical Energy</b> via the nodes shown.</p>
+            </div>
         </div>
     </div>
 
@@ -619,37 +651,89 @@
         let network = null;
         let graphData = { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) };
 
-        async function initGraph() {
+        window.addEventListener('DOMContentLoaded', () => {
+            initGraph();
+            // We'll init the full system map the first time the tab is opened to save resources
+        });
+
+        let systemNetwork = null;
+        let systemGraphData = { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) };
+        let physicsEnabled = true;
+
+        async function initSystemMap(recenter = false) {
+            if (systemNetwork && !recenter) return;
+            
             const res = await fetch('/api/simulation/graph');
             const data = await res.json();
             
-            // Map groups to colors
             const groupColors = {
                 career: "#818cf8", finances: "#fbbf24", relationships: "#f87171",
                 physical_health: "#4ade80", mental_wellbeing: "#22d3ee", time: "#a78bfa"
             };
 
-            const nodes = data.nodes.map(n => ({
-                ...n,
-                color: { background: "#1e293b", border: groupColors[n.group], highlight: { background: groupColors[n.group], border: "#fff" } },
-                font: { color: "#94a3b8", size: 10 },
-                shape: "dot",
-                size: 8
-            }));
+            // Get current metrics if available to color-code nodes
+            let currentMetrics = {};
+            try {
+                // Try to grab from the active demo state
+                const mContainer = document.getElementById('metrics-container');
+                if (mContainer && mContainer.dataset.lastMetrics) {
+                    currentMetrics = JSON.parse(mContainer.dataset.lastMetrics);
+                }
+            } catch(e) {}
 
-            graphData.nodes.add(nodes);
-            graphData.edges.add(data.edges);
+            const nodes = data.nodes.map(n => {
+                const val = currentMetrics[n.id] || 70;
+                const sub = n.id.split('.')[1];
+                const health = INVERTED_METRICS.has(sub) ? (100 - val) : val;
+                
+                // Color mapping: Green to Yellow to Red
+                const healthColor = health > 60 ? '#4ade80' : (health > 36 ? '#facc15' : '#ef4444');
 
-            const container = document.getElementById('cascade-graph');
+                return {
+                    ...n,
+                    color: { 
+                        background: "#0f172a", 
+                        border: healthColor, 
+                        highlight: { background: groupColors[n.group], border: "#fff" } 
+                    },
+                    font: { color: "#94a3b8", size: 12, face: 'Plus Jakarta Sans', strokeWidth: 4, strokeColor: '#0f172a' },
+                    shape: "dot",
+                    size: 10 + (health / 10), // Size slightly correlates with health
+                    borderWidth: 3
+                };
+            });
+
+            systemGraphData.nodes.clear();
+            systemGraphData.edges.clear();
+            systemGraphData.nodes.add(nodes);
+            systemGraphData.edges.add(data.edges.map(e => ({
+                ...e,
+                width: e.value * 5,
+                color: { color: e.color.color, opacity: 0.6, highlight: e.color.color },
+                hoverWidth: 2
+            })));
+
+            const container = document.getElementById('system-map-graph');
             const options = {
-                physics: { stabilization: true, barnesHut: { gravitationalConstant: -2000 } },
-                nodes: { borderWidth: 2 },
-                edges: { width: 1, smooth: { type: "continuous" } }
+                interaction: { hover: true, tooltipDelay: 200 },
+                physics: { 
+                    enabled: physicsEnabled,
+                    stabilization: { iterations: 150 },
+                    barnesHut: { gravitationalConstant: -3000, centralGravity: 0.3, springLength: 150 }
+                },
+                edges: { smooth: { type: "cubicBezier", forceDirection: "horizontal", roundness: 0.4 } }
             };
-            network = new vis.Network(container, graphData, options);
+            systemNetwork = new vis.Network(container, systemGraphData, options);
         }
 
-        window.addEventListener('DOMContentLoaded', initGraph);
+        function toggleMapPhysics() {
+            physicsEnabled = !physicsEnabled;
+            if (systemNetwork) {
+                systemNetwork.setOptions({ physics: { enabled: physicsEnabled } });
+            }
+            document.getElementById('physics-btn').innerText = physicsEnabled ? "⏸ FREEZE NODES" : "▶ THAW NODES";
+            document.getElementById('physics-btn').classList.toggle('bg-indigo-600/20');
+        }
 
         function showTab(id) {
             document.querySelectorAll('[id^="content-"]').forEach(el => el.classList.add('hidden'));
@@ -659,6 +743,7 @@
             
             if (id === 'history') fetchHistory();
             if (id === 'performance') loadStats();
+            if (id === 'system-map') initSystemMap();
         }
 
         async function fetchHistory() {
@@ -750,6 +835,12 @@
         function renderMetrics(containerId, metrics, statusMap = {}, before = {}) {
             const container = document.getElementById(containerId);
             if (!container) return;
+            
+            // Tag for system map to read
+            if (containerId === 'metrics-container') {
+                container.dataset.lastMetrics = JSON.stringify(metrics);
+            }
+
             let html = '';
             const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
 
