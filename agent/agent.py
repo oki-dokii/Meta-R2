@@ -2,7 +2,6 @@ import os
 import json
 import copy
 from openai import OpenAI
-from huggingface_hub import InferenceClient
 from core.life_state import LifeMetrics, ResourceBudget
 from core.metric_schema import format_valid_metrics, normalize_metric_path, is_valid_metric_path
 from agent.conflict_generator import ConflictEvent, generate_conflict
@@ -12,43 +11,36 @@ from intake.simperson import SimPerson
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
-        self.hf_token = os.getenv('HF_TOKEN')
-        self.api_only = api_only  # if True, always use APIs, never load local model
+        self.api_only = api_only  # if True, always use Groq, never load local model
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
 
         # 1. Check for local folder (Kaggle / local dev)
         if not self.api_only and not self.local_model_path and os.path.exists("./lifestack_model"):
             self.local_model_path = "./lifestack_model"
 
-        # 2. Fall back to HuggingFace Hub (Local loading)
+        # 2. Fall back to HuggingFace Hub — loaded lazily on first get_action call,
+        # so Flask startup is never blocked waiting on a 1.5B download.
         if not self.api_only and not self.local_model_path:
             self.local_model_path = "jdsb06/lifestack-agent"
 
-        # Fallback to .env file if tokens are missing
-        if (not self.api_key or not self.hf_token) and os.path.exists('.env'):
+        # Fallback to .env file if env var is missing
+        if not self.api_key and os.path.exists('.env'):
             try:
                 with open('.env') as f:
                     for line in f:
-                        if line.startswith('GROQ_API_KEY=') and not self.api_key:
+                        if line.startswith('GROQ_API_KEY='):
                             self.api_key = line.split('=', 1)[1].strip()
-                        if line.startswith('HF_TOKEN=') and not self.hf_token:
-                            self.hf_token = line.split('=', 1)[1].strip()
+                            break
             except Exception:
                 pass
 
         self.client = None
-        self.hf_client = None
         self.tokenizer = None
         self.local_model = None
         self._model_load_attempted = False  # lazy-load flag
 
-        # Wire up HF Inference API (Premium Priority)
-        if self.hf_token:
-            print("🚀 HF_TOKEN found. Prioritizing Hugging Face Inference API.")
-            self.hf_client = InferenceClient(token=self.hf_token)
-        self.hf_model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-
-        # Wire up Groq as a fallback
+        # Always wire up Groq as a fallback (used immediately when api_only=True,
+        # or as fallback if local model fails to load).
         if self.api_key:
             self.client = OpenAI(
                 base_url='https://api.groq.com/openai/v1',
@@ -162,140 +154,145 @@ SCHEMA:
         return self._get_action_from_prompt(prompt, force_api=force_api)
 
     def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False) -> "AgentAction":
+        """Run LLM inference inside a daemon thread with a hard 25-second timeout.
+
+        Prevents any rate-limit sleep or network hang from blocking the Gradio/Flask
+        event thread indefinitely (which showed up as a permanent 'Running...' spinner
+        in the Memory Effect and Personality Lab tabs).
+        """
+        import threading
         import time as _t
-        import torch
-        try:
-            if self.local_model and not force_api:
-                # Use local model (Transformers)
-                inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
-                with torch.no_grad():
-                    outputs = self.local_model.generate(
-                        **inputs, 
-                        max_new_tokens=256, 
-                        temperature=0.3, 
-                        do_sample=True,
-                        pad_token_id=self.tokenizer.pad_token_id
-                    )
-                content = self.tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-            elif self.hf_client:
-                # Use Hugging Face Inference API (Priority API)
-                try:
-                    response = self.hf_client.text_generation(
-                        prompt,
-                        model=self.hf_model,
-                        max_new_tokens=350,
-                        temperature=0.3,
-                        stop_sequences=["}"], # Help keep it to JSON
-                    )
-                    content = response.strip()
-                    if not content.endswith("}"):
-                        content += "}"
-                except Exception as hf_err:
-                    print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
-                    if not self.client: raise hf_err
-                    # Fallback to Groq
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.3,
-                        max_tokens=350
-                    )
-                    content = response.choices[0].message.content.strip()
-            else:
-                # Use Groq API
-                for attempt in range(3):  # Up to 3 retries on rate limit
-                    try:
-                        response = self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[{"role": "user", "content": prompt}],
+        import re
+
+        result_box = [None]  # thread writes its result here
+
+        def _call():
+            try:
+                import torch
+                if self.local_model and not force_api:
+                    # ── Local / HF Transformers model ─────────────────────────
+                    inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
+                    with torch.no_grad():
+                        outputs = self.local_model.generate(
+                            **inputs,
+                            max_new_tokens=256,
                             temperature=0.3,
-                            max_tokens=350
+                            do_sample=True,
+                            pad_token_id=self.tokenizer.pad_token_id
                         )
-                        break  # Success
-                    except Exception as e:
-                        err = str(e)
-                        if "429" in err and attempt < 2:
-                            import re
-                            # Handle formats: "2m10.5s", "10.5s", "240ms"
-                            wait_secs = 30  # default
-                            m = re.search(r'try again in (\d+)m([\d.]+)s', err)
-                            if m:
-                                wait_secs = int(m.group(1)) * 60 + float(m.group(2))
-                            else:
-                                m = re.search(r'try again in ([\d.]+)s', err)
+                    content = self.tokenizer.decode(
+                        outputs[0][inputs["input_ids"].shape[1]:],
+                        skip_special_tokens=True
+                    ).strip()
+
+                else:
+                    # ── Groq API — max 2 attempts, ≤3 s sleep between them ────
+                    response = None
+                    for attempt in range(2):
+                        try:
+                            response = self.client.chat.completions.create(
+                                model=self.model,
+                                messages=[{"role": "user", "content": prompt}],
+                                temperature=0.3,
+                                max_tokens=350,
+                                timeout=20,  # per-request HTTP timeout
+                            )
+                            break
+                        except Exception as e:
+                            err = str(e)
+                            if "429" in err and attempt == 0:
+                                wait_secs = 60.0  # safe default if regex fails
+                                m = re.search(r'try again in (\d+)m([\d.]+)s', err)
                                 if m:
-                                    wait_secs = float(m.group(1))
+                                    wait_secs = int(m.group(1)) * 60 + float(m.group(2))
                                 else:
-                                    m = re.search(r'try again in ([\d.]+)ms', err)
+                                    m = re.search(r'try again in ([\d.]+)s', err)
                                     if m:
-                                        wait_secs = float(m.group(1)) / 1000.0
-                            wait_secs = max(0.5, min(wait_secs + 0.5, 120))  # add 0.5s buffer, cap at 2min
-                            if wait_secs > 5.0:
-                                print(f"  ⏳ Rate limit wait too long ({wait_secs:.1f}s). Executing fallback...")
-                                return self._fallback_action(f"Rate limited (wait: {wait_secs:.1f}s)")
-                            print(f"  ⏳ Rate limit hit. Waiting {wait_secs:.1f}s before retry {attempt+2}/3...")
-                            _t.sleep(wait_secs)
-                        else:
-                            raise  # Re-raise if not 429 or out of retries
-                _t.sleep(0.5)  # Light throttle
-                content = response.choices[0].message.content.strip()
-            
-            # Clean possible markdown fences
-            if content.startswith("```json"):
-                content = content[7:-3].strip()
-            elif content.startswith("```"):
-                content = content[3:-3].strip()
-                
-            data = json.loads(content)
-            
-            # Cast values to float in case the LLM returned strings
-            metric_changes = data.get("metric_changes", {})
-            normalized_metric_changes = {}
-            for k, v in list(metric_changes.items()):
-                norm_key = normalize_metric_path(k)
-                if not is_valid_metric_path(norm_key):
-                    continue
-                try:
-                    normalized_metric_changes[norm_key] = float(v)
-                except ValueError:
-                    continue
-            metric_changes = normalized_metric_changes
-                    
-            resource_cost = data.get("resource_cost", {})
-            for k, v in list(resource_cost.items()):
-                try:
-                    resource_cost[k] = float(v)
-                except ValueError:
-                    resource_cost[k] = 0.0
-            
-            # Build structures
-            primary = PrimaryAction(
-                action_type=data.get("action_type", "rest"),
-                target_domain=data.get("target_domain", "mental_wellbeing"),
-                metric_changes=metric_changes,
-                resource_cost=resource_cost,
-                description=data.get("description", "Taking a moment to breathe.")
-            )
-            
-            comm = None
-            if data.get("recipient") and data.get("recipient") != "none":
-                comm = CommunicationAction(
-                    recipient=data["recipient"],
-                    message_type=data.get("message_type", "inform"),
-                    tone=data.get("tone", "calm"),
-                    content=data.get("message_content", "")
+                                        wait_secs = float(m.group(1))
+                                    else:
+                                        m = re.search(r'try again in ([\d.]+)ms', err)
+                                        if m:
+                                            wait_secs = float(m.group(1)) / 1000.0
+                                # If Groq wants us to wait more than 3 s, skip — return fallback now
+                                if wait_secs > 3.0:
+                                    result_box[0] = self._fallback_action(
+                                        f"Rate limited ({wait_secs:.0f}s wait). Try again shortly.",
+                                        fallback_type=fallback_type
+                                    )
+                                    return
+                                _t.sleep(wait_secs)
+                            else:
+                                raise
+
+                    if response is None:
+                        result_box[0] = self._fallback_action("No API response after retries.", fallback_type)
+                        return
+
+                    _t.sleep(0.3)  # light throttle between consecutive demo calls
+                    content = response.choices[0].message.content.strip()
+
+                # ── Parse LLM output ──────────────────────────────────────────
+                if content.startswith("```json"):
+                    content = content[7:-3].strip()
+                elif content.startswith("```"):
+                    content = content[3:-3].strip()
+
+                data = json.loads(content)
+
+                metric_changes = {}
+                for k, v in data.get("metric_changes", {}).items():
+                    norm_key = normalize_metric_path(k)
+                    if not is_valid_metric_path(norm_key):
+                        continue
+                    try:
+                        metric_changes[norm_key] = float(v)
+                    except (ValueError, TypeError):
+                        continue
+
+                resource_cost = {}
+                for k, v in data.get("resource_cost", {}).items():
+                    try:
+                        resource_cost[k] = float(v)
+                    except (ValueError, TypeError):
+                        resource_cost[k] = 0.0
+
+                primary = PrimaryAction(
+                    action_type=data.get("action_type", "rest"),
+                    target_domain=data.get("target_domain", "mental_wellbeing"),
+                    metric_changes=metric_changes,
+                    resource_cost=resource_cost,
+                    description=data.get("description", "Taking a moment to breathe.")
                 )
-                
-            return AgentAction(
-                primary=primary,
-                communication=comm,
-                reasoning=data.get("reasoning", "Decided to rest due to high pressure."),
-                raw_completion=content
+                comm = None
+                if data.get("recipient") and data.get("recipient") != "none":
+                    comm = CommunicationAction(
+                        recipient=data["recipient"],
+                        message_type=data.get("message_type", "inform"),
+                        tone=data.get("tone", "calm"),
+                        content=data.get("message_content", "")
+                    )
+                result_box[0] = AgentAction(
+                    primary=primary,
+                    communication=comm,
+                    reasoning=data.get("reasoning", "Decided to rest due to high pressure."),
+                    raw_completion=content
+                )
+            except Exception as e:
+                print(f"LLM call error: {e}")
+                result_box[0] = self._fallback_action(f"Exception: {e}", fallback_type)
+
+        # ── Enforce hard wall-clock timeout ───────────────────────────────────
+        t = threading.Thread(target=_call, daemon=True)
+        t.start()
+        t.join(timeout=25)
+
+        if result_box[0] is None:
+            print("\u26a0\ufe0f  LLM timed out (25s) \u2014 Groq rate-limit active. Returning fallback.")
+            return self._fallback_action(
+                "LLM timed out (25s). Groq rate-limit active \u2014 wait ~30s then retry.",
+                fallback_type
             )
-            
-        except Exception as e:
-            print(f"Error calling LLM or parsing response: {e}")
-            return self._fallback_action(f"Exception: {str(e)}", fallback_type=fallback_type)
+        return result_box[0]
 
     def _fallback_action(self, error_msg: str, fallback_type: str = "rest") -> "AgentAction":
         return AgentAction(
