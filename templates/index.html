@@ -170,7 +170,7 @@
 
         <!-- ── TAB 2: TRY YOUR CASE ── -->
         <div id="content-custom" class="hidden space-y-6">
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Left: inputs -->
                 <div class="glass p-6 rounded-2xl space-y-6">
                     <h3 class="text-xl font-bold">Describe Your Situation</h3>
@@ -185,55 +185,9 @@
                             <label>⚡ Energy <input type="range" id="custom-energy" class="w-full accent-indigo-500"></label>
                         </div>
                     </div>
-                    <button onclick="runDigitalSync()" id="digital-sync-btn" class="w-full py-3 bg-gradient-to-r from-cyan-700 to-indigo-700 rounded-xl text-sm font-bold shadow-lg hover:opacity-90 transition flex items-center justify-center gap-2">
-                        <span id="sync-icon">📡</span> <span id="sync-text">Sync Digital Life (Gmail + Calendar + Fitness)</span>
-                    </button>
-                    <button onclick="runCustom()" class="w-full py-3 bg-indigo-600 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20">Analyze & Plan</button>
+                    <button onclick="runCustom()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-md font-black shadow-lg shadow-indigo-500/20 transition transform hover:scale-[1.02] active:scale-[0.98]">Analyze & Plan</button>
                 </div>
 
-                <!-- Centre: Digital Sync panel -->
-                <div id="digital-sync-panel" class="glass p-6 rounded-2xl space-y-4">
-                    <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Digital Life Signals</div>
-                    <div id="sync-idle" class="text-center py-16 text-slate-600 text-sm italic">Click "Sync Digital Life" to pull signals from your connected services.</div>
-                    <div id="sync-sources" class="hidden space-y-4">
-                        <!-- Gmail source card -->
-                        <div class="p-4 rounded-xl border border-slate-700 bg-slate-900/50">
-                            <div class="flex justify-between items-center mb-2">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-base">📧</span>
-                                    <span class="text-xs font-black text-slate-300 uppercase tracking-wider">Gmail</span>
-                                </div>
-                                <span id="gmail-badge" class="text-[8px] font-black px-2 py-0.5 rounded-full border uppercase"></span>
-                            </div>
-                            <p id="gmail-sync-summary" class="text-[10px] text-slate-400 italic leading-relaxed"></p>
-                            <div id="gmail-threads" class="mt-2 space-y-1"></div>
-                        </div>
-                        <!-- Calendar source card -->
-                        <div class="p-4 rounded-xl border border-slate-700 bg-slate-900/50">
-                            <div class="flex justify-between items-center mb-2">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-base">📅</span>
-                                    <span class="text-xs font-black text-slate-300 uppercase tracking-wider">Google Calendar</span>
-                                </div>
-                                <span id="cal-badge" class="text-[8px] font-black px-2 py-0.5 rounded-full border uppercase"></span>
-                            </div>
-                            <p id="cal-sync-summary" class="text-[10px] text-slate-400 italic leading-relaxed"></p>
-                            <div id="cal-deadlines" class="mt-2 space-y-1"></div>
-                        </div>
-                        <!-- Fitness source card -->
-                        <div class="p-4 rounded-xl border border-slate-700 bg-slate-900/50">
-                            <div class="flex justify-between items-center mb-2">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-base">💪</span>
-                                    <span class="text-xs font-black text-slate-300 uppercase tracking-wider">Fitness</span>
-                                </div>
-                                <span id="fit-badge" class="text-[8px] font-black px-2 py-0.5 rounded-full border uppercase bg-amber-500/10 border-amber-500/30 text-amber-400">Demo</span>
-                            </div>
-                            <p id="fit-sync-summary" class="text-[10px] text-slate-400 italic leading-relaxed"></p>
-                            <div id="fit-stats" class="mt-2 grid grid-cols-3 gap-2"></div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Centre-right: Manual upload cards -->
                 <div class="space-y-4">
@@ -686,7 +640,6 @@
     <script>
         const DOMAIN_EMOJI = { "career": "💼", "finances": "💰", "relationships": "❤️", "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅" };
         const INVERTED_METRICS = new Set(["stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"]);
-        let globalGmailSignals = {};
         let network = null;
         let graphData = { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) };
 
@@ -1235,95 +1188,6 @@
             }).join('');
         }
 
-        async function runDigitalSync() {
-            const btn = document.getElementById('digital-sync-btn');
-            const icon = document.getElementById('sync-icon');
-            const txt = document.getElementById('sync-text');
-            btn.disabled = true;
-            icon.innerText = '🔄'; txt.innerText = 'Syncing...';
-            document.getElementById('sync-idle').classList.add('hidden');
-
-            try {
-                const res = await fetch('/api/digital/sync', { method: 'POST' });
-                const data = await res.json();
-
-                // Store remapped metric-path deltas so run_custom() can apply them
-                globalGmailSignals = data.merged_deltas || {};
-
-                // Auto-update sliders based on synced deltas
-                const deltas = data.merged_deltas || {};
-                const updateSlider = (id, delta) => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        const newVal = Math.max(0, Math.min(100, parseInt(el.value) + (delta || 0)));
-                        el.value = newVal;
-                    }
-                };
-                updateSlider('custom-work',   deltas['career.workload']);
-                updateSlider('custom-rel',   -(deltas['relationships.romantic'] || 0));
-                updateSlider('custom-energy',  deltas['physical_health.energy']);
-                
-                document.getElementById('sync-sources').classList.remove('hidden');
-
-                // Badge helper
-                const badge = (id, isDemo) => {
-                    const el = document.getElementById(id);
-                    if (isDemo) {
-                        el.innerText = 'Demo'; el.className = 'text-[8px] font-black px-2 py-0.5 rounded-full border uppercase bg-amber-500/10 border-amber-500/30 text-amber-400';
-                    } else {
-                        el.innerText = 'Live'; el.className = 'text-[8px] font-black px-2 py-0.5 rounded-full border uppercase bg-green-500/10 border-green-500/30 text-green-400';
-                    }
-                };
-
-                // Gmail
-                const gs = data.sources.gmail;
-                badge('gmail-badge', gs.is_demo);
-                document.getElementById('gmail-sync-summary').innerText = gs.summary;
-                const threads = (gs.signals.notable_threads || []);
-                document.getElementById('gmail-threads').innerHTML = threads.map(t =>
-                    `<div class="flex justify-between text-[9px] text-slate-500 border-t border-slate-800 pt-1">
-                        <span class="italic truncate w-48">${t.subject}</span>
-                        <span class="text-slate-600 whitespace-nowrap ml-2">${t.time}</span>
-                    </div>`
-                ).join('');
-
-                // Calendar
-                const cs = data.sources.calendar;
-                badge('cal-badge', cs.is_demo);
-                document.getElementById('cal-sync-summary').innerText = cs.summary;
-                const deadlines = (cs.signals.upcoming_deadlines || []);
-                document.getElementById('cal-deadlines').innerHTML = deadlines.map(d => {
-                    const col = d.priority === 'critical' ? 'text-red-400' : 'text-yellow-400';
-                    return `<div class="flex justify-between text-[9px] border-t border-slate-800 pt-1">
-                        <span class="${col} font-bold truncate w-40">${d.title}</span>
-                        <span class="text-slate-600">in ${d.due_in_hours}h</span>
-                    </div>`;
-                }).join('');
-
-                // Fitness
-                const fs = data.sources.fitness;
-                document.getElementById('fit-sync-summary').innerText = fs.summary;
-                const fsig = fs.signals;
-                document.getElementById('fit-stats').innerHTML = [
-                    ['Sleep', `${fsig.avg_sleep_hours}h`, fsig.avg_sleep_hours < 6 ? 'text-red-400' : 'text-green-400'],
-                    ['HR', `${fsig.resting_heart_rate}bpm`, fsig.resting_heart_rate > 75 ? 'text-yellow-400' : 'text-green-400'],
-                    ['Steps', `${(fsig.daily_steps_avg/1000).toFixed(1)}k`, fsig.daily_steps_avg < 5000 ? 'text-red-400' : 'text-green-400'],
-                ].map(([label, val, cls]) =>
-                    `<div class="text-center bg-slate-800/50 rounded-lg p-2">
-                        <div class="${cls} font-black text-xs">${val}</div>
-                        <div class="text-[8px] text-slate-600 uppercase font-bold mt-0.5">${label}</div>
-                    </div>`
-                ).join('');
-
-                icon.innerText = '✅'; txt.innerText = 'Synced — 3 Sources Active';
-                btn.className = btn.className.replace('from-cyan-700 to-indigo-700', 'from-green-800 to-emerald-700');
-            } catch (e) {
-                icon.innerText = '❌'; txt.innerText = 'Sync Failed';
-                console.error(e);
-            } finally {
-                btn.disabled = false;
-            }
-        }
 
         async function runCustom() {
             const btn = document.querySelector('button[onclick="runCustom()"]');
@@ -1346,8 +1210,7 @@
                         work_stress: document.getElementById('custom-work').value,
                         money_stress: document.getElementById('custom-money').value,
                         rel_quality: document.getElementById('custom-rel').value,
-                        energy_level: document.getElementById('custom-energy').value,
-                        gmail_signals: globalGmailSignals
+                        energy_level: document.getElementById('custom-energy').value
                     })
                 });
                 if (!res.ok) {
