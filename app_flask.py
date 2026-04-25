@@ -581,10 +581,21 @@ def digital_sync():
         demo_full = _json.load(f)
 
     # Gmail
-    gmail_signals, gmail_deltas, gmail_summary, gmail_is_demo = GMAIL.sync()
+    if GMAIL:
+        gmail_signals, gmail_deltas, gmail_summary, gmail_is_demo = GMAIL.sync()
+    else:
+        gmail_signals = demo_full['gmail']
+        gmail_deltas = {k: v for k, v in demo_full['derived_metric_deltas'].items() if k.startswith('mental_wellbeing.') or k.startswith('relationships.') or k.startswith('career.') or k.startswith('time.')}
+        gmail_summary = gmail_signals['summary']
+        gmail_is_demo = True
 
     # Calendar
-    cal_signals, cal_deltas, cal_is_demo = CALENDAR.sync()
+    if CALENDAR:
+        cal_signals, cal_deltas, cal_is_demo = CALENDAR.sync()
+    else:
+        cal_signals = demo_full['calendar']
+        cal_deltas = {k: v for k, v in demo_full['derived_metric_deltas'].items() if k.startswith('time.') or k.startswith('career.')}
+        cal_is_demo = True
 
     # Fitness — always demo (no live fitness API)
     fitness_signals = demo_full['fitness']

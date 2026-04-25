@@ -686,7 +686,7 @@
     <script>
         const DOMAIN_EMOJI = { "career": "💼", "finances": "💰", "relationships": "❤️", "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅" };
         const INVERTED_METRICS = new Set(["stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"]);
-        let globalGmailSignals = null;
+        let globalGmailSignals = {};
         let network = null;
         let graphData = { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) };
 
@@ -1247,8 +1247,22 @@
                 const res = await fetch('/api/digital/sync', { method: 'POST' });
                 const data = await res.json();
 
-                globalGmailSignals = Object.assign({}, globalGmailSignals || {}, data.merged_deltas);
+                // Store raw signals for context augmentation
+                globalGmailSignals = data.sources.gmail.signals || {};
 
+                // Auto-update sliders based on synced deltas
+                const deltas = data.merged_deltas || {};
+                const updateSlider = (id, delta) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        const newVal = Math.max(0, Math.min(100, parseInt(el.value) + (delta || 0)));
+                        el.value = newVal;
+                    }
+                };
+                updateSlider('custom-work', deltas['career.workload']);
+                updateSlider('custom-rel', -(deltas['relationships.romantic'] || 0)); // Inverted for "Stress"
+                updateSlider('custom-energy', deltas['physical_health.energy_level']);
+                
                 document.getElementById('sync-sources').classList.remove('hidden');
 
                 // Badge helper
