@@ -6,6 +6,7 @@
     <title>LifeStack Portal | Meta OpenEnv 2026</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0f172a; color: #f8fafc; overflow-x: hidden; }
@@ -73,9 +74,11 @@
                     <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div id="traj-bar" class="h-full bg-yellow-500 transition-all duration-700" style="width: 0%"></div></div>
                 </div>
             </div>
-            <div class="lg:col-span-1 glass p-6 rounded-2xl">
+            <div class="lg:col-span-1 glass p-6 rounded-2xl relative overflow-hidden">
                 <h3 class="text-lg font-bold flex justify-between mb-2"><span>Vital Metrics</span><span id="metric-phase" class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 uppercase tracking-tighter">STABLE</span></h3>
-                <div id="metrics-container" class="space-y-2.5"></div>
+                <div id="metrics-container" class="space-y-2.5 relative z-10"></div>
+                <!-- Mini-Graph Overlay -->
+                <div id="cascade-graph" class="absolute inset-0 opacity-20 pointer-events-none"></div>
             </div>
             <div class="lg:col-span-1 space-y-6">
                 <div id="action-card" class="hidden glass p-6 rounded-2xl border-l-4 border-indigo-500">
@@ -206,6 +209,40 @@
         const DOMAIN_EMOJI = { "career": "💼", "finances": "💰", "relationships": "❤️", "physical_health": "💪", "mental_wellbeing": "🧠", "time": "📅" };
         const INVERTED_METRICS = new Set(["stress_level", "debt_pressure", "workload", "commute_burden", "admin_overhead"]);
         let globalGmailSignals = null;
+        let network = null;
+        let graphData = { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) };
+
+        async function initGraph() {
+            const res = await fetch('/api/simulation/graph');
+            const data = await res.json();
+            
+            // Map groups to colors
+            const groupColors = {
+                career: "#818cf8", finances: "#fbbf24", relationships: "#f87171",
+                physical_health: "#4ade80", mental_wellbeing: "#22d3ee", time: "#a78bfa"
+            };
+
+            const nodes = data.nodes.map(n => ({
+                ...n,
+                color: { background: "#1e293b", border: groupColors[n.group], highlight: { background: groupColors[n.group], border: "#fff" } },
+                font: { color: "#94a3b8", size: 10 },
+                shape: "dot",
+                size: 8
+            }));
+
+            graphData.nodes.add(nodes);
+            graphData.edges.add(data.edges);
+
+            const container = document.getElementById('cascade-graph');
+            const options = {
+                physics: { stabilization: true, barnesHut: { gravitationalConstant: -2000 } },
+                nodes: { borderWidth: 2 },
+                edges: { width: 1, smooth: { type: "continuous" } }
+            };
+            network = new vis.Network(container, graphData, options);
+        }
+
+        window.addEventListener('DOMContentLoaded', initGraph);
 
         function showTab(tabId) {
             document.querySelectorAll('[id^="content-"]').forEach(el => el.classList.add('hidden'));
@@ -278,11 +315,31 @@
             const cascadeRes = await fetch('/api/simulation/cascade', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
             const cascadeData = await cascadeRes.json();
             const phaseNames = ["STABLE", "DISRUPTION", "1ST CASCADE", "2ND CASCADE"];
+            
             for (let i = 0; i < cascadeData.frames.length; i++) {
                 document.getElementById('metric-phase').innerText = phaseNames[i];
-                renderMetrics('metrics-container', cascadeData.frames[i].flat, cascadeData.frames[i].status);
+                const frame = cascadeData.frames[i];
+                renderMetrics('metrics-container', frame.flat, frame.status);
+                
+                // Animate Graph
+                const activeNodes = Object.entries(frame.status).filter(([k, v]) => v !== 'unchanged').map(([k, v]) => k);
+                const firstOrder = Object.entries(frame.status).filter(([k, v]) => v === 'first').map(([k, v]) => k);
+                const secondOrder = Object.entries(frame.status).filter(([k, v]) => v === 'second').map(([k, v]) => k);
+
+                graphData.nodes.update(graphData.nodes.get().map(n => ({
+                    id: n.id,
+                    size: activeNodes.includes(n.id) ? 15 : 8,
+                    font: { color: activeNodes.includes(n.id) ? "#fff" : "#94a3b8", size: activeNodes.includes(n.id) ? 12 : 10 },
+                    shadow: activeNodes.includes(n.id) ? { enabled: true, color: "#fff", size: 10 } : { enabled: false }
+                })));
+
                 await new Promise(r => setTimeout(r, 600));
             }
+            
+            // Pulse the edges briefly (optional/placeholder for complex edge animation)
+            setTimeout(() => {
+                graphData.nodes.update(graphData.nodes.get().map(n => ({ id: n.id, size: 8, font: { color: "#94a3b8", size: 10 }, shadow: { enabled: false } })));
+            }, 1000);
             const actionRes = await fetch('/api/simulation/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({person, conflict}) });
             const finalData = await actionRes.json();
             document.getElementById('metric-phase').innerText = `RESOLVED`;

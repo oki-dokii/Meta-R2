@@ -110,6 +110,34 @@ def get_cascade_frames():
     frames = animate_cascade(conflict.primary_disruption, LifeMetrics())
     return jsonify({"frames": frames})
 
+@app.route('/api/simulation/graph', methods=['GET'])
+def get_dependency_graph():
+    graph = DependencyGraph()
+    nodes = []
+    edges = []
+    
+    # Flatten metrics to get all nodes
+    metrics = LifeMetrics().flatten()
+    for path in metrics.keys():
+        dom, sub = path.split('.')
+        nodes.append({
+            "id": path,
+            "label": sub.replace('_', ' '),
+            "group": dom
+        })
+        
+    for src, targets in graph.edges.items():
+        for target, weight in targets:
+            edges.append({
+                "from": src,
+                "to": target,
+                "value": abs(weight),
+                "arrows": "to",
+                "color": {"color": "#4ade80" if weight > 0 else "#ef4444", "opacity": 0.2}
+            })
+            
+    return jsonify({"nodes": nodes, "edges": edges})
+
 @app.route('/api/simulation/action', methods=['POST'])
 def perform_action():
     data = request.json
