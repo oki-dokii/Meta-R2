@@ -200,6 +200,88 @@ def _patched_get_train_sampler(self, *args, **kwargs):
     return _original_get_train_sampler(self, *args, **kwargs)
 GRPOTrainer._get_train_sampler = _patched_get_train_sampler
 
+# ──────────────────────────────────────────────────────────────────────────────
+# JSON boundary helper — used by reward_compact_fn AND LifeStackGRPOTrainer
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _find_json_end_text(text: str) -> int | None:
+    """
+    Return the character index just AFTER the closing `}` of the first complete
+    top-level JSON object in `text`, or None if no complete object is found.
+
+    Uses json.JSONDecoder.raw_decode to avoid reimplementing the full grammar.
+    Strips markdown fences before searching.
+    """
+    import re as _re
+    inner = text
+    if "```json" in inner:
+        inner = inner.split("```json")[-1].split("```")[0]
+    elif "```" in inner:
+        inner = inner.split("```")[-1].split("```")[0]
+    dec = json.JSONDecoder()
+    for m in _re.finditer(r"\{", inner):
+        try:
+            _, end_idx = dec.raw_decode(inner[m.start():].lstrip())
+            return m.start() + end_idx
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+class LifeStackGRPOTrainer(GRPOTrainer):
+    """
+    GRPOTrainer that masks completion tokens after the first complete JSON object.
+
+    Problem: the model writes valid JSON then continues for hundreds of tokens of
+    free-form explanation, always hitting max_completion_length (480 tokens).  The
+    GRPO gradient is diluted across all 480 tokens when only the first ~100 carry
+    any meaningful policy information.
+
+    Fix: after the parent's generation + reward pass, we re-decode each completion,
+    locate the JSON-object boundary, and zero-out completion_mask beyond that point.
+    The token IDs stay intact (no distribution shift), only the mask changes, so:
+      - ref_per_token_logps already computed — masked tokens contribute 0 to the KL term
+      - per_token_loss already computed   — masked tokens contribute 0 to the advantage term
+      - effective completion length drops to ~100 tokens → 3–5× sharper gradient signal
+
+    This does NOT change generation behaviour (the model still emits 480 tokens).
+    The model gradually learns to stop because shorter completions receive higher
+    reward (reward_compact_fn) while their gradient is full-strength; longer ones
+    receive lower reward AND have most of their gradient zeroed out.
+    """
+
+    def _prepare_inputs(self, inputs):
+        result = super()._prepare_inputs(inputs)
+
+        completion_ids = result["completion_ids"]           # (B, L)
+        completion_mask = result["completion_mask"].clone() # (B, L)
+        eos_id = self.processing_class.eos_token_id
+
+        # Rows that already contain a real EOS need no intervention.
+        already_done = (completion_ids == eos_id).any(dim=1)
+
+        for i in range(completion_ids.size(0)):
+            if already_done[i]:
+                continue
+            text = self.processing_class.decode(
+                completion_ids[i], skip_special_tokens=True
+            )
+            end_char = _find_json_end_text(text)
+            if end_char is None or end_char >= len(text) - 3:
+                continue  # JSON fills (nearly) the whole completion — nothing to trim
+
+            # Estimate the token boundary.  Re-encoding the prefix gives a good
+            # approximation; off-by-1 is acceptable because we only touch the mask.
+            prefix_ids = self.processing_class.encode(
+                text[:end_char], add_special_tokens=False
+            )
+            cutoff = min(len(prefix_ids) + 1, completion_mask.size(1))
+            completion_mask[i, cutoff:] = 0
+
+        out = dict(result)
+        out["completion_mask"] = completion_mask
+        return out
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # LifeStack imports
@@ -862,8 +944,47 @@ def reward_clean_eos_fn(completions: list[str], prompts: list[str], **kwargs) ->
     return rewards
 
 
+def reward_compact_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """
+    Strong signal against the fill-the-context habit.
+
+    reward_clean_eos_fn has a narrow [-0.10, +0.20] range that is routinely
+    swamped by format and return rewards.  This function uses a wider [-0.5, +0.4]
+    range to make compactness a first-class training objective.
+
+    Scoring is based on trailing characters after the first complete JSON object
+    (same boundary as _find_json_end_text uses for gradient masking in
+    LifeStackGRPOTrainer, so reward and gradient are always aligned).
+
+      trailing ≤ 10   → +0.40  (stops right after the closing brace)
+      trailing ≤ 60   → +0.20  (whitespace / newline only)
+      trailing ≤ 200  → -0.20  (a sentence of explanation)
+      trailing  > 200 → -0.50  (multi-line wall of text)
+      no valid JSON   → -0.50
+    """
+    rewards = []
+    for c in completions:
+        try:
+            text = c.strip()
+            end_char = _find_json_end_text(text)
+            if end_char is None:
+                rewards.append(-0.50)
+                continue
+            trailing = len(text) - end_char
+            if trailing <= 10:
+                rewards.append(0.40)
+            elif trailing <= 60:
+                rewards.append(0.20)
+            elif trailing <= 200:
+                rewards.append(-0.20)
+            else:
+                rewards.append(-0.50)
+        except Exception:
+            rewards.append(-0.50)
+    return rewards
+
+
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-    """Scores JSON format compliance independently (Static Check)."""
     from core.reward import reward_format_compliance
     return [
         reward_format_compliance(c, valid_route_ids=_route_ids_from_prompt(p))
@@ -1372,6 +1493,7 @@ def train_episodic_curriculum(
     start_stage=None,
     max_prompt_length: int | None = 2048,
     max_completion_length: int | None = None,
+    num_train_epochs: int = 1,
 ):
     """
     GRPO fine-tuning where each completion is rewarded by an environment episode.
@@ -1418,14 +1540,16 @@ def train_episodic_curriculum(
 
         config = GRPOConfig(
             output_dir=stage_dir,
-            num_train_epochs=1,
+            num_train_epochs=num_train_epochs,
             per_device_train_batch_size=4,
             gradient_accumulation_steps=4,
             learning_rate=stage_lr,
             warmup_ratio=0.05,
             max_prompt_length=max_prompt_length,
             max_completion_length=max_completion,
-            temperature=0.7,
+            # 0.9 restores entropy — entropy=0.36 (previous run) means the model
+            # was nearly deterministic and never explored EOS naturally.
+            temperature=0.9,
             num_generations=4,
             bf16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8),
             fp16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8),
@@ -1436,10 +1560,13 @@ def train_episodic_curriculum(
             report_to="tensorboard" if _tensorboard_available() else "none",
         )
         config.unsloth_num_chunks = -1
-        # Episode return drives behavior; up-weight EOS or verbose completions stay "worth it".
-        config.reward_weights = [1.0, 2.0, 0.75, 1.0]
+        # Weights for: format | EOS-clean | plausibility | episode-return | compact
+        # reward_compact_fn has [-0.5, +0.4] range vs reward_clean_eos_fn [-0.1, +0.2].
+        # Weight compact at 2.5x and EOS-clean at 2.0x so the combined compactness
+        # signal (~[-1.2, +1.2]) is competitive with format+return (~[-1, +1]).
+        config.reward_weights = [1.0, 2.0, 0.75, 1.0, 2.5]
 
-        trainer = GRPOTrainer(
+        trainer = LifeStackGRPOTrainer(
             model=model,
             processing_class=tokenizer,
             args=config,
@@ -1449,6 +1576,7 @@ def train_episodic_curriculum(
                 reward_clean_eos_fn,
                 reward_episode_plausibility_fn,
                 reward_episode_return_fn,
+                reward_compact_fn,
             ],
         )
         trainer.train(resume_from_checkpoint=resume_ckpt)
@@ -2054,6 +2182,14 @@ Examples:
         "--episodic-max-completion", type=int, default=0,
         help="Override episodic max completion length; 0 = auto (default: 0).",
     )
+    parser.add_argument(
+        "--num-train-epochs", type=int, default=1,
+        help=(
+            "Training epochs per stage.  "
+            "Previous run used 1 epoch (~10 optimizer steps).  "
+            "Set to 3–5 for a longer run without changing data size."
+        ),
+    )
     args = parser.parse_args()
 
     if args.dry_run:
@@ -2098,6 +2234,7 @@ Examples:
             max_completion_length=None
             if args.episodic_max_completion == 0
             else int(args.episodic_max_completion),
+            num_train_epochs=args.num_train_epochs,
         )
         validate_saved_model(args.output_dir)
         if args.push_to_hub and trainer:
