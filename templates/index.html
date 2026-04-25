@@ -550,16 +550,19 @@
 
         <!-- ── TAB 5: ANALYTICS ── -->
         <div id="content-performance" class="hidden grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div class="glass p-6 rounded-2xl flex flex-col items-center justify-center min-h-[400px]">
-                <h3 class="text-lg font-bold mb-6 w-full">Learning efficiency (GRPO)</h3>
-                <canvas id="performanceChart"></canvas>
+            <div class="glass p-6 rounded-2xl flex flex-col min-h-[400px]">
+                <h3 class="text-lg font-bold mb-6">Reward History (chronological)</h3>
+                <div class="relative flex-1" style="min-height:300px">
+                    <canvas id="performanceChart" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+                    <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-sm font-bold">No reward data yet — run the simulation to populate.</div>
+                </div>
             </div>
             <div class="glass p-6 rounded-2xl">
-                <h3 class="text-lg font-bold mb-6">Memory Persistence</h3>
-                <div id="stats-container" class="grid grid-cols-2 gap-4"></div>
-                <div class="mt-8 p-6 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-center">
-                    <p class="text-xs text-slate-400 uppercase font-black tracking-widest mb-2">Model Strategy</p>
-                    <p class="text-sm font-bold italic text-indigo-300 italic">"Prioritizing long-term relationship preservation over short-term career gain in high-neuroticism subjects."</p>
+                <h3 class="text-lg font-bold mb-6">Memory &amp; Agent Stats</h3>
+                <div id="stats-container" class="grid grid-cols-2 gap-3"></div>
+                <div id="insight-box" class="hidden mt-6 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl">
+                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-2">Last High-Reward Reasoning</p>
+                    <p id="insight-text" class="text-xs font-semibold italic text-indigo-300"></p>
                 </div>
             </div>
         </div>
@@ -793,17 +796,50 @@
         async function loadStats() {
             const res = await fetch('/api/stats');
             const stats = await res.json();
+
+            const topAction = stats.action_distribution
+                ? Object.entries(stats.action_distribution).sort((a,b) => b[1]-a[1])[0]?.[0] ?? '—'
+                : '—';
+
             document.getElementById('stats-container').innerHTML = `
-                <div class="bg-indigo-500/10 p-5 rounded-2xl text-center border border-indigo-500/10 select-none">
-                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Memories Seeded</div>
-                    <div class="text-3xl font-black">${stats.total_memories}</div>
+                <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Memories</div>
+                    <div class="text-3xl font-black">${stats.total_memories ?? 0}</div>
                 </div>
-                <div class="bg-indigo-500/10 p-5 rounded-2xl text-center border border-indigo-500/10 select-none">
+                <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
                     <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Feedback Loops</div>
-                    <div class="text-3xl font-black">${stats.feedback_count}</div>
+                    <div class="text-3xl font-black">${stats.feedback_count ?? 0}</div>
                 </div>
+                <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Avg Reward</div>
+                    <div class="text-3xl font-black">${stats.average_reward != null ? stats.average_reward.toFixed(3) : '—'}</div>
+                </div>
+                <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Top Action</div>
+                    <div class="text-lg font-black capitalize">${topAction}</div>
+                </div>
+                ${stats.top_domain ? `
+                <div class="col-span-2 bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Most Targeted Domain</div>
+                    <div class="text-xl font-black capitalize">${stats.top_domain.replace('_',' ')}</div>
+                </div>` : ''}
             `;
-            initChart(stats.reward_history || [0.1, 0.2, 0.45, 0.61, 0.58, 0.65, 0.81, 0.79, 0.88, 0.91]);
+
+            // Insight box — only show if there's a real insight from memory
+            if (stats.last_insight) {
+                document.getElementById('insight-box').classList.remove('hidden');
+                document.getElementById('insight-text').innerText = `"${stats.last_insight}"`;
+            }
+
+            const history = stats.reward_history || [];
+            if (history.length === 0) {
+                document.getElementById('chart-empty').classList.remove('hidden');
+                document.getElementById('performanceChart').style.display = 'none';
+            } else {
+                document.getElementById('chart-empty').classList.add('hidden');
+                document.getElementById('performanceChart').style.display = '';
+                initChart(history);
+            }
         }
 
         function initChart(history) {

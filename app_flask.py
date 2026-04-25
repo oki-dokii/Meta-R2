@@ -503,17 +503,43 @@ def get_demo_task():
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
+    from collections import Counter
     stats = MEMORY.get_stats()
-    # Normalise for frontend: inject feedback_count and reward_history
     all_records = []
     try:
         raw = MEMORY.collection.get(include=["metadatas"])
         all_records = raw.get("metadatas", [])
     except Exception:
         pass
+
     stats["feedback_count"] = len([m for m in all_records if m.get("type") == "feedback"])
-    rewards = [m.get("reward", 0.0) for m in all_records if "reward" in m]
+
+    # Sort by timestamp so the reward chart is chronological
+    timed = [m for m in all_records if "reward" in m and "timestamp" in m]
+    timed.sort(key=lambda m: m.get("timestamp", ""))
+    untimed = [m for m in all_records if "reward" in m and "timestamp" not in m]
+    ordered = timed + untimed
+    rewards = [round(float(m["reward"]), 4) for m in ordered]
     stats["reward_history"] = rewards[-20:] if rewards else []
+
+    # Average reward
+    stats["average_reward"] = round(sum(rewards) / len(rewards), 3) if rewards else None
+
+    # Action type distribution (top 5)
+    action_counts = Counter(m["action_type"] for m in all_records if m.get("action_type"))
+    stats["action_distribution"] = dict(action_counts.most_common(5))
+
+    # Most targeted domain
+    domain_counts = Counter(m["target_domain"] for m in all_records if m.get("target_domain"))
+    stats["top_domain"] = domain_counts.most_common(1)[0][0] if domain_counts else None
+
+    # Last agent insight — derive from most recent high-reward records
+    recent_high = sorted(
+        [m for m in all_records if m.get("reward", 0) > 0.3 and m.get("reasoning")],
+        key=lambda m: m.get("timestamp", ""), reverse=True
+    )
+    stats["last_insight"] = recent_high[0]["reasoning"][:120] if recent_high else None
+
     return jsonify(stats)
 
 @app.route('/api/feedback/submit', methods=['POST'])
