@@ -22,6 +22,8 @@ data/*
 !data/reward_curve.png
 !data/training_log.json
 !data/trl_reward_curve.png
+!docs/training_curves.png
+!docs/reward_curve.png
 !data/before_after_comparison.json
 !data/demo_signals.json
 !data/holdout_tasks.json
