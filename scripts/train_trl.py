@@ -380,16 +380,25 @@ def _ensure_trl_model_compat(model):
 def load_model():
     """Load model with Unsloth 4-bit quantization.
 
-    dtype choice: float16 everywhere, not bfloat16.
-    Reason: Unsloth's 4-bit LoRA CUDA kernels (fast_lora.py / matmul_lora)
-    produce float16 activations regardless of the nominal dtype flag, because
-    the bitsandbytes 4-bit dequantisation step outputs float16 by default.
-    LoRA A/B matrices default to float32 in PEFT — mixing float16 activations
-    with float32 LoRA matrices causes a RuntimeError in addmm_.
-    Loading with float16 AND explicitly casting trainable LoRA params to
-    float16 (see loop below) makes every tensor in the kernel the same dtype.
+    dtype choice: bfloat16 on Ampere+ (compute capability ≥ 8), float16 otherwise.
+
+    Why bfloat16 is the right choice on A100/H100:
+      - bf16 has the same dynamic range as float32, so no GradScaler is needed.
+      - With fp16, Accelerate creates a GradScaler and calls scaler.unscale_()
+        before clip_grad_norm_. Unsloth's LoRA produces float16 grads, and
+        unscale_() refuses float16 grads → "Attempting to unscale FP16 gradients".
+      - bf16 path skips GradScaler entirely → no unscale crash, no inf/nan from
+        small gradient values getting flushed to zero in fp16.
+      - Unsloth's 4-bit dequantization on Ampere+ targets bf16 correctly when
+        the nominal dtype is bf16, so kernel dtypes stay consistent.
+
+    Older GPUs (compute < 8) fall back to float16 because they don't support bf16.
     """
-    _load_dtype = torch.float16   # matches Unsloth 4-bit kernel output dtype
+    _load_dtype = (
+        torch.bfloat16
+        if (torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8)
+        else torch.float16
+    )
     try:
         from unsloth import FastLanguageModel
         model, tokenizer = FastLanguageModel.from_pretrained(
@@ -408,9 +417,8 @@ def load_model():
             bias="none",
             use_gradient_checkpointing="unsloth",
         )
-        # LoRA A/B matrices are float32 by default in PEFT.
-        # Cast them to float16 so they match the activation dtype that
-        # Unsloth's kernels produce during the 4-bit forward pass.
+        # LoRA A/B matrices default to float32 in PEFT. Cast them to the
+        # compute dtype so all tensors in Unsloth's kernels match.
         for _, param in model.named_parameters():
             if param.requires_grad and param.dtype == torch.float32:
                 param.data = param.data.to(_load_dtype)
