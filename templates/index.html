@@ -1292,8 +1292,10 @@
                     const sign = delta >= 0 ? '+' : '';
                     const deltaEl = document.getElementById('cmp-delta');
                     deltaEl.classList.remove('hidden');
-                    deltaEl.querySelector('span').innerText =
-                        `LifeStack outperforms baseline by ${sign}${(delta * 100).toFixed(1)}% reward (${sign}${delta.toFixed(3)})`;
+                    const text = delta >= 0 
+                        ? `LifeStack outperforms baseline by +${(delta * 100).toFixed(1)}% reward (+${delta.toFixed(3)})`
+                        : `LifeStack trails baseline by ${Math.abs(delta * 100).toFixed(1)}% reward (${delta.toFixed(3)})`;
+                    deltaEl.querySelector('span').innerText = text;
                     deltaEl.querySelector('span').className =
                         `inline-block px-6 py-2 rounded-full border font-black text-sm ${delta >= 0 ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`;
                 }
@@ -1349,8 +1351,10 @@
                 const sign = delta >= 0 ? '+' : '';
                 const deltaEl = document.getElementById('mem-delta');
                 deltaEl.classList.remove('hidden');
-                deltaEl.querySelector('span').innerText =
-                    `Memory improved reward by ${sign}${(delta * 100).toFixed(1)}% (${sign}${delta.toFixed(3)})`;
+                const text = delta >= 0 
+                    ? `Memory improved reward by +${(delta * 100).toFixed(1)}% (+${delta.toFixed(3)})`
+                    : `Memory reduced reward by ${Math.abs(delta * 100).toFixed(1)}% (${delta.toFixed(3)})`;
+                deltaEl.querySelector('span').innerText = text;
                 deltaEl.querySelector('span').className =
                     `inline-block px-6 py-2 rounded-full border font-black text-sm ${delta >= 0 ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`;
             } catch (e) {
