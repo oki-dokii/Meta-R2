@@ -166,7 +166,8 @@ def start_simulation():
             if dom_obj and hasattr(dom_obj, sub):
                 setattr(dom_obj, sub, max(0.0, min(100.0, getattr(dom_obj, sub) + delta)))
     flat = base_metrics.flatten()
-    DEMO_PREDICTOR.add_snapshot(base_metrics)
+    if DEMO_PREDICTOR:
+        DEMO_PREDICTOR.add_snapshot(base_metrics)
     return jsonify({
         "status": "success",
         "metrics": flat,
@@ -206,7 +207,8 @@ def get_cascade_frames():
                 dom_obj = getattr(snap, dom, None)
                 if dom_obj and hasattr(dom_obj, sub):
                     setattr(dom_obj, sub, float(val))
-        DEMO_PREDICTOR.add_snapshot(snap)
+        if DEMO_PREDICTOR:
+            DEMO_PREDICTOR.add_snapshot(snap)
     return jsonify({"frames": frames})
 
 @app.route('/api/simulation/graph', methods=['GET'])
@@ -302,8 +304,8 @@ def perform_action():
         },
         "counterfactuals": cf_data,
         "prediction": {
-            "summary": DEMO_PREDICTOR.get_prediction_summary(),
-            "risk_score": DEMO_PREDICTOR.get_risk_score()
+            "summary": DEMO_PREDICTOR.get_prediction_summary() if DEMO_PREDICTOR else "Stable",
+            "risk_score": DEMO_PREDICTOR.get_risk_score() if DEMO_PREDICTOR else 0.0
         },
         "conflict": {
             "title": conflict.title,
@@ -508,7 +510,8 @@ def run_custom():
             if len(parts) == 2:
                 dom = getattr(m, parts[0], None)
                 if dom and hasattr(dom, parts[1]):
-                    setattr(dom, parts[1], v)
+                    cur = getattr(dom, parts[1], 70.0)
+                    setattr(dom, parts[1], max(0.0, min(100.0, cur + float(v))))
 
     conflict = INTAKE.extract_conflict(situation_input, m)
     pers_dict = INTAKE.get_personality_from_description(situation_input)
@@ -599,19 +602,32 @@ def digital_sync():
 
     # Fitness — always demo (no live fitness API)
     fitness_signals = demo_full['fitness']
+    raw = demo_full['derived_metric_deltas']
+    # Remap demo_signals.json keys to actual LifeMetrics field names
     fitness_deltas = {
-        "physical_health.sleep_quality": demo_full['derived_metric_deltas']['physical_health.sleep_quality'],
-        "physical_health.energy_level": demo_full['derived_metric_deltas']['physical_health.energy_level'],
-        "physical_health.exercise_consistency": demo_full['derived_metric_deltas']['physical_health.exercise_consistency'],
-        "mental_wellbeing.stress_level": demo_full['derived_metric_deltas']['mental_wellbeing.stress_level'],
+        "physical_health.sleep_quality": raw.get("physical_health.sleep_quality", 0),
+        "physical_health.energy":        raw.get("physical_health.energy_level", 0),   # renamed
+        "physical_health.fitness":       raw.get("physical_health.exercise_consistency", 0),  # renamed
+        "mental_wellbeing.stress_level": raw.get("mental_wellbeing.stress_level", 0),
     }
     fitness_is_demo = True
 
+    # Remap any invalid paths from gmail/calendar deltas too
+    _path_remap = {
+        "physical_health.energy_level":         "physical_health.energy",
+        "physical_health.exercise_consistency": "physical_health.fitness",
+        "mental_wellbeing.focus_quality":       "mental_wellbeing.clarity",
+        "mental_wellbeing.emotional_regulation":"mental_wellbeing.emotional_stability",
+        "time.schedule_control":                "time.admin_overhead",
+    }
+    def _remap(deltas: dict) -> dict:
+        return {_path_remap.get(k, k): v for k, v in deltas.items()}
+
     # Merge all deltas (last writer wins — Calendar > Gmail for overlapping keys)
     merged_deltas = {}
-    merged_deltas.update(gmail_deltas)
-    merged_deltas.update(cal_deltas)
-    merged_deltas.update(fitness_deltas)
+    merged_deltas.update(_remap(gmail_deltas))
+    merged_deltas.update(_remap(cal_deltas))
+    merged_deltas.update(fitness_deltas)  # already remapped
 
     return jsonify({
         "status": "success",

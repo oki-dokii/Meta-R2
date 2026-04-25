@@ -1247,8 +1247,8 @@
                 const res = await fetch('/api/digital/sync', { method: 'POST' });
                 const data = await res.json();
 
-                // Store raw signals for context augmentation
-                globalGmailSignals = data.sources.gmail.signals || {};
+                // Store remapped metric-path deltas so run_custom() can apply them
+                globalGmailSignals = data.merged_deltas || {};
 
                 // Auto-update sliders based on synced deltas
                 const deltas = data.merged_deltas || {};
@@ -1259,9 +1259,9 @@
                         el.value = newVal;
                     }
                 };
-                updateSlider('custom-work', deltas['career.workload']);
-                updateSlider('custom-rel', -(deltas['relationships.romantic'] || 0)); // Inverted for "Stress"
-                updateSlider('custom-energy', deltas['physical_health.energy_level']);
+                updateSlider('custom-work',   deltas['career.workload']);
+                updateSlider('custom-rel',   -(deltas['relationships.romantic'] || 0));
+                updateSlider('custom-energy',  deltas['physical_health.energy']);
                 
                 document.getElementById('sync-sources').classList.remove('hidden');
 
