@@ -495,11 +495,51 @@ def get_demo_task():
     return jsonify({
         "goal": task.goal,
         "difficulty": task.difficulty,
-        "routes": [{"name": r.name, "description": r.description} for r in dummy_routes],
-        "milestones": [{"id": m.id, "description": m.description} for m in dummy_milestones],
-        "events": [{"step": e.step, "id": e.id, "description": e.description} for e in dummy_events],
-        "story": "A major storm grounded commercial flights."
+        "story": "A major storm grounded commercial flights.",
+        "routes": [{"name": r.name, "description": r.description,
+                    "actions": r.required_action_types, "reward": r.final_reward}
+                   for r in dummy_routes],
+        "milestones": [{"id": m.id, "description": m.description, "reward": m.reward}
+                       for m in dummy_milestones],
+        "events": [{"step": e.step, "id": e.id, "description": e.description,
+                    "probability": e.probability}
+                   for e in dummy_events],
     })
+
+@app.route('/api/task/list', methods=['GET'])
+def list_tasks():
+    """Return all conflict templates formatted as browsable task cards."""
+    result = []
+    for t in TEMPLATES:
+        disruption_events = [
+            {
+                "step": 1,
+                "id": k.replace('.', '_'),
+                "description": f"{k.split('.')[-1].replace('_', ' ').title()}: {'+' if v > 0 else ''}{v:.0f}",
+                "probability": 1.0
+            }
+            for k, v in (t.primary_disruption or {}).items()
+        ]
+        decision_routes = [
+            {
+                "name": d,
+                "description": f"Approach: {d}",
+                "actions": [],
+                "reward": round(0.8 + t.difficulty * 0.3, 1)
+            }
+            for d in (t.decisions_required or [])
+        ]
+        result.append({
+            "id": t.id,
+            "title": t.title,
+            "story": t.story,
+            "difficulty": t.difficulty,
+            "resource_budget": t.resource_budget or {},
+            "routes": decision_routes,
+            "milestones": [{"id": f"resolve_{t.id}", "description": f"Resolve '{t.title}' without cascading failure", "reward": round(0.5 + t.difficulty * 0.25, 1)}],
+            "events": disruption_events,
+        })
+    return jsonify(result)
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -541,6 +581,15 @@ def get_stats():
     stats["last_insight"] = recent_high[0]["reasoning"][:120] if recent_high else None
 
     return jsonify(stats)
+
+@app.route('/api/history/reset', methods=['POST'])
+def reset_history():
+    """Wipe all memories and feedback from ChromaDB."""
+    try:
+        MEMORY.collection.delete(where={}) # Delete everything
+        return jsonify({"status": "success", "message": "History and memories cleared."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/feedback/submit', methods=['POST'])
 def submit_feedback():
