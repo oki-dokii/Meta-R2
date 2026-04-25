@@ -99,6 +99,31 @@ def _install_trl_optional_dependency_shims() -> None:
     llm_blender_mod.Blender = Blender
     llm_blender_mod.__spec__ = importlib.machinery.ModuleSpec("llm_blender", loader=None)
     sys.modules["llm_blender"] = llm_blender_mod
+
+    # `weave` is W&B's tracing/eval library, hard-imported at the top of
+    # trl/trainer/callbacks.py. It is only used inside an optional WeaveCallback
+    # path that GRPO does not take. Provide a minimal shim so the module-level
+    # `import weave` succeeds without pulling in W&B's heavy tracing stack.
+    weave_mod = types.ModuleType("weave")
+
+    def _weave_init(*args, **kwargs):  # weave.init(...)
+        return None
+
+    def _weave_op(*args, **kwargs):  # @weave.op() / weave.op
+        # Support both @weave.op and @weave.op() decorator forms.
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
+    weave_mod.init = _weave_init
+    weave_mod.op = _weave_op
+    weave_mod.__spec__ = importlib.machinery.ModuleSpec("weave", loader=None)
+    sys.modules["weave"] = weave_mod
+
     # vLLM is optional for GRPO; provide import-safe shim for environments
     # where import checks pass but real import fails due incomplete installs.
     vllm_mod = types.ModuleType("vllm")
@@ -177,7 +202,7 @@ def _install_trl_optional_dependency_shims() -> None:
         _importlib_metadata.version = _patched_version
     except Exception:
         pass
-    print("[warning] using local shims for mergekit/llm_blender compatibility.")
+    print("[warning] using local shims for mergekit/llm_blender/weave compatibility.")
 
 
 _install_trl_optional_dependency_shims()
