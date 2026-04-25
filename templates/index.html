@@ -1317,14 +1317,6 @@
                 btn.disabled = false; btn.innerHTML = originalText;
             }
         }
-            } catch (e) {
-                console.error(e);
-                errBox.innerText = e.message;
-                errBox.classList.remove('hidden');
-            } finally {
-                btn.disabled = false; btn.innerHTML = originalText;
-            }
-        }
 
         async function activateArjun() {
             const btn = document.getElementById('arjun-btn');
