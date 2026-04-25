@@ -21,6 +21,7 @@ import random
 import numpy as np
 import types
 import sys
+import importlib.machinery
 
 # ── EARLY PATCHES ─────────────────────────────────────────
 # Unsloth MUST be imported before transformers/trl to apply its patches
@@ -48,6 +49,8 @@ def _install_trl_optional_dependency_shims() -> None:
 
     mergekit_config_mod.MergeConfiguration = MergeConfiguration
     mergekit_mod.config = mergekit_config_mod
+    mergekit_mod.__spec__ = importlib.machinery.ModuleSpec("mergekit", loader=None)
+    mergekit_config_mod.__spec__ = importlib.machinery.ModuleSpec("mergekit.config", loader=None)
     sys.modules["mergekit"] = mergekit_mod
     sys.modules["mergekit.config"] = mergekit_config_mod
 
@@ -66,6 +69,7 @@ def _install_trl_optional_dependency_shims() -> None:
             return [0.0]
 
     llm_blender_mod.Blender = Blender
+    llm_blender_mod.__spec__ = importlib.machinery.ModuleSpec("llm_blender", loader=None)
     sys.modules["llm_blender"] = llm_blender_mod
     print("[warning] using local shims for mergekit/llm_blender compatibility.")
 
