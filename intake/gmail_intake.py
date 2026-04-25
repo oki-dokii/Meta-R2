@@ -14,6 +14,15 @@ import base64
 import json
 from datetime import datetime, timedelta
 
+# Monkeypatch for Python 3.9 compatibility with modern google-auth
+import importlib.metadata
+if not hasattr(importlib.metadata, 'packages_distributions'):
+    try:
+        import importlib_metadata
+        importlib.metadata.packages_distributions = importlib_metadata.packages_distributions
+    except ImportError:
+        importlib.metadata.packages_distributions = lambda: {}
+
 _DEMO_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'demo_signals.json')
 
 # Gmail readonly scope
