@@ -368,13 +368,18 @@ def _ensure_trl_model_compat(model):
 # ──────────────────────────────────────────────
 
 def load_model():
-    """Load model with Unsloth 4-bit quantization. Uses bfloat16 on Ampere+ (A100/H100), float16 elsewhere."""
-    # Pick compute dtype that matches what we'll request in GRPOConfig.
-    # bf16=True in GRPOConfig requires the model to be in bfloat16; mismatch
-    # causes Unsloth's patched trainer to raise TypeError.
-    _ampere_plus = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
-    _load_dtype = torch.bfloat16 if _ampere_plus else torch.float16
+    """Load model with Unsloth 4-bit quantization.
 
+    dtype choice: float16 everywhere, not bfloat16.
+    Reason: Unsloth's 4-bit LoRA CUDA kernels (fast_lora.py / matmul_lora)
+    produce float16 activations regardless of the nominal dtype flag, because
+    the bitsandbytes 4-bit dequantisation step outputs float16 by default.
+    LoRA A/B matrices default to float32 in PEFT — mixing float16 activations
+    with float32 LoRA matrices causes a RuntimeError in addmm_.
+    Loading with float16 AND explicitly casting trainable LoRA params to
+    float16 (see loop below) makes every tensor in the kernel the same dtype.
+    """
+    _load_dtype = torch.float16   # matches Unsloth 4-bit kernel output dtype
     try:
         from unsloth import FastLanguageModel
         model, tokenizer = FastLanguageModel.from_pretrained(
@@ -393,12 +398,16 @@ def load_model():
             bias="none",
             use_gradient_checkpointing="unsloth",
         )
+        # LoRA A/B matrices are float32 by default in PEFT.
+        # Cast them to float16 so they match the activation dtype that
+        # Unsloth's kernels produce during the 4-bit forward pass.
+        for _, param in model.named_parameters():
+            if param.requires_grad and param.dtype == torch.float32:
+                param.data = param.data.to(_load_dtype)
         return _ensure_trl_model_compat(model), tokenizer
     except Exception as e:
         # Fallback: standard HF + PEFT LoRA when Unsloth is missing or broken
         print(f"[warning] Unsloth model load failed, using HF+PEFT fallback: {e}")
-        # MUST apply LoRA here — training the full 1.5B model requires ~24GB
-        # VRAM for Adam states and breaks the PeftModel loader in inference.py.
         from transformers import AutoModelForCausalLM
         from peft import LoraConfig, get_peft_model, TaskType
         model_name = "Qwen/Qwen2.5-1.5B-Instruct"
