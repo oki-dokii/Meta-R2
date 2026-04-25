@@ -236,6 +236,8 @@ def perform_action():
     
     obs = env.step(env_action)
     
+    episode_id = "".join(str(uuid.uuid4()).split("-")[:2]).upper()
+
     # Store decision in memory for future RAG
     MEMORY.store_decision(
         conflict_title=conflict.title,
@@ -244,11 +246,10 @@ def perform_action():
         reward=obs.reward,
         metrics_snapshot=before_metrics.flatten(),
         reasoning=action.reasoning,
-        episode_id=episode_id
+        episode_id=episode_id,
     )
     
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
-    episode_id = "".join(str(uuid.uuid4()).split("-")[:2]).upper()
     
     result = {
         "metrics": obs.metrics,
