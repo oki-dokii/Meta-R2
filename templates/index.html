@@ -742,8 +742,9 @@
 
         function getMetricColor(key, val) {
             const sub = key.split('.')[1];
-            if (INVERTED_METRICS.has(sub)) return val > 70 ? '#ef4444' : (val > 40 ? '#facc15' : '#4ade80');
-            return val > 70 ? '#4ade80' : (val > 40 ? '#facc15' : '#ef4444');
+            // Inverted: high raw value = low health. Thresholds mirror heatmap (health=36 → val=64).
+            if (INVERTED_METRICS.has(sub)) return val > 64 ? '#ef4444' : (val > 36 ? '#facc15' : '#4ade80');
+            return val > 64 ? '#4ade80' : (val > 36 ? '#facc15' : '#ef4444');
         }
 
         function renderMetrics(containerId, metrics, statusMap = {}, before = {}) {
@@ -790,12 +791,14 @@
                 Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.')).forEach(([key, val]) => {
                     const status = statusMap[key] || 'unchanged';
                     const color = status === 'unchanged' ? getMetricColor(key, val) : '';
-                    const label = key.split('.')[1].replace(/_/g, ' ');
+                    const sub = key.split('.')[1];
+                    const isInv = INVERTED_METRICS.has(sub);
+                    const label = sub.replace(/_/g, ' ');
                     let statusClass = (status === 'primary') ? 'pulse-red' : (status === 'first') ? 'bg-orange-500' : (status === 'second') ? 'bg-yellow-500' : (status === 'improved') ? 'bg-green-500' : 'bg-slate-700';
-                    
+
                     html += `
                     <div class="flex items-center gap-3 text-[11px] mb-2 group">
-                        <div class="w-28 text-slate-400 capitalize truncate group-hover:text-slate-200 transition-colors">${label}</div>
+                        <div class="w-28 text-slate-400 capitalize truncate group-hover:text-slate-200 transition-colors" title="${isInv ? 'lower is better' : ''}">${label}${isInv ? '<span class="ml-1 text-[8px] text-slate-600 font-black">↓</span>' : ''}</div>
                         <div class="flex-1 h-2 bg-slate-950 rounded-full overflow-hidden self-center border border-white/5">
                             <div class="metric-bar h-full rounded-full ${statusClass}" style="width: ${val}%; background-color: ${color}"></div>
                         </div>

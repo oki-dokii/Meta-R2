@@ -145,6 +145,7 @@ def start_simulation():
             if dom_obj and hasattr(dom_obj, sub):
                 setattr(dom_obj, sub, max(0.0, min(100.0, getattr(dom_obj, sub) + delta)))
     flat = base_metrics.flatten()
+    DEMO_PREDICTOR.add_snapshot(base_metrics)
     return jsonify({
         "status": "success",
         "metrics": flat,
@@ -159,7 +160,18 @@ def get_cascade_frames():
     data = request.json
     conflict_label = data.get('conflict')
     conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
-    frames = animate_cascade(conflict.primary_disruption, LifeMetrics())
+    base = LifeMetrics()
+    frames = animate_cascade(conflict.primary_disruption, base)
+    # Feed each cascade frame into the predictor so trajectory is populated
+    for frame in frames:
+        snap = LifeMetrics()
+        for path, val in frame['flat'].items():
+            if '.' in path:
+                dom, sub = path.split('.', 1)
+                dom_obj = getattr(snap, dom, None)
+                if dom_obj and hasattr(dom_obj, sub):
+                    setattr(dom_obj, sub, float(val))
+        DEMO_PREDICTOR.add_snapshot(snap)
     return jsonify({"frames": frames})
 
 @app.route('/api/simulation/graph', methods=['GET'])
