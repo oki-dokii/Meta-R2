@@ -1,6 +1,9 @@
 import os
+import re
 import json
 import copy
+import threading
+import time as _t
 from openai import OpenAI
 from core.life_state import LifeMetrics, ResourceBudget
 from core.metric_schema import format_valid_metrics, normalize_metric_path, is_valid_metric_path
@@ -14,18 +17,15 @@ class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
         self.hf_token = os.getenv('HF_TOKEN')
-        self.api_only = api_only  # if True, always use Groq, never load local model
+        self.api_only = api_only
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
 
-        # 1. Check for local folder (Kaggle / local dev)
         if not self.api_only and not self.local_model_path and os.path.exists("./lifestack_model"):
             self.local_model_path = "./lifestack_model"
 
-        # 2. Fall back to HuggingFace Hub
         if not self.api_only and not self.local_model_path:
             self.local_model_path = DEFAULT_HF_MODEL_REPO
 
-        # Wire up HF Inference API (Premium Priority - Direct Protocol)
         from huggingface_hub import InferenceClient
         self.hf_client = None
         if self.hf_token:
@@ -33,7 +33,6 @@ class LifeStackAgent:
             self.hf_client = InferenceClient(token=self.hf_token)
         self.hf_model = os.getenv("LIFESTACK_HF_MODEL", DEFAULT_HF_MODEL_REPO)
 
-        # Wire up Groq as a fallback
         if self.api_key:
             self.client = OpenAI(
                 base_url='https://api.groq.com/openai/v1',
@@ -43,10 +42,10 @@ class LifeStackAgent:
         self.tokenizer = None
         self.local_model = None
         self._model_load_attempted = False
-        self.memory = []  # Will store last 10 decisions
+        self._last_model_name = "unknown"
+        self.memory = []
 
     def _try_load_model(self):
-        """Attempt to load the local/HF model lazily on first inference call."""
         self._model_load_attempted = True
         if not self.local_model_path:
             return
@@ -64,23 +63,28 @@ class LifeStackAgent:
             self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
-                torch_dtype=dtype,
+                dtype=dtype,          # was torch_dtype — fixed deprecation
                 device_map=device_map,
             )
             self.local_model = PeftModel.from_pretrained(base_model, self.local_model_path)
             self.local_model.eval()
+            # Clear max_length from the model's default generation config so that
+            # our explicit max_new_tokens= doesn't trigger a "both are set" warning.
+            if hasattr(self.local_model, 'generation_config'):
+                self.local_model.generation_config.max_length = None
             device_label = "GPU" if torch.cuda.is_available() else "CPU"
             print(f"✅ GRPO adapter loaded on {device_label}.")
         except Exception as e:
             print(f"⚠️ Failed to load local model: {e}. Falling back to APIs.")
             self.local_model_path = None
 
+    # ── Prompt builder ────────────────────────────────────────────────────────
+
     def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> str:
-        # 1. Build Status Board
         flat = metrics.flatten()
         status_board = ""
         domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
-        
+
         for dom in domains:
             status_board += f"\n{dom.upper()}:\n"
             submetrics = {k: v for k, v in flat.items() if k.startswith(dom + ".")}
@@ -89,7 +93,6 @@ class LifeStackAgent:
                 icon = "🟢" if v > 70 else ("🟡" if v >= 40 else "🔴")
                 status_board += f"  {icon} {name:20}: {v:.1f}\n"
 
-        # 2. Build Memory Section
         memory_str = ""
         if self.memory:
             recent = self.memory[-2:]
@@ -97,8 +100,7 @@ class LifeStackAgent:
             for mem in recent:
                 memory_str += f"Past decision that worked: [{mem['action']}] → reward [{mem['reward']}]\n"
 
-        prompt = f"""
-ROLE: You are the LifeStack AI Agent. Your goal is to help the user navigate a life crisis.
+        prompt = f"""ROLE: You are the LifeStack AI Agent. Your goal is to help the user navigate a life crisis.
 
 CURRENT CONFLICT:
 Title: {conflict.title}
@@ -106,33 +108,122 @@ Story: {conflict.story}
 
 --- LIFE STATUS BOARD ---
 {status_board}
-
 --- RESOURCES REMAINING ---
 Time: {budget.time_hours:.1f} hours
 Money: ${budget.money_dollars:.1f}
 Energy: {budget.energy_units:.1f} units
 {memory_str}
 {few_shot_context}
-
 TASK:
-Choose the best action to address the conflict. Respond ONLY with valid JSON following the schema below.
+Choose the best action to address the conflict. Respond ONLY with valid JSON following the schema below. No prose, no markdown fences, no trailing commas.
 
 SCHEMA:
-{{
-  "action_type": "communicate|rest|delegate|negotiate|spend|reschedule|deprioritize",
-  "target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time",
-  "metric_changes": {{"domain.submetric": "delta_value"}},
-  "resource_cost": {{"time": 0.0, "money": 0.0, "energy": 0.0}},
-  "description": "one sentence action",
-  "recipient": "none|boss|partner|family",
-  "message_content": "text",
-  "reasoning": "strategy explanation"
-}}
-"""
+{{"action_type":"communicate|rest|delegate|negotiate|spend|reschedule|deprioritize","target_domain":"career|finances|relationships|physical_health|mental_wellbeing|time","metric_changes":{{"domain.submetric":delta_number}},"resource_cost":{{"time":0.0,"money":0.0,"energy":0.0}},"description":"one sentence action","recipient":"none|boss|partner|family","message_content":"text","reasoning":"strategy explanation"}}"""
         return prompt
 
+    # ── JSON extraction with multi-stage repair ───────────────────────────────
+
+    def _extract_json(self, raw: str) -> dict:
+        """Strip formatting, extract the first complete JSON object, repair common LLM quirks."""
+        text = raw.strip()
+
+        # Stage 1: strip markdown code fences
+        if "```json" in text:
+            text = text.split("```json")[-1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        text = text.strip()
+
+        # Stage 2: extract the first balanced { ... } block
+        start = text.find('{')
+        if start != -1:
+            depth = 0
+            for i, ch in enumerate(text[start:], start):
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        text = text[start:i + 1]
+                        break
+
+        # Stage 3: fix common LLM formatting violations
+        text = re.sub(r'\bNone\b', 'null', text)
+        text = re.sub(r'\bTrue\b', 'true', text)
+        text = re.sub(r'\bFalse\b', 'false', text)
+        text = re.sub(r',\s*([}\]])', r'\1', text)          # trailing commas
+        text = re.sub(r"(?<![\"\\])'([^']*?)'", r'"\1"', text)  # single → double quotes
+
+        return json.loads(text)
+
+    # ── Backend inference dispatcher ──────────────────────────────────────────
+
+    def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False) -> str | None:
+        """Call whichever backend is available and return raw text. Sets self._last_model_name."""
+        import torch
+        content = None
+
+        if self.local_model and not force_api:
+            self._last_model_name = self.local_model_path
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
+            with torch.no_grad():
+                outputs = self.local_model.generate(
+                    **inputs,
+                    max_new_tokens=512,   # was 256 — raised to prevent mid-JSON truncation
+                    temperature=temperature,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+            content = self.tokenizer.decode(
+                outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+            ).strip()
+
+        elif self.hf_client:
+            self._last_model_name = f"hf:{self.hf_model}"
+            try:
+                content = self.hf_client.text_generation(
+                    prompt, model=self.hf_model, max_new_tokens=512, temperature=temperature
+                )
+                if prompt in content:
+                    content = content.replace(prompt, "").strip()
+            except Exception as hf_err:
+                print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
+
+        if content is None and hasattr(self, 'client'):
+            self._last_model_name = f"groq:{self.model}"
+            for attempt in range(2):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=temperature,
+                        max_tokens=512,
+                        timeout=20,
+                    )
+                    content = response.choices[0].message.content.strip()
+                    break
+                except Exception as e:
+                    err = str(e)
+                    if "429" in err and attempt == 0:
+                        wait_secs = 6.0
+                        m = re.search(r'try again in (\d+)m([\d.]+)s', err)
+                        if m:
+                            wait_secs = int(m.group(1)) * 60 + float(m.group(2))
+                        else:
+                            m2 = re.search(r'try again in ([\d.]+)s', err)
+                            if m2:
+                                wait_secs = float(m2.group(1))
+                        if wait_secs > 3.0:
+                            return None
+                        _t.sleep(wait_secs)
+                    else:
+                        raise
+
+        return content
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
     def get_action_for_type(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, forced_type: str, api_only: bool = False) -> "AgentAction":
-        """Generate an action specifically for a given action_type."""
         force_api = self.api_only or api_only
         if not force_api and not self._model_load_attempted:
             self._try_load_model()
@@ -141,7 +232,6 @@ SCHEMA:
         return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type, force_api=force_api)
 
     def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "", api_only: bool = False) -> "AgentAction":
-        # Lazy-load the trained model on first real inference, unless caller forces api_only.
         force_api = self.api_only or api_only
         if not force_api and not self._model_load_attempted:
             self._try_load_model()
@@ -152,111 +242,68 @@ SCHEMA:
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
         return self._get_action_from_prompt(prompt, force_api=force_api)
 
-    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False) -> "AgentAction":
-        """Run LLM inference inside a daemon thread with a hard 25-second timeout."""
-        import threading
-        import time as _t
-        import re
+    # ── Core inference + parse loop ───────────────────────────────────────────
 
-        result_box = [None]  # thread writes its result here
+    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False) -> "AgentAction":
+        result_box = [None]
 
         def _call():
             try:
-                import torch
-                content = None
-                
-                used_model_name = "unknown"
-                if self.local_model and not force_api:
-                    # ── Local / HF Transformers model ─────────────────────
-                    used_model_name = self.local_model_path
-                    inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
-                    with torch.no_grad():
-                        outputs = self.local_model.generate(
-                            **inputs,
-                            max_new_tokens=256,
-                            temperature=0.3,
-                            do_sample=True,
-                            pad_token_id=self.tokenizer.pad_token_id
-                        )
-                    content = self.tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-                
-                elif self.hf_client:
-                    # ── Hugging Face Inference API (Golden Pool) ──────────
-                    used_model_name = f"hf:{self.hf_model}"
-                    try:
-                        content = self.hf_client.text_generation(
-                            prompt,
-                            model=self.hf_model,
-                            max_new_tokens=350,
-                            temperature=0.3
-                        )
-                        if prompt in content:
-                            content = content.replace(prompt, "").strip()
-                    except Exception as hf_err:
-                        print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
-                
-                if content is None:
-                    # ── Groq API Fallback (Llama-3.3-70B) ──────────────────
-                    used_model_name = f"groq:{self.model}"
-                    response = None
-                    for attempt in range(2):
-                        try:
-                            response = self.client.chat.completions.create(
-                                model=self.model,
-                                messages=[{"role": "user", "content": prompt}],
-                                temperature=0.3,
-                                max_tokens=350,
-                                timeout=20,
-                            )
-                            break
-                        except Exception as e:
-                            err = str(e)
-                            if "429" in err and attempt == 0:
-                                wait_secs = 6.0
-                                m = re.search(r'try again in (\d+)m([\d.]+)s', err)
-                                if m: wait_secs = int(m.group(1)) * 60 + float(m.group(2))
-                                elif re.search(r'try again in ([\d.]+)s', err): 
-                                    wait_secs = float(re.search(r'try again in ([\d.]+)s', err).group(1))
-                                if wait_secs > 3.0:
-                                    result_box[0] = self._fallback_action(f"Rate limited ({wait_secs:.0f}s).", fallback_type)
-                                    return
-                                _t.sleep(wait_secs)
-                            else: raise
-                    
-                    if response:
-                        content = response.choices[0].message.content.strip()
+                content = self._run_inference(prompt, temperature=0.3, force_api=force_api)
+                if not content:
+                    result_box[0] = self._fallback_action("No content returned.", fallback_type)
+                    return
 
-                if content:
-                    # Parse JSON
-                    if "```json" in content: content = content.split("```json")[-1].split("```")[0].strip()
-                    elif "```" in content: content = content.split("```")[1].split("```")[0].strip()
-                    
-                    data = json.loads(content)
-                    metric_changes = {}
-                    for k, v in data.get("metric_changes", {}).items():
-                        norm_key = normalize_metric_path(k)
-                        if is_valid_metric_path(norm_key):
-                            try: metric_changes[norm_key] = float(v)
-                            except (ValueError, TypeError): pass
-                    
-                    result_box[0] = AgentAction(
-                        primary=PrimaryAction(
-                            action_type=data.get("action_type", "rest"),
-                            target_domain=data.get("target_domain", "mental_wellbeing"),
-                            metric_changes=metric_changes,
-                            resource_cost=data.get("resource_cost", {}),
-                            description=data.get("description", "Taking a moment.")
-                        ),
-                        communication=CommunicationAction(
-                            recipient=data.get("recipient"),
-                            message_type=data.get("message_type") or "none",
-                            tone=data.get("tone") or "none",
-                            content=data.get("message_content") or ""
-                        ) if data.get("recipient") and data.get("recipient") != "none" else None,
-                        reasoning=data.get("reasoning", "Strategic choice."),
-                        model_used=used_model_name,
-                        raw_completion=content
-                    )
+                # Parse with one automatic retry on failure
+                data = None
+                for parse_attempt in range(2):
+                    try:
+                        data = self._extract_json(content)
+                        break
+                    except (json.JSONDecodeError, ValueError) as parse_err:
+                        if parse_attempt == 0:
+                            print(f"JSON parse attempt 1 failed ({parse_err}). Retrying with strict prompt...")
+                            retry_prompt = prompt + "\n\nRETURN ONLY VALID COMPACT JSON. NO PROSE. NO MARKDOWN. NO TRAILING COMMAS."
+                            retry_content = self._run_inference(retry_prompt, temperature=0.1, force_api=force_api)
+                            if retry_content:
+                                content = retry_content
+                        else:
+                            print(f"LLM call error (both attempts failed): {parse_err}")
+                            result_box[0] = self._fallback_action(f"JSON parse failed: {parse_err}", fallback_type)
+                            return
+
+                if data is None:
+                    result_box[0] = self._fallback_action("JSON extraction returned None.", fallback_type)
+                    return
+
+                metric_changes = {}
+                for k, v in data.get("metric_changes", {}).items():
+                    norm_key = normalize_metric_path(k)
+                    if is_valid_metric_path(norm_key):
+                        try:
+                            metric_changes[norm_key] = float(v)
+                        except (ValueError, TypeError):
+                            pass
+
+                result_box[0] = AgentAction(
+                    primary=PrimaryAction(
+                        action_type=data.get("action_type", "rest"),
+                        target_domain=data.get("target_domain", "mental_wellbeing"),
+                        metric_changes=metric_changes,
+                        resource_cost=data.get("resource_cost", {}),
+                        description=data.get("description", "Taking a moment.")
+                    ),
+                    communication=CommunicationAction(
+                        recipient=data.get("recipient"),
+                        message_type=data.get("message_type") or "none",
+                        tone=data.get("tone") or "none",
+                        content=data.get("message_content") or ""
+                    ) if data.get("recipient") and data.get("recipient") != "none" else None,
+                    reasoning=data.get("reasoning", "Strategic choice."),
+                    model_used=self._last_model_name,
+                    raw_completion=content
+                )
+
             except Exception as e:
                 print(f"LLM call error: {e}")
                 result_box[0] = self._fallback_action(f"Exception: {e}", fallback_type)
@@ -282,7 +329,9 @@ SCHEMA:
 
     def store_decision(self, action: AgentAction, reward: float):
         self.memory.append({'action': action.primary.description, 'reward': round(reward, 3)})
-        if len(self.memory) > 10: self.memory.pop(0)
+        if len(self.memory) > 10:
+            self.memory.pop(0)
+
 
 def main():
     if not os.getenv('GROQ_API_KEY'):
