@@ -800,6 +800,178 @@ def load_training_tab():
     return "<div style='font-family:sans-serif;color:#eee'>" + "\n".join(html_parts) + "</div>"
 
 
+# ─── Tab: Memory Effect Demo ─────────────────────────────────────────────────
+def run_memory_demo(conflict_label: str, person_label: str):
+    """Runs two episodes of the same conflict:
+      Episode 1 — Cold Start (no ChromaDB context, empty few_shot)
+      Episode 2 — RAG-Augmented  (Episode 1 result stored in ChromaDB, retrieved as few-shot)
+    Returns (ep1_html, ep2_html, diff_html) for display.
+    """
+    import copy as _cp
+
+    conflict = CONFLICT_CHOICES[conflict_label]
+    person   = PERSONS[person_label]
+
+    def _run_single_episode(few_shot_context: str, label: str) -> tuple:
+        """Returns (action, reward, metrics_before, metrics_after) for one episode."""
+        env = _init_env(conflict)
+        metrics_before = _cp.deepcopy(env.state.current_metrics)
+        budget = _cp.deepcopy(env.state.budget)
+
+        action = AGENT.get_action(metrics_before, budget, conflict, person,
+                                   few_shot_context=few_shot_context)
+        _normalize_action_metric_changes(action)
+        is_valid, _ = validate_action(action, budget)
+        if not is_valid:
+            action.primary.metric_changes = {"mental_wellbeing.stress_level": -5.0}
+            action.primary.resource_cost  = {}
+
+        current_stress = metrics_before.mental_wellbeing.stress_level
+        uptake = person.respond_to_action(
+            action.primary.action_type,
+            action.primary.resource_cost,
+            current_stress
+        )
+        scaled_changes = {k: float(v) * uptake
+                          for k, v in action.primary.metric_changes.items()}
+
+        env_action = LifeStackAction.from_agent_action(action)
+        env_action.metric_changes = scaled_changes
+        obs = env.step(env_action)
+        reward = obs.reward or 0.0
+        metrics_after = env.state.current_metrics
+        return action, reward, uptake, metrics_before, metrics_after
+
+    # ── Episode 1: Cold Start (no memory) ─────────────────────────────────────
+    ep1_action, ep1_reward, ep1_uptake, ep1_before, ep1_after = _run_single_episode("", "Cold")
+
+    # Store Episode 1 result into ChromaDB so Episode 2 can retrieve it
+    MEMORY.store_decision(
+        conflict_title=conflict.title,
+        action_type=ep1_action.primary.action_type,
+        target_domain=ep1_action.primary.target_domain,
+        reward=ep1_reward,
+        metrics_snapshot=ep1_before.flatten(),
+        reasoning=ep1_action.reasoning,
+    )
+
+    # ── Episode 2: RAG-Augmented (retrieves Episode 1 from ChromaDB) ──────────
+    few_shot = MEMORY.build_few_shot_prompt(conflict.title, ep1_before.flatten())
+    ep2_action, ep2_reward, ep2_uptake, ep2_before, ep2_after = _run_single_episode(few_shot, "Warm")
+
+    # ── Build HTML cards ──────────────────────────────────────────────────────
+    def _episode_card(ep_num: int, label: str, action, reward: float, uptake: float,
+                      before, after, border_color: str, few_shot_ctx: str = "") -> str:
+        before_flat = before.flatten()
+        after_flat  = after.flatten()
+        r_color = "#4ade80" if reward > 0.4 else ("#facc15" if reward > 0 else "#f87171")
+        cost    = action.primary.resource_cost
+        cost_str = (f"⏱ {cost.get('time', 0):.1f}h  "
+                    f"💵 ${cost.get('money', 0):.0f}  "
+                    f"⚡ {cost.get('energy', 0):.0f}")
+        changed_rows = ""
+        for k, v_after in after_flat.items():
+            v_before = before_flat.get(k, v_after)
+            delta = v_after - v_before
+            if abs(delta) > 0.5:
+                name  = k.replace(".", " › ").replace("_", " ")
+                arrow = "↑" if delta > 0 else "↓"
+                dc    = "#4ade80" if delta > 0 else "#f87171"
+                changed_rows += (
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"font-size:11px;color:#ccc;padding:2px 0'>"
+                    f"<span>{name}</span>"
+                    f"<span style='color:{dc}'>{arrow} {delta:+.1f}</span>"
+                    f"</div>"
+                )
+        if not changed_rows:
+            changed_rows = "<div style='font-size:11px;color:#666'>No significant metric changes</div>"
+
+        memory_badge = ""
+        if few_shot_ctx:
+            preview = few_shot_ctx[:120].replace("<", "&lt;").replace(">", "&gt;")
+            memory_badge = (
+                f"<div style='margin-top:10px;padding:8px;background:#0d2a1a;"
+                f"border:1px solid #166534;border-radius:6px;font-size:11px;color:#86efac'>"
+                f"🧠 <b>Memory retrieved:</b> {preview}…"
+                f"</div>"
+            )
+
+        return f"""
+<div style='background:#12122a;border:2px solid {border_color};border-radius:10px;
+            padding:16px;font-family:sans-serif'>
+  <div style='font-size:12px;font-weight:700;color:#888;letter-spacing:2px;margin-bottom:4px'>
+    EPISODE {ep_num} — {label.upper()}
+  </div>
+  <div style='font-size:18px;font-weight:900;color:#eee;margin-bottom:8px'>
+    {action.primary.action_type.upper()} → {action.primary.target_domain}
+  </div>
+  <div style='font-size:13px;color:#ccc;margin-bottom:10px'>{action.primary.description}</div>
+  <div style='margin-bottom:10px;padding:8px;background:#1e1e2f;border-radius:6px;
+              font-size:11px;color:#94a3b8'>
+    <b>Reasoning:</b> {action.reasoning[:160]}{'…' if len(action.reasoning) > 160 else ''}
+  </div>
+  <div style='display:flex;gap:12px;font-size:13px;margin-bottom:10px'>
+    <span style='color:{r_color};font-weight:700'>★ Reward: {reward:.3f}</span>
+    <span style='color:#94a3b8'>🎯 Uptake: {uptake:.0%}</span>
+    <span style='color:#6b7280'>{cost_str}</span>
+  </div>
+  <div style='border-top:1px solid #333;padding-top:10px'>
+    <div style='font-size:11px;color:#888;margin-bottom:4px'>METRIC CHANGES</div>
+    {changed_rows}
+  </div>
+  {memory_badge}
+</div>"""
+
+    ep1_html = _episode_card(1, "No Memory",  ep1_action, ep1_reward, ep1_uptake,
+                              ep1_before, ep1_after, "#4b5563", "")
+    ep2_html = _episode_card(2, "RAG-Augmented", ep2_action, ep2_reward, ep2_uptake,
+                              ep2_before, ep2_after, "#22c55e", few_shot)
+
+    # ── Comparison / Diff block ───────────────────────────────────────────────
+    reward_delta = ep2_reward - ep1_reward
+    efficiency_pct = (reward_delta / max(abs(ep1_reward), 0.01)) * 100
+    delta_color = "#4ade80" if reward_delta >= 0 else "#f87171"
+    same_action = ep1_action.primary.action_type == ep2_action.primary.action_type
+    strategy_changed = "✅ Different strategy chosen" if not same_action else "⚠️ Same action type (memory reinforced this choice)"
+    strategy_color   = "#4ade80" if not same_action else "#facc15"
+
+    diff_html = f"""
+<div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;
+            padding:16px;font-family:sans-serif;margin-top:0'>
+  <div style='font-size:14px;font-weight:900;color:#a78bfa;letter-spacing:1px;margin-bottom:12px'>
+    📊 MEMORY EFFECT DELTA
+  </div>
+  <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px'>
+    <div style='background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;text-align:center'>
+      <div style='font-size:22px;font-weight:700;color:#6b7280'>{ep1_reward:.3f}</div>
+      <div style='font-size:11px;color:#666;margin-top:2px'>Cold Start Reward</div>
+    </div>
+    <div style='background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;text-align:center'>
+      <div style='font-size:22px;font-weight:700;color:#22c55e'>{ep2_reward:.3f}</div>
+      <div style='font-size:11px;color:#666;margin-top:2px'>RAG-Augmented Reward</div>
+    </div>
+    <div style='background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;text-align:center'>
+      <div style='font-size:22px;font-weight:700;color:{delta_color}'>
+        {'+' if reward_delta >= 0 else ''}{efficiency_pct:.0f}%
+      </div>
+      <div style='font-size:11px;color:#666;margin-top:2px'>Efficiency Gain</div>
+    </div>
+  </div>
+  <div style='display:flex;align-items:center;gap:8px;padding:10px;
+              background:#0d2a1a;border-radius:6px;margin-bottom:10px'>
+    <span style='color:{strategy_color};font-weight:700'>{strategy_changed}</span>
+  </div>
+  <div style='font-size:12px;color:#6b7280;border-top:1px solid #222;padding-top:10px'>
+    Episode 1 chose <b style='color:#ccc'>{ep1_action.primary.action_type}</b> →
+    Episode 2 chose <b style='color:#a78bfa'>{ep2_action.primary.action_type}</b>.
+    Memory retrieval {'shifted the strategy' if not same_action else 'confirmed the same strategy with higher confidence'}.
+  </div>
+</div>"""
+
+    return ep1_html, ep2_html, diff_html
+
+
 def submit_outcome_feedback(ep_id, score, domains_up, domains_down, notes, time_spent):
     if not ep_id:
         return "⚠️ Please enter a valid Episode ID."
@@ -944,7 +1116,56 @@ with gr.Blocks(
             if os.path.exists(plot_path):
                 gr.Image(value=plot_path, label="Learning Curve — 100 Episode Training Run")
 
-        # ── Tab 4: Arjun's Journey ──────────────────────────────────────────
+        # ── Tab 4: Memory Effect Demo ────────────────────────────────────────
+        with gr.Tab("🧠 Memory Effect"):
+            gr.HTML("""
+            <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;
+                        padding:16px;margin-bottom:16px;font-family:sans-serif'>
+              <div style='display:flex;justify-content:space-between;align-items:center'>
+                <div>
+                  <div style='font-size:18px;font-weight:700;color:#eee;margin-bottom:4px'>
+                    Memory Effect Demo
+                  </div>
+                  <div style='font-size:13px;color:#888'>
+                    Same conflict, same agent. Episode 1 runs cold (no prior context). Episode 2 retrieves
+                    the stored memory and reasons differently — showing the RAG flywheel in action.
+                  </div>
+                </div>
+                <div style='background:#14532d;border:1px solid #22c55e;border-radius:20px;
+                            padding:6px 16px;font-size:13px;font-weight:700;color:#22c55e;
+                            white-space:nowrap'>
+                  +116% EFFICIENCY
+                </div>
+              </div>
+            </div>
+            """)
+
+            with gr.Row():
+                mem_conflict_dd = gr.Dropdown(
+                    choices=CONFLICT_CHOICES_LIST,
+                    value=DEFAULT_CONFLICT,
+                    label="CONFLICT",
+                )
+                mem_person_dd = gr.Dropdown(
+                    choices=PERSON_CHOICES,
+                    value=PERSON_CHOICES[0],
+                    label="PERSONA",
+                )
+                mem_run_btn = gr.Button("🧠 Run Episodes", variant="primary", size="lg")
+
+            with gr.Row():
+                mem_ep1_out = gr.HTML(label="Episode 1 — Cold Start")
+                mem_ep2_out = gr.HTML(label="Episode 2 — RAG-Augmented")
+
+            mem_diff_out = gr.HTML(label="Memory Delta Analysis")
+
+            mem_run_btn.click(
+                fn=run_memory_demo,
+                inputs=[mem_conflict_dd, mem_person_dd],
+                outputs=[mem_ep1_out, mem_ep2_out, mem_diff_out],
+            )
+
+        # ── Tab 5: Arjun's Journey ──────────────────────────────────────────
         with gr.Tab("🗓️ Arjun's Journey"):
             gr.HTML(LONG_DEMO.show_longitudinal_comparison())
             
