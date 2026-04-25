@@ -19,6 +19,8 @@ import os
 import copy
 import random
 import numpy as np
+import types
+import sys
 
 # ── EARLY PATCHES ─────────────────────────────────────────
 # Unsloth MUST be imported before transformers/trl to apply its patches
@@ -28,6 +30,47 @@ except Exception as e:
     # Colab environments can fail inside unsloth import with non-ImportError
     # exceptions (for example NameError from incompatible dependency combos).
     print(f"[warning] Unsloth import failed, continuing with HF fallback: {e}")
+
+def _install_trl_optional_dependency_shims() -> None:
+    """
+    TRL GRPO imports callbacks that can hard-import optional packages like
+    `mergekit` and `llm_blender` even when GRPO doesn't use those paths.
+    Install lightweight shims so training remains runnable on Colab/Kaggle.
+    """
+    # Always install shims before importing TRL.
+    # This avoids failures from incompatible optional dependency versions.
+    mergekit_mod = types.ModuleType("mergekit")
+    mergekit_config_mod = types.ModuleType("mergekit.config")
+
+    class MergeConfiguration:  # noqa: D401
+        """Compatibility placeholder for TRL optional mergekit import."""
+        pass
+
+    mergekit_config_mod.MergeConfiguration = MergeConfiguration
+    mergekit_mod.config = mergekit_config_mod
+    sys.modules["mergekit"] = mergekit_mod
+    sys.modules["mergekit.config"] = mergekit_config_mod
+
+    llm_blender_mod = types.ModuleType("llm_blender")
+
+    class Blender:  # noqa: D401
+        """Compatibility placeholder for TRL optional llm_blender import."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def rank(self, *args, **kwargs):
+            return [0]
+
+        def score(self, *args, **kwargs):
+            return [0.0]
+
+    llm_blender_mod.Blender = Blender
+    sys.modules["llm_blender"] = llm_blender_mod
+    print("[warning] using local shims for mergekit/llm_blender compatibility.")
+
+
+_install_trl_optional_dependency_shims()
 
 import torch
 from datasets import Dataset
@@ -44,7 +87,7 @@ def _patched_get_train_sampler(self, *args, **kwargs):
     return _original_get_train_sampler(self, *args, **kwargs)
 GRPOTrainer._get_train_sampler = _patched_get_train_sampler
 
-import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # LifeStack imports
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
