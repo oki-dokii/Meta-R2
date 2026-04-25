@@ -22,8 +22,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project files
 COPY . .
 
-# Expose port for Gradio/FastAPI
+# OpenEnv server port
+EXPOSE 8000
+# Gradio demo port
 EXPOSE 7860
 
-# Default command: run the Flask demo app
-CMD ["python", "app_flask.py"]
+# Default command: run the OpenEnv FastAPI server (judges evaluate this)
+# For Gradio demo, override with: docker run ... python scripts/gradio_demo.py
+CMD ["python", "server.py"]

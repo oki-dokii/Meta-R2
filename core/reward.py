@@ -318,29 +318,47 @@ def compute_task_reward(
 
     return final_reward, breakdown
 
+VALID_ACTION_TYPES = frozenset({
+    "negotiate", "communicate", "delegate", "spend",
+    "reschedule", "rest", "deprioritize", "execute",
+})
+
+VALID_DOMAINS = frozenset({
+    "career", "finances", "relationships", "physical_health",
+    "mental_wellbeing", "time", "transport_crisis", "code_merge_crisis",
+})
+
+
 def reward_format_compliance(completion: str) -> float:
     """
     Scores the completion based on its format (JSON validity and required fields).
-    
+
     Returns:
-        +1.0: Valid JSON with all required fields:
-              action_type, target_domain, metric_changes, resource_cost, reasoning
-        +0.5: Any parseable JSON (including partial/incomplete dicts)
+        +1.0: Valid JSON, all 5 required keys present, action_type is one of the 8
+              valid types, target_domain is a known domain
+        +0.5: Valid JSON with all 5 keys but action_type / target_domain unrecognised
+        +0.2: Valid JSON but missing some required keys
         -0.5: Invalid JSON / unparseable
-        -1.0: Empty strings or refusal content
+        -1.0: Empty string, too short, or refusal content
     """
     if not completion or len(completion.strip()) < 10:
         return -1.0
-        
-    # Potential refusal indicators
+
     if any(x in completion.lower() for x in ["i cannot", "i'm sorry", "as an ai"]):
         return -1.0
 
     try:
         data = _load_first_json_object(completion)
         required = ["action_type", "target_domain", "metric_changes", "resource_cost", "reasoning"]
-        if isinstance(data, dict) and all(k in data and data.get(k) is not None for k in required):
+        if not isinstance(data, dict):
+            return -0.5
+        if not all(k in data and data.get(k) is not None for k in required):
+            return 0.2
+        action_ok = str(data.get("action_type", "")).lower() in VALID_ACTION_TYPES
+        domain_ok = str(data.get("target_domain", "")).lower() in VALID_DOMAINS
+        if action_ok and domain_ok:
             return 1.0
+        # Valid structure but unrecognised action_type or domain — partial credit
         return 0.5
     except json.JSONDecodeError:
         return -0.5

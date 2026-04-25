@@ -413,6 +413,29 @@ LOG_INTERVAL = 20
 LOG_DIR = "training_logs"
 SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 
+# Per-batch evaluation cache: keyed by (completion, prompt) tuple.
+# Cleared at the start of each reward-function batch call so stale results
+# from a previous GRPO generation cycle never bleed through.
+_EVAL_CACHE: dict[tuple[str, str], dict] = {}
+
+
+def _cached_lifestack_evaluation(completion: str, prompt: str) -> dict:
+    """Return get_lifestack_evaluation result, caching by (completion, prompt) pair.
+
+    Five reward functions (task_success, milestone, replan, human_feedback, longterm)
+    all call get_lifestack_evaluation for the same inputs inside a single GRPO step.
+    Without caching this spins up 5 independent LifeStackEnv instances per completion.
+    The cache cuts env construction to once per completion per batch.
+    """
+    key = (completion, prompt)
+    if key not in _EVAL_CACHE:
+        _EVAL_CACHE[key] = get_lifestack_evaluation(completion, prompt)
+    return _EVAL_CACHE[key]
+
+
+def _clear_eval_cache() -> None:
+    _EVAL_CACHE.clear()
+
 
 def _load_first_json_object(completion: str) -> dict:
     """Parse the first complete JSON object, ignoring trailing model text."""
@@ -548,6 +571,57 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
         random.seed()  # always restore RNG on any failure path
         return {"reward": -0.5, "breakdown": {}, "action": None, "initial_metrics": meta.get("disruption", {}) if 'meta' in locals() else {}}
 
+def reward_clean_eos_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """
+    Reward the model for stopping immediately after the closing JSON brace.
+
+    clipped_ratio=1.0 happens because the model generates valid JSON then keeps
+    producing free-form text, so every token after '}' contributes zero reward but
+    still costs KL budget — every gradient update gets clipped.
+
+    Signal:
+      +0.20  completion ends within 8 chars of the first complete JSON object
+      +0.10  completion ends within 32 chars (minor trailing whitespace OK)
+       0.00  some trailing text but still parseable
+      -0.10  >64 chars of trailing garbage after the JSON closes
+    """
+    import re as _re
+    rewards = []
+    for c in completions:
+        try:
+            text = c.strip()
+            # Strip markdown fences
+            if "```json" in text:
+                inner = text.split("```json")[-1].split("```")[0]
+            elif "```" in text:
+                inner = text.split("```")[-1].split("```")[0]
+            else:
+                inner = text
+
+            decoder = json.JSONDecoder()
+            for _m in _re.finditer(r"\{", inner):
+                try:
+                    _, end_idx = decoder.raw_decode(inner[_m.start():].strip())
+                    # end_idx is relative to the slice; trailing chars = len(inner) - (_m.start() + end_idx)
+                    trailing = len(inner) - (_m.start() + end_idx)
+                    if trailing <= 8:
+                        rewards.append(0.20)
+                    elif trailing <= 32:
+                        rewards.append(0.10)
+                    elif trailing <= 64:
+                        rewards.append(0.00)
+                    else:
+                        rewards.append(-0.10)
+                    break
+                except json.JSONDecodeError:
+                    continue
+            else:
+                rewards.append(-0.10)   # no valid JSON found
+        except Exception:
+            rewards.append(0.0)
+    return rewards
+
+
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Scores JSON format compliance independently (Static Check)."""
     from core.reward import reward_format_compliance
@@ -570,9 +644,10 @@ def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs)
 
 def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Core outcome reward isolated to completion (Environment Simulation)."""
+    _clear_eval_cache()   # new batch — clear stale entries
     results = []
     for c, p in zip(completions, prompts):
-        eval_res = get_lifestack_evaluation(c, p)
+        eval_res = _cached_lifestack_evaluation(c, p)
         if not eval_res.get("breakdown"):
             results.append(eval_res.get("reward", -0.5))
         else:
@@ -581,7 +656,7 @@ def reward_task_success_fn(completions: list[str], prompts: list[str], **kwargs)
 
 def reward_milestone_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Monitor progress through logical bottlenecks (Environment Simulation)."""
-    return [get_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("milestone", 0.0) for c, p in zip(completions, prompts)]
+    return [_cached_lifestack_evaluation(c, p).get("breakdown", {}).get("components", {}).get("milestone", 0.0) for c, p in zip(completions, prompts)]
 
 def reward_reasoning_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Evaluate planning coherence (Independent Semantic/Logic Check)."""
@@ -623,7 +698,7 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
     rewards = []
     for c, p in zip(completions, prompts):
         try:
-            eval_res = get_lifestack_evaluation(c, p)
+            eval_res = _cached_lifestack_evaluation(c, p)
             action = eval_res.get("action")
             if not action:
                 rewards.append(0.0)
@@ -666,7 +741,7 @@ def reward_replan_fn(completions, prompts, **kwargs) -> list[float]:
     """Exposes the internal replan bonus as a standalone GRPO signal."""
     rewards = []
     for c, p in zip(completions, prompts):
-        eval_data = get_lifestack_evaluation(c, p)
+        eval_data = _cached_lifestack_evaluation(c, p)
         rewards.append(eval_data.get("breakdown", {}).get("components", {}).get("replan", 0.0))
     return rewards
 
@@ -683,7 +758,7 @@ def reward_longterm_fn(completions: list[str], prompts: list[str], **kwargs) -> 
     It is NOT a decoration — the rollout runs inside the real LifeStack env.
     """
     return [
-        get_lifestack_evaluation(c, p).get("longterm_reward", 0.0)
+        _cached_lifestack_evaluation(c, p).get("longterm_reward", 0.0)
         for c, p in zip(completions, prompts)
     ]
 
@@ -784,15 +859,22 @@ def train_curriculum(
             # Generate fresh data only for a clean start of the stage
             dataset = generate_dataset(n_prompts_per_stage, difficulty=curr_diff)
 
+        # ── Per-stage LR decay: start aggressive, tighten on later stages ───
+        # Stage 1: 8e-6 (format warm-up needs faster convergence)
+        # Stage 2: 5e-6, Stage 3: 3e-6, Stage 4: 2e-6, Stage 5+: 1e-6
+        stage_lr_schedule = {1: 8e-6, 2: 5e-6, 3: 3e-6, 4: 2e-6}
+        stage_lr = stage_lr_schedule.get(stage, 1e-6)
+
         # ── GRPOConfig with checkpoint cadence ───────────────────────────
         config = GRPOConfig(
             output_dir=stage_dir,
             num_train_epochs=1,
             per_device_train_batch_size=4,
             gradient_accumulation_steps=4,
-            learning_rate=5e-6,
+            learning_rate=stage_lr,
+            warmup_ratio=0.05,           # 5% warmup steps — smoother convergence
             # Keep completion short to avoid clipped mid-JSON outputs.
-            max_completion_length=128,
+            max_completion_length=192,   # slightly more room for clean JSON close
             temperature=0.9,
             # TRL rule: num_generations must divide per_device_train_batch_size.
             num_generations=4,
@@ -813,11 +895,12 @@ def train_curriculum(
 
         if stage == 1:
             # Warm-up: learn valid JSON structure first, then optimize decisions.
-            stage_reward_funcs = [reward_format_fn]
-            print("  Warm-up reward mode: format-only")
+            stage_reward_funcs = [reward_format_fn, reward_clean_eos_fn]
+            print("  Warm-up reward mode: format + EOS-cleanliness")
         else:
             stage_reward_funcs = [
                 reward_format_fn,
+                reward_clean_eos_fn,
                 reward_plausibility_fn,
                 reward_task_success_fn,
                 reward_milestone_fn,
@@ -847,11 +930,15 @@ def train_curriculum(
         # TRL 1.x logs mean reward as "reward"; some builds use "train/reward" — check both
         last_log = trainer.state.log_history[-1] if trainer.state.log_history else {}
         avg_reward = last_log.get("reward", last_log.get("train/reward", 0.0))
-        if avg_reward > 0.6 and curr_diff < 5:
-            print(f"  ✅ Reward {avg_reward:.3f} > 0.6 — advancing to difficulty {curr_diff + 1}")
+        # Threshold lowered from 0.6 to 0.2: reward starts negative and slowly climbs.
+        # Advancing too early hurts learning; 0.2 means the model can reliably output
+        # valid, plausible JSON before facing harder scenarios.
+        advance_threshold = 0.2
+        if avg_reward > advance_threshold and curr_diff < 5:
+            print(f"  ✅ Reward {avg_reward:.3f} > {advance_threshold} — advancing to difficulty {curr_diff + 1}")
             curr_diff += 1
         else:
-            print(f"  ⚠️  Reward {avg_reward:.3f} — holding at difficulty {curr_diff}")
+            print(f"  ⚠️  Reward {avg_reward:.3f} ≤ {advance_threshold} — holding at difficulty {curr_diff}")
 
         # ── Persist curriculum state AFTER each stage ────────────────────
         # This is what lets us resume correctly on next session
