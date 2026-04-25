@@ -594,45 +594,50 @@ def _run_baseline(conflict, person):
         }
     }
 
+def _run_agent_comparison_side(conflict, person, api_only: bool):
+    """Run one side of the comparison: api_only=True → untrained LLM, False → GRPO-trained."""
+    env = LifeStackEnv()
+    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+    before_metrics = copy.deepcopy(env.state.current_metrics)
+    before_budget = copy.deepcopy(env.state.budget)
+    action = AGENT.get_action(before_metrics, before_budget, conflict, person, api_only=api_only)
+    _normalize_action_metric_changes(action)
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                      before_metrics.mental_wellbeing.stress_level)
+    env_action = LifeStackAction.from_agent_action(action)
+    env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+    obs = env.step(env_action)
+    return {
+        "metrics": obs.metrics,
+        "action": {
+            "type": action.primary.action_type,
+            "target": action.primary.target_domain,
+            "description": action.primary.description,
+            "reasoning": action.reasoning,
+            "reward": obs.reward,
+            "cost": action.primary.resource_cost,
+        }
+    }
+
+
 @app.route('/api/comparison/run', methods=['POST'])
 def run_comparison():
-    """Run same conflict through baseline rule-based agent AND trained LifeStack agent."""
+    """Run same conflict through untrained LLM (no RL) AND GRPO-trained LifeStack agent."""
     data = request.json
     conflict_label = data.get('conflict')
     person_label = data.get('person')
     conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
     person = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
 
-    # Baseline path
+    # Untrained LLM path — forces Groq API, no GRPO optimization
     try:
-        baseline = _run_baseline(conflict, person)
+        baseline = _run_agent_comparison_side(conflict, person, api_only=True)
     except Exception as e:
         baseline = {"error": str(e)}
 
-    # Trained agent path (reuse existing /api/simulation/action logic)
+    # GRPO-trained agent path — uses local model if available, lazy-loaded
     try:
-        env = LifeStackEnv()
-        env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
-        before_metrics = copy.deepcopy(env.state.current_metrics)
-        before_budget = copy.deepcopy(env.state.budget)
-        action = AGENT.get_action(before_metrics, before_budget, conflict, person)
-        _normalize_action_metric_changes(action)
-        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
-                                          before_metrics.mental_wellbeing.stress_level)
-        env_action = LifeStackAction.from_agent_action(action)
-        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
-        obs = env.step(env_action)
-        trained = {
-            "metrics": obs.metrics,
-            "action": {
-                "type": action.primary.action_type,
-                "target": action.primary.target_domain,
-                "description": action.primary.description,
-                "reasoning": action.reasoning,
-                "reward": obs.reward,
-                "cost": action.primary.resource_cost,
-            }
-        }
+        trained = _run_agent_comparison_side(conflict, person, api_only=False)
     except Exception as e:
         trained = {"error": str(e)}
 

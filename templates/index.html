@@ -288,7 +288,7 @@
             </div>
         </div>
 
-        <!-- ── TAB A: TRAINED VS BASELINE ── -->
+        <!-- ── TAB A: UNTRAINED LLM VS GRPO-TRAINED ── -->
         <div id="content-compare" class="hidden space-y-6">
             <div class="glass p-8 rounded-2xl">
                 <div class="flex flex-col md:flex-row gap-6 items-end mb-8">
@@ -306,14 +306,14 @@
                     </div>
                     <button onclick="runComparison()" id="cmp-btn" class="px-10 py-3 bg-gradient-to-r from-indigo-600 to-cyan-600 rounded-xl font-bold shadow-lg shadow-indigo-600/20 active:scale-95 transition whitespace-nowrap">⚡ Run Comparison</button>
                 </div>
-                <div id="cmp-intro" class="text-center py-12 text-slate-500 italic">Select a conflict and run to see the side-by-side difference.</div>
+                <div id="cmp-intro" class="text-center py-12 text-slate-500 italic">Select a conflict and run to see how GRPO training changes the LLM's decisions.</div>
                 <div id="cmp-content" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Baseline -->
+                    <!-- Baseline (Untrained LLM) -->
                     <div class="glass p-6 rounded-2xl border-t-4 border-slate-600 bg-slate-700/5">
                         <div class="flex justify-between items-center mb-4">
                             <div>
-                                <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Rule-Based Baseline</div>
-                                <h4 class="text-xl font-black text-slate-300 mt-0.5">Heuristic Agent</h4>
+                                <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest">No RL Training</div>
+                                <h4 class="text-xl font-black text-slate-300 mt-0.5">Untrained LLM</h4>
                             </div>
                             <div class="text-right">
                                 <div id="cmp-reward-baseline" class="text-2xl font-black text-slate-400">--</div>
@@ -749,24 +749,36 @@
             let html = '';
             const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
 
-            // Update Domain Risk Heatmap cells — now using normalized Health Score
+            // Update Domain Risk Heatmap
             if (containerId === 'metrics-container') {
                 domains.forEach(dom => {
                     const cell = document.getElementById('hm-' + dom);
                     if (!cell) return;
                     const submetrics = Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.'));
-                    
-                    // Normalize: Flip inverted metrics (e.g. higher stress = lower health)
+                    if (!submetrics.length) return;
+
+                    // Flip inverted metrics so health is always "higher = better"
                     const healthScores = submetrics.map(([k, v]) => {
                         const sub = k.split('.')[1];
                         return INVERTED_METRICS.has(sub) ? (100 - v) : v;
                     });
-                    
-                    const avgHealth = healthScores.reduce((acc, v) => acc + v, 0) / (healthScores.length || 1);
-                    
-                    // Use a special high/low map for the heatmap intensity
-                    cell.style.backgroundColor = avgHealth > 70 ? '#4ade80' : (avgHealth > 40 ? '#facc15' : '#ef4444');
-                    cell.title = `${dom}: ${avgHealth.toFixed(0)}% Health`;
+
+                    const avgHealth = healthScores.reduce((a, b) => a + b, 0) / healthScores.length;
+                    const minHealth = Math.min(...healthScores);
+
+                    // Blend: if ANY metric tanks below 35, drag the whole domain toward it.
+                    // This prevents a crisis in one metric being hidden by healthy siblings.
+                    const blended = minHealth < 35
+                        ? (avgHealth * 0.35 + minHealth * 0.65)
+                        : avgHealth;
+
+                    // Thresholds calibrated to the actual ~30–70 range of baseline health scores
+                    const color = blended > 58 ? '#4ade80'   // green  — domain healthy
+                                : blended > 36 ? '#facc15'   // yellow — domain stressed
+                                :                '#ef4444';  // red    — domain in crisis
+
+                    cell.style.backgroundColor = color;
+                    cell.title = `${dom.replace('_',' ')}: ${blended.toFixed(0)} health (min ${minHealth.toFixed(0)})`;
                 });
             }
 

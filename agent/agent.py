@@ -9,16 +9,18 @@ from core.action_space import AgentAction, PrimaryAction, CommunicationAction, a
 from intake.simperson import SimPerson
 
 class LifeStackAgent:
-    def __init__(self, local_model_path: str = None):
+    def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
+        self.api_only = api_only  # if True, always use Groq, never load local model
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
-        
+
         # 1. Check for local folder (Kaggle / local dev)
-        if not self.local_model_path and os.path.exists("./lifestack_model"):
+        if not self.api_only and not self.local_model_path and os.path.exists("./lifestack_model"):
             self.local_model_path = "./lifestack_model"
 
-        # 2. Fall back to HuggingFace Hub model repo (production / Space deployment)
-        if not self.local_model_path:
+        # 2. Fall back to HuggingFace Hub — loaded lazily on first get_action call,
+        # so Flask startup is never blocked waiting on a 1.5B download.
+        if not self.api_only and not self.local_model_path:
             self.local_model_path = "jdsb06/lifestack-agent"
 
         # Fallback to .env file if env var is missing
@@ -35,30 +37,37 @@ class LifeStackAgent:
         self.client = None
         self.tokenizer = None
         self.local_model = None
+        self._model_load_attempted = False  # lazy-load flag
 
-        if self.local_model_path:
-            try:
-                print(f"📦 Loading local GRPO model from {self.local_model_path}...")
-                import torch
-                from transformers import AutoModelForCausalLM, AutoTokenizer
-                self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
-                self.local_model = AutoModelForCausalLM.from_pretrained(
-                    self.local_model_path, 
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                    device_map="auto" if torch.cuda.is_available() else None
-                )
-                print("✅ Local model LOADED.")
-            except Exception as e:
-                print(f"⚠️ Failed to load local model: {e}. Falling back to Groq.")
-                self.local_model_path = None
-
-        if self.api_key and not self.local_model:
+        # Always wire up Groq as a fallback (used immediately when api_only=True,
+        # or as fallback if local model fails to load).
+        if self.api_key:
             self.client = OpenAI(
                 base_url='https://api.groq.com/openai/v1',
                 api_key=self.api_key
             )
         self.model = 'llama-3.1-8b-instant'
-        self.memory = [] # Will store last 10 decisions
+        self.memory = []  # Will store last 10 decisions
+
+    def _try_load_model(self):
+        """Attempt to load the local/HF model lazily on first inference call."""
+        self._model_load_attempted = True
+        if not self.local_model_path:
+            return
+        try:
+            print(f"📦 Loading GRPO model from {self.local_model_path}...")
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
+            self.local_model = AutoModelForCausalLM.from_pretrained(
+                self.local_model_path,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                device_map="auto" if torch.cuda.is_available() else None
+            )
+            print("✅ GRPO model loaded.")
+        except Exception as e:
+            print(f"⚠️ Failed to load local model: {e}. Falling back to Groq.")
+            self.local_model_path = None
 
     def build_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> str:
         # 1. Build Status Board
@@ -123,24 +132,32 @@ SCHEMA:
 """
         return prompt
 
-    def get_action_for_type(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, forced_type: str) -> "AgentAction":
+    def get_action_for_type(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, forced_type: str, api_only: bool = False) -> "AgentAction":
         """Generate an action specifically for a given action_type."""
+        force_api = self.api_only or api_only
+        if not force_api and not self._model_load_attempted:
+            self._try_load_model()
         base_prompt = self.build_prompt(metrics, budget, conflict, person)
         forced_prompt = base_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST set 'action_type' to exactly '{forced_type}'."
-        return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type)
+        return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type, force_api=force_api)
 
-    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "") -> "AgentAction":
+    def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "", api_only: bool = False) -> "AgentAction":
+        # Lazy-load the trained model on first real inference, unless caller forces api_only.
+        force_api = self.api_only or api_only
+        if not force_api and not self._model_load_attempted:
+            self._try_load_model()
+
         if not self.local_model and not self.api_key:
             return self._fallback_action("Error: No model configured (set GROQ_API_KEY or LIFESTACK_MODEL_PATH).")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
-        return self._get_action_from_prompt(prompt)
+        return self._get_action_from_prompt(prompt, force_api=force_api)
 
-    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest") -> "AgentAction":
+    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False) -> "AgentAction":
         import time as _t
         import torch
         try:
-            if self.local_model:
+            if self.local_model and not force_api:
                 # Use local model (Transformers)
                 inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
                 with torch.no_grad():
