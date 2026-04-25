@@ -27,5 +27,7 @@ jobs:
         run: |
           git checkout --orphan hf-space-deploy
           git add -A
+          # Strip binary files — HF Spaces rejects large binaries (use XET for those)
+          git rm --cached --ignore-unmatch docs/training_curves.png docs/reward_curve.png data/*.png data/*.bin data/*.whl || true
           git commit -m "Deploy Space snapshot"
           git push --force space hf-space-deploy:main
