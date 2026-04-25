@@ -151,6 +151,13 @@ def _tensorboard_available() -> bool:
         return False
 
 
+def _ensure_trl_model_compat(model):
+    """Patch small TRL/Transformers compatibility fields onto wrapped models."""
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
+    return model
+
+
 # ──────────────────────────────────────────────
 # 1. MODEL SETUP (Unsloth for 4-bit efficiency)
 # ──────────────────────────────────────────────
@@ -175,7 +182,7 @@ def load_model():
             bias="none",
             use_gradient_checkpointing="unsloth",
         )
-        return model, tokenizer
+        return _ensure_trl_model_compat(model), tokenizer
     except Exception as e:
         # Fallback: standard HF + PEFT LoRA when Unsloth is missing or broken
         print(f"[warning] Unsloth model load failed, using HF+PEFT fallback: {e}")
@@ -198,6 +205,7 @@ def load_model():
             task_type=TaskType.CAUSAL_LM,
         )
         model = get_peft_model(model, lora_cfg)
+        model = _ensure_trl_model_compat(model)
         model.print_trainable_parameters()
         return model, tokenizer
 
@@ -219,9 +227,7 @@ def load_model_for_dry_run():
         dtype=torch.float32,
         device_map="auto",
     )
-    # TRL GRPO expects this field on some model classes; add for tiny GPT2.
-    if not hasattr(model, "warnings_issued"):
-        model.warnings_issued = {}
+    model = _ensure_trl_model_compat(model)
     model.eval()
     print(f"  Using tiny dry-run model: {model_name}")
     return model, tokenizer
