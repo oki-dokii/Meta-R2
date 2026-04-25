@@ -25,42 +25,36 @@ class LifeStackMemory:
 
     def _hydrate_from_preseeded(self):
         import json
-        preseeded_path = "./data/preseeded_memory.json"
-        if not os.path.exists(preseeded_path):
-            return
-            
+        sources = ["./data/preseeded_memory_p1.json", "./data/preseeded_memory_p2.json"]
+        
         if not self.silent:
-            print(f"🧬 Empty memory detected. Hydrating from {preseeded_path}...")
+            print(f"🧬 Empty memory detected. Hydrating from partitioned volumes...")
             
-        try:
-            with open(preseeded_path, 'r') as f:
-                data = json.load(f)
+        total_decisions = 0
+        for path in sources:
+            if not os.path.exists(path):
+                continue
             
-            # Hydrate decisions
-            d = data.get("decisions", {})
-            if d.get("ids"):
-                self.collection.add(
-                    ids=d["ids"],
-                    documents=d["documents"],
-                    metadatas=d["metadatas"],
-                    embeddings=d["embeddings"]
-                )
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
                 
-            # Hydrate trajectories
-            t = data.get("trajectories", {})
-            if t.get("ids"):
-                self.traj_collection.add(
-                    ids=t["ids"],
-                    documents=t["documents"],
-                    metadatas=t["metadatas"],
-                    embeddings=t["embeddings"]
-                )
-            
-            if not self.silent:
-                print(f"✅ Hydration complete: {self.collection.count()} memories restored.")
-        except Exception as e:
-            if not self.silent:
-                print(f"⚠️ Hydration failed: {e}")
+                # Hydrate decisions
+                d = data.get("decisions", {})
+                if d.get("ids"):
+                    self.collection.add(
+                        ids=d["ids"],
+                        documents=d["documents"],
+                        metadatas=d["metadatas"],
+                        embeddings=d["embeddings"]
+                    )
+                    total_decisions += len(d["ids"])
+            except Exception as e:
+                if not self.silent:
+                    print(f"⚠️ Hydration failed for {path}: {e}")
+        
+        if not self.silent:
+            print(f"✅ Hydration complete: {total_decisions} memories restored.")
 
     def _load_encoder(self):
         try:
