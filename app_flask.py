@@ -311,7 +311,64 @@ def get_trajectory():
     env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
 
     obs = env.step(env_action)
-    rollout = env.rollout(n_steps=7, gamma=0.9)
+    day0_metrics = dict(obs.metrics)
+
+    # ── 7-day drift simulation ────────────────────────────────────────────────
+    # env.rollout() fires null actions (actions_taken=0) which trigger the
+    # INACTION_PENALTY every step → constant reward and flat metric lines.
+    # Instead: simulate realistic daily drift as the unresolved conflict
+    # continues to erode metrics, modulated by persona neuroticism.
+    GAMMA = 0.9
+    trajectory = []
+    cumulative = 0.0
+
+    # Per-day erosion: 1/10 of the original conflict disruption per day
+    # (representing the unresolved portion gradually worsening).
+    daily_erosion = {k: v * 0.10 for k, v in conflict.primary_disruption.items()}
+
+    # Neuroticism amplifier: anxious people suffer more from unresolved stress
+    neuroticism_amp = 1.0 + (person.neuroticism - 0.5) * 0.6   # 0.7–1.3 range
+
+    current = copy.deepcopy(day0_metrics)   # plain dict, mutated each day
+
+    for t in range(1, 8):
+        prev = dict(current)
+        changes = {}
+
+        for metric_key, base_delta in daily_erosion.items():
+            # Inverted metrics (stress, workload, etc.) erode UP; others erode DOWN
+            _INVERTED = {"stress_level", "workload", "debt_pressure",
+                         "commute_burden", "admin_overhead"}
+            sub = metric_key.split(".")[-1]
+            direction = 1 if sub in _INVERTED else -1
+            magnitude = abs(base_delta) * neuroticism_amp * direction
+            changes[metric_key] = magnitude
+
+        # Small natural recovery on domains NOT hit by the conflict
+        # (life keeps going; effort in other areas pays small dividends)
+        hit_domains = {k.split(".")[0] for k in conflict.primary_disruption}
+        for dom in ["career", "finances", "relationships",
+                    "physical_health", "mental_wellbeing", "time"]:
+            if dom not in hit_domains:
+                for k in [k for k in current if k.startswith(dom + ".")]:
+                    changes[k] = changes.get(k, 0) + 0.5   # tiny passive gain
+
+        for k, delta in changes.items():
+            current[k] = round(max(0.0, min(100.0, current.get(k, 70.0) + delta)), 2)
+
+        # Compute reward as avg change across all metrics
+        total_delta = sum(current[k] - prev.get(k, 70.0) for k in current)
+        avg_delta = total_delta / max(len(current), 1)
+        step_reward = round(max(-1.0, min(1.0, avg_delta / 50.0)), 5)
+
+        disc = round(GAMMA ** t * step_reward, 5)
+        cumulative += disc
+        trajectory.append({
+            "step": t,
+            "reward": step_reward,
+            "metrics": dict(current),
+            "discounted_contribution": disc,
+        })
 
     return jsonify({
         "action": {
@@ -320,9 +377,9 @@ def get_trajectory():
             "reasoning": action.reasoning,
             "reward": obs.reward,
         },
-        "day0_metrics": dict(obs.metrics),
-        "discounted_reward": rollout["discounted_reward"],
-        "trajectory": rollout["trajectory"],
+        "day0_metrics": day0_metrics,
+        "discounted_reward": round(cumulative, 5),
+        "trajectory": trajectory,
     })
 
 
