@@ -39,6 +39,7 @@
             <button onclick="showTab('situation')" id="tab-situation" class="pb-4 text-sm font-semibold transition tab-active">Situational Portal</button>
             <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
             <button onclick="showTab('arjun')" id="tab-arjun" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗓️ Arjun's Journey</button>
+            <button onclick="showTab('lab')" id="tab-lab" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🎭 Personality Lab</button>
             <button onclick="showTab('tasks')" id="tab-tasks" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗺️ Task Explorer</button>
             <button onclick="showTab('performance')" id="tab-performance" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📊 Analytics</button>
             <button onclick="showTab('verification')" id="tab-verification" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📬 Verification</button>
@@ -124,6 +125,48 @@
                 <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold">Personized Resolution</h3><span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span></div>
                 <div id="custom-metrics-grid" class="grid grid-cols-2 gap-4 mb-8"></div>
                 <div id="custom-plan" class="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-4"></div>
+            </div>
+        </div>
+
+        <!-- ── TAB 3.5: PERSONALITY LAB ── -->
+        <div id="content-lab" class="hidden space-y-8">
+            <div class="glass p-8 rounded-2xl">
+                <div class="flex flex-col md:flex-row gap-6 items-end mb-8">
+                    <div class="flex-1 w-full">
+                        <label class="block text-xs font-black text-slate-500 uppercase mb-2">Constant Conflict</label>
+                        <select id="lab-conflict" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for c in conflicts %} <option value="{{ c }}">{{ c }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-1 w-full">
+                        <label class="block text-xs font-black text-slate-500 uppercase mb-2">Persona A</label>
+                        <select id="lab-person-a" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for p in persons %} <option value="{{ p }}" {% if loop.index0 == 0 %}selected{% endif %}>{{ p }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-1 w-full">
+                        <label class="block text-xs font-black text-slate-500 uppercase mb-2">Persona B</label>
+                        <select id="lab-person-b" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm">
+                            {% for p in persons %} <option value="{{ p }}" {% if loop.index0 == 2 %}selected{% endif %}>{{ p }}</option> {% endfor %}
+                        </select>
+                    </div>
+                    <button onclick="comparePersons()" id="compare-btn" class="px-8 py-3 bg-indigo-600 rounded-xl font-bold shadow-lg shadow-indigo-600/20 active:scale-95 transition">🔥 Compare Response</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Column A -->
+                    <div id="lab-col-a" class="hidden glass p-6 rounded-2xl border-t-4 border-indigo-500 space-y-6">
+                        <div class="flex justify-between items-center"><h4 id="lab-name-a" class="font-black text-xl tracking-tighter">--</h4><span id="lab-reward-a" class="bg-indigo-500/20 px-2 py-1 rounded text-xs font-bold text-indigo-400">Score: --</span></div>
+                        <div id="lab-metrics-a" class="space-y-2"></div>
+                        <div class="p-4 bg-slate-950/50 rounded-xl border border-slate-800"><p id="lab-action-a" class="text-sm font-bold text-indigo-300 mb-2">--</p><p id="lab-reason-a" class="text-xs text-slate-400 italic">--</p></div>
+                    </div>
+                    <!-- Column B -->
+                    <div id="lab-col-b" class="hidden glass p-6 rounded-2xl border-t-4 border-pink-500 space-y-6">
+                        <div class="flex justify-between items-center"><h4 id="lab-name-b" class="font-black text-xl tracking-tighter">--</h4><span id="lab-reward-b" class="bg-pink-500/20 px-2 py-1 rounded text-xs font-bold text-pink-400">Score: --</span></div>
+                        <div id="lab-metrics-b" class="space-y-2"></div>
+                        <div class="p-4 bg-slate-950/50 rounded-xl border border-slate-800"><p id="lab-action-b" class="text-sm font-bold text-pink-300 mb-2">--</p><p id="lab-reason-b" class="text-xs text-slate-400 italic">--</p></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -439,6 +482,33 @@
         }
 
         async function submitFeedback(e) { e.preventDefault(); const formData = new FormData(e.target); const res = await fetch('/api/feedback/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(formData.entries())) }); document.getElementById('fb-status').innerText = "✅ Outcome Broadcasted to ChromaDB!"; e.target.reset(); }
+
+        async function comparePersons() {
+            const btn = document.getElementById('compare-btn');
+            const conflict = document.getElementById('lab-conflict').value;
+            const personA = document.getElementById('lab-person-a').value;
+            const personB = document.getElementById('lab-person-b').value;
+            
+            btn.disabled = true; btn.innerText = "🌀 Simulating Both Paths...";
+            document.getElementById('lab-col-a').classList.remove('hidden');
+            document.getElementById('lab-col-b').classList.remove('hidden');
+            
+            const runSim = async (person, suffix) => {
+                const res = await fetch('/api/simulation/action', { 
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({person, conflict}) 
+                });
+                const data = await res.json();
+                document.getElementById(`lab-name-${suffix}`).innerText = person.split('(')[0];
+                document.getElementById(`lab-reward-${suffix}`).innerText = `Score: ${data.action.reward.toFixed(2)}`;
+                document.getElementById(`lab-action-${suffix}`).innerText = `PLAN: ${data.action.type.toUpperCase()} → ${data.action.target.toUpperCase()}`;
+                document.getElementById(`lab-reason-${suffix}`).innerText = data.action.reasoning;
+                renderMetrics(`lab-metrics-${suffix}`, data.metrics);
+            };
+
+            await Promise.all([runSim(personA, 'a'), runSim(personB, 'b')]);
+            btn.disabled = false; btn.innerText = "🔥 Compare Response";
+        }
     </script>
 </body>
 </html>
