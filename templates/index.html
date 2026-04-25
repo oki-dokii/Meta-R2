@@ -478,49 +478,79 @@
 
 
         <!-- ── TAB 3.7: WHAT-IF LAB ── -->
-        <div id="content-whatif" class="hidden space-y-8">
-            <div class="glass p-8 rounded-2xl">
-                <div class="flex justify-between items-center mb-8">
-                    <h3 class="text-2xl font-black italic tracking-tighter">COUNTERFACTUAL EXPLORER</h3>
-                    <div class="px-4 py-1 bg-indigo-500/10 rounded text-[10px] font-black text-indigo-400 uppercase tracking-widest border border-indigo-500/20">Causal Reasoning Engine</div>
+        <div id="content-whatif" class="hidden space-y-6">
+            <!-- Control row -->
+            <div class="glass p-5 rounded-2xl flex flex-col md:flex-row gap-4 items-end">
+                <div class="flex-1">
+                    <label class="block text-[9px] uppercase font-black text-slate-500 tracking-widest mb-1">Conflict Scenario</label>
+                    <select id="wi-conflict-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm font-bold focus:border-indigo-500 outline-none">
+                        {% for c in conflicts %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                    </select>
                 </div>
-                <div id="whatif-placeholder" class="text-center py-20 text-slate-500 italic">Run a simulation in the Situational Portal to unlock deep counterfactual analysis.</div>
-                
-                <div id="whatif-content" class="hidden grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <!-- Actual Choice -->
-                    <div class="glass p-6 rounded-2xl border-t-4 border-indigo-500 bg-indigo-500/5">
-                        <div class="flex justify-between items-start mb-4">
-                            <h4 class="text-[10px] font-black text-indigo-400 uppercase tracking-widest">ACTUAL CHOICE</h4>
-                            <span id="wi-reward-actual" class="text-xs font-black">--</span>
-                        </div>
-                        <h5 id="wi-name-actual" class="text-xl font-black mb-2 uppercase text-white">--</h5>
-                        <p id="wi-desc-actual" class="text-xs text-slate-400 mb-6 italic leading-relaxed">--</p>
-                        <div id="wi-metrics-actual" class="space-y-1.5 opacity-80 scale-90 origin-top"></div>
+                <div class="flex-1">
+                    <label class="block text-[9px] uppercase font-black text-slate-500 tracking-widest mb-1">Agent Persona</label>
+                    <select id="wi-person-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm font-bold focus:border-indigo-500 outline-none">
+                        {% for p in persons %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+                    </select>
+                </div>
+                <button onclick="runWhatIf()" id="wi-run-btn" class="shrink-0 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-sm font-black transition disabled:opacity-50">
+                    <span id="wi-btn-icon">🧩</span> <span id="wi-btn-text">Run What-If Analysis</span>
+                </button>
+            </div>
+
+            <!-- Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+                <!-- Actual Choice -->
+                <div class="glass p-5 rounded-2xl border-t-4 border-indigo-500 bg-indigo-500/5 flex flex-col">
+                    <div class="flex justify-between items-start mb-3">
+                        <h4 class="text-[10px] font-black text-indigo-400 uppercase tracking-widest">AGENT'S CHOICE</h4>
+                        <span id="wi-reward-actual" class="text-xs font-black text-indigo-300">--</span>
                     </div>
-                    <!-- CF 1 -->
-                    <div class="glass p-6 rounded-2xl border-t-4 border-slate-700">
-                        <div class="flex justify-between items-start mb-4">
-                            <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">ALTERNATIVE A</h4>
-                            <span id="wi-reward-cf1" class="text-xs font-black">--</span>
-                        </div>
-                        <h5 id="wi-name-cf1" class="text-xl font-black mb-2 uppercase text-slate-200">--</h5>
-                        <p id="wi-desc-cf1" class="text-xs text-slate-400 mb-6 italic leading-relaxed">--</p>
-                        <div id="wi-metrics-cf1" class="space-y-1.5 opacity-80 scale-90 origin-top"></div>
-                        <div id="wi-tradeoff-cf1" class="mt-4 p-3 bg-red-500/5 rounded-lg text-[9px] text-red-300 font-bold uppercase select-none">--</div>
+                    <h5 id="wi-name-actual" class="text-lg font-black mb-1 uppercase text-white">--</h5>
+                    <p id="wi-desc-actual" class="text-[11px] text-slate-400 mb-4 italic leading-relaxed flex-1">--</p>
+                    <div id="wi-metrics-actual" class="space-y-1 opacity-80"></div>
+                </div>
+                <!-- CF 1 -->
+                <div id="wi-card-cf1" class="glass p-5 rounded-2xl border-t-4 border-slate-700 flex flex-col">
+                    <div class="flex justify-between items-start mb-3">
+                        <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">ALTERNATIVE A</h4>
+                        <span id="wi-reward-cf1" class="text-xs font-black">--</span>
                     </div>
-                    <!-- CF 2 -->
-                    <div class="glass p-6 rounded-2xl border-t-4 border-slate-700">
-                        <div class="flex justify-between items-start mb-4">
-                            <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">ALTERNATIVE B</h4>
-                            <span id="wi-reward-cf2" class="text-xs font-black">--</span>
-                        </div>
-                        <h5 id="wi-name-cf2" class="text-xl font-black mb-2 uppercase text-slate-200">--</h5>
-                        <p id="wi-desc-cf2" class="text-xs text-slate-400 mb-6 italic leading-relaxed">--</p>
-                        <div id="wi-metrics-cf2" class="space-y-1.5 opacity-80 scale-90 origin-top"></div>
-                        <div id="wi-tradeoff-cf2" class="mt-4 p-3 bg-red-500/5 rounded-lg text-[9px] text-red-300 font-bold uppercase select-none">--</div>
+                    <h5 id="wi-name-cf1" class="text-lg font-black mb-1 uppercase text-slate-200">--</h5>
+                    <p id="wi-desc-cf1" class="text-[11px] text-slate-400 mb-4 italic leading-relaxed flex-1">--</p>
+                    <div id="wi-metrics-cf1" class="space-y-1 opacity-80"></div>
+                    <div id="wi-tradeoff-cf1" class="mt-3 p-2.5 bg-slate-900/60 rounded-lg text-[9px] text-slate-400 font-bold uppercase select-none">--</div>
+                </div>
+                <!-- CF 2 -->
+                <div id="wi-card-cf2" class="glass p-5 rounded-2xl border-t-4 border-slate-700 flex flex-col">
+                    <div class="flex justify-between items-start mb-3">
+                        <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">ALTERNATIVE B</h4>
+                        <span id="wi-reward-cf2" class="text-xs font-black">--</span>
                     </div>
+                    <h5 id="wi-name-cf2" class="text-lg font-black mb-1 uppercase text-slate-200">--</h5>
+                    <p id="wi-desc-cf2" class="text-[11px] text-slate-400 mb-4 italic leading-relaxed flex-1">--</p>
+                    <div id="wi-metrics-cf2" class="space-y-1 opacity-80"></div>
+                    <div id="wi-tradeoff-cf2" class="mt-3 p-2.5 bg-slate-900/60 rounded-lg text-[9px] text-slate-400 font-bold uppercase select-none">--</div>
+                </div>
+                <!-- CF 3 -->
+                <div id="wi-card-cf3" class="glass p-5 rounded-2xl border-t-4 border-slate-700 flex flex-col">
+                    <div class="flex justify-between items-start mb-3">
+                        <h4 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">ALTERNATIVE C</h4>
+                        <span id="wi-reward-cf3" class="text-xs font-black">--</span>
+                    </div>
+                    <h5 id="wi-name-cf3" class="text-lg font-black mb-1 uppercase text-slate-200">--</h5>
+                    <p id="wi-desc-cf3" class="text-[11px] text-slate-400 mb-4 italic leading-relaxed flex-1">--</p>
+                    <div id="wi-metrics-cf3" class="space-y-1 opacity-80"></div>
+                    <div id="wi-tradeoff-cf3" class="mt-3 p-2.5 bg-slate-900/60 rounded-lg text-[9px] text-slate-400 font-bold uppercase select-none">--</div>
                 </div>
             </div>
+
+            <!-- Empty state -->
+            <div id="whatif-placeholder" class="glass rounded-2xl py-20 text-center text-slate-500 italic text-sm">
+                Select a conflict and persona above, then click <strong class="text-slate-400">Run What-If Analysis</strong>.
+            </div>
+            <!-- hidden sentinel kept for backward compat with simulation result writer -->
+            <div id="whatif-content" class="hidden"></div>
         </div>
 
 
@@ -759,6 +789,7 @@
             if (id === 'performance') loadStats();
             if (id === 'system-map') initSystemMap();
             if (id === 'tasks') _initTaskSelector();
+            if (id === 'whatif') _initWhatIfTab();
         }
 
         async function fetchHistory() {
@@ -1046,19 +1077,14 @@
                 document.getElementById('traj-bar').style.width = (finalData.prediction.risk_score * 100) + '%';
                 
                 document.getElementById('whatif-placeholder').classList.add('hidden');
-                document.getElementById('whatif-content').classList.remove('hidden');
-                document.getElementById('wi-name-actual').innerText = finalData.action.type;
-                document.getElementById('wi-reward-actual').innerText = `REWARD: ${finalData.action.reward.toFixed(2)}`;
-                document.getElementById('wi-desc-actual').innerText = finalData.action.description;
-                renderMetrics('wi-metrics-actual', finalData.metrics);
-                
-                finalData.counterfactuals.forEach((cf, idx) => {
-                    const i = idx + 1;
-                    document.getElementById(`wi-name-cf${i}`).innerText = cf.action_type;
-                    document.getElementById(`wi-reward-cf${i}`).innerText = `REWARD: ${cf.reward.toFixed(2)}`;
-                    document.getElementById(`wi-desc-cf${i}`).innerText = cf.description;
-                    document.getElementById(`wi-tradeoff-cf${i}`).innerText = `Trade-off: ${cf.trade_off}`;
-                    renderMetrics(`wi-metrics-cf${i}`, cf.metrics);
+                _populateWhatIfCards({
+                    actual_action: {
+                        type: finalData.action.type,
+                        description: finalData.action.description,
+                        reward: finalData.action.reward,
+                        metrics: finalData.metrics,
+                    },
+                    counterfactuals: finalData.counterfactuals
                 });
 
                 document.getElementById('counterfactual-card').classList.remove('hidden');
@@ -1354,6 +1380,75 @@
                 _renderTask({ goal: `Resolve: ${task.title}`, ...task });
             }
         }
+
+        // ── What-If Lab ──────────────────────────────────────────────────────────
+
+        function _populateWhatIfCards(data) {
+            const actual = data.actual_action;
+            const actualReward = actual.reward ?? 0;
+
+            document.getElementById('wi-name-actual').innerText = actual.type || actual.action_type || '--';
+            document.getElementById('wi-reward-actual').innerText = `REWARD: ${actualReward.toFixed(2)}`;
+            document.getElementById('wi-desc-actual').innerText = actual.description || '--';
+            if (actual.metrics) renderMetrics('wi-metrics-actual', actual.metrics);
+
+            const labels = ['A', 'B', 'C'];
+            (data.counterfactuals || []).slice(0, 3).forEach((cf, idx) => {
+                const i = idx + 1;
+                const delta = cf.reward - actualReward;
+                const better = delta > 0.01;
+                const worse  = delta < -0.01;
+
+                // Reward chip color
+                const chip = document.getElementById(`wi-reward-cf${i}`);
+                chip.innerText = `${cf.reward.toFixed(2)} (${delta >= 0 ? '+' : ''}${delta.toFixed(2)})`;
+                chip.style.color = better ? '#4ade80' : (worse ? '#f87171' : '#94a3b8');
+
+                // Card top border color
+                const card = document.getElementById(`wi-card-cf${i}`);
+                if (card) {
+                    card.style.borderTopColor = better ? '#4ade80' : (worse ? '#f87171' : '#64748b');
+                }
+
+                document.getElementById(`wi-name-cf${i}`).innerText = cf.action_type || '--';
+                document.getElementById(`wi-desc-cf${i}`).innerText = cf.description || '--';
+                document.getElementById(`wi-tradeoff-cf${i}`).innerText = cf.trade_off || '--';
+                if (cf.metrics) renderMetrics(`wi-metrics-cf${i}`, cf.metrics);
+            });
+
+            document.getElementById('whatif-placeholder').classList.add('hidden');
+        }
+
+        async function runWhatIf() {
+            const btn = document.getElementById('wi-run-btn');
+            const icon = document.getElementById('wi-btn-icon');
+            const text = document.getElementById('wi-btn-text');
+            btn.disabled = true;
+            icon.innerText = '⏳'; text.innerText = 'Running (parallel inference)...';
+
+            const conflict = document.getElementById('wi-conflict-select').value;
+            const person   = document.getElementById('wi-person-select').value;
+
+            try {
+                const res = await fetch('/api/counterfactuals/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ conflict, person })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                _populateWhatIfCards(data);
+                icon.innerText = '✅'; text.innerText = 'Done — Run Again';
+            } catch(err) {
+                icon.innerText = '❌'; text.innerText = err.message.substring(0, 30);
+                await new Promise(r => setTimeout(r, 2000));
+                icon.innerText = '🧩'; text.innerText = 'Run What-If Analysis';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function _initWhatIfTab() { /* selectors pre-rendered by Jinja2 */ }
 
         async function _initTaskSelector() {
             const sel = document.getElementById('task-selector');

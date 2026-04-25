@@ -857,6 +857,13 @@ def counterfactuals_generate():
     before_b = copy.deepcopy(env.state.budget)
     action = AGENT.get_action(before_m, before_b, conflict, person)
     _normalize_action_metric_changes(action)
+
+    env_action = LifeStackAction.from_agent_action(action)
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                      before_m.mental_wellbeing.stress_level)
+    env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+    obs = env.step(env_action)
+
     cf_data = generate_counterfactuals(AGENT, before_m, before_b, conflict, person, action)
     return jsonify({
         "counterfactuals": cf_data,
@@ -864,6 +871,10 @@ def counterfactuals_generate():
             "type": action.primary.action_type,
             "target": action.primary.target_domain,
             "description": action.primary.description,
+            "reasoning": action.reasoning,
+            "reward": obs.reward,
+            "metrics": obs.metrics,
+            "cost": action.primary.resource_cost,
         },
     })
 
