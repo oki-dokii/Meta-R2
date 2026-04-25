@@ -408,28 +408,32 @@ class LifeStackEnv(_EnvBase):
             self._internal_state.consecutive_waits = 0
 
         # Handle Route Execution
-        if tool_type == "execute" and action.target:
-            route = next((r for r in task.viable_routes if r.id == action.target), None)
-            if route:
-                # Check closed
-                if route.id in self._internal_state.closed_route_ids:
-                    info_msgs.append(f"ROUTE_BLOCKED: {route.name}")
+        # A route can be completed either by explicit `execute` or by targeting
+        # the route with one of its required action types. This prevents route,
+        # milestone, and completion rewards from staying dead when the model
+        # chooses the semantically correct tool but not the literal execute verb.
+        route = next((r for r in task.viable_routes if r.id == action.target), None) if action.target else None
+        route_action_matches = bool(route and tool_type in set(route.required_action_types))
+        if route and (tool_type == "execute" or route_action_matches):
+            # Check closed
+            if route.id in self._internal_state.closed_route_ids:
+                info_msgs.append(f"ROUTE_BLOCKED: {route.name}")
+            else:
+                # Check preconditions
+                pre_ok = True
+                for k, v in route.preconditions.items():
+                    current_v = self._internal_state.hidden_state.get(k, self._internal_state.world_state.get(k))
+                    if current_v != v:
+                        pre_ok = False
+                        break
+
+                if not pre_ok:
+                    info_msgs.append(f"PRECONDITIONS_FAILED for {route.name}")
                 else:
-                    # Check preconditions
-                    pre_ok = True
-                    for k, v in route.preconditions.items():
-                        current_v = self._internal_state.hidden_state.get(k, self._internal_state.world_state.get(k))
-                        if current_v != v:
-                            pre_ok = False
-                            break
-                    
-                    if not pre_ok:
-                        info_msgs.append(f"PRECONDITIONS_FAILED for {route.name}")
-                    else:
-                        # Success: Apply route
-                        self._internal_state.active_route_id = route.id
-                        self._internal_state.world_state.update(route.consequences)
-                        info_msgs.append(f"ROUTE_SUCCESS: {route.name}")
+                    # Success: Apply route
+                    self._internal_state.active_route_id = route.id
+                    self._internal_state.world_state.update(route.consequences)
+                    info_msgs.append(f"ROUTE_SUCCESS: {route.name}")
 
         # 3. Resource Deduction (must happen BEFORE metric changes to prevent budget-bypass exploit)
         deduct_ok = self._internal_state.budget.deduct(

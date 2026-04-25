@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import json
+import re
 import torch
 from transformers import AutoTokenizer
 
@@ -55,8 +56,8 @@ SYSTEM = (
     "You are LifeStack, an AI life-management agent. "
     "Given a real-life crisis, respond with a single optimal action as valid JSON.\n\n"
     "Required JSON format:\n"
-    '{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize", '
-    '"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time|transport_crisis", '
+    '{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute", '
+    '"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time|transport_crisis|flight_crisis|code_merge_crisis", '
     '"metric_changes": {"domain.submetric": delta_value}, '
     '"resource_cost": {"time": hours, "money": dollars, "energy": units}, '
     '"reasoning": "brief explanation of why this is the best action"}'
@@ -72,6 +73,42 @@ def build_prompt(scenario: str) -> str:
     )
 
 
+class JsonCompleteStopping(torch.nn.Module):
+    """Stop once the first complete JSON object closes."""
+
+    def __init__(self, tokenizer, prompt_len: int):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.prompt_len = prompt_len
+
+    def __call__(self, input_ids: torch.LongTensor, scores, **kwargs) -> bool:
+        text = self.tokenizer.decode(input_ids[0][self.prompt_len:], skip_special_tokens=True)
+        depth = 0
+        entered = False
+        for ch in text:
+            if ch == "{":
+                depth += 1
+                entered = True
+            elif ch == "}":
+                depth -= 1
+            if entered and depth == 0:
+                return True
+        return False
+
+
+def extract_json_payload(completion: str) -> dict:
+    """Parse the first complete JSON object, ignoring trailing text."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", completion.strip()):
+        try:
+            obj, _ = decoder.raw_decode(completion[match.start():].strip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return {"raw_output": completion, "parse_error": "no valid JSON object found"}
+
+
 # ── Inference ──────────────────────────────────────────────────────────────────
 
 def resolve(model, tokenizer, scenario: str, temperature: float = 0.3) -> dict:
@@ -79,36 +116,27 @@ def resolve(model, tokenizer, scenario: str, temperature: float = 0.3) -> dict:
     device = next(model.parameters()).device
 
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    prompt_len = inputs["input_ids"].shape[1]
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
-            max_new_tokens=300,
+            max_new_tokens=160,
             temperature=temperature,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
+            do_sample=temperature > 0,
+            pad_token_id=pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
+            stopping_criteria=[JsonCompleteStopping(tokenizer, prompt_len)],
         )
 
     # Decode only the new tokens (not the prompt)
     completion = tokenizer.decode(
-        output_ids[0][inputs["input_ids"].shape[1]:],
+        output_ids[0][prompt_len:],
         skip_special_tokens=True
     ).strip()
 
-    # Try to parse as JSON
-    try:
-        # Find the JSON object in the completion
-        start = completion.find("{")
-        end   = completion.rfind("}") + 1
-        if start != -1 and end > start:
-            action = json.loads(completion[start:end])
-        else:
-            action = {"raw_output": completion, "parse_error": "no JSON found"}
-    except json.JSONDecodeError as e:
-        action = {"raw_output": completion, "parse_error": str(e)}
-
-    return action
+    return extract_json_payload(completion)
 
 
 # ── Built-in scenarios for quick demo ─────────────────────────────────────────

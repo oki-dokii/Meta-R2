@@ -266,6 +266,8 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_
         compact_events = [e[:140] for e in recent]
         event_context = "\nRecent events:\n" + "\n".join(f"- {e}" for e in compact_events)
 
+    listed_route_ids = [r.id for r in task.viable_routes[:2]]
+
     # Keep SYSTEM_METADATA for reward reconstruction.
     metadata = {
         "domain": task.domain,
@@ -273,6 +275,7 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_
         "difficulty": task.difficulty,
         "seed": seed,
         "step": step,
+        "route_ids": listed_route_ids,
         "budget": {
             "time": budget.time_hours,
             "money": budget.money_dollars,
@@ -298,6 +301,9 @@ def build_prompt_for_task(task, person, metrics, budget, seed=42, step=0, event_
         f"Budget: time={budget.time_hours:.1f}, money={budget.money_dollars:.1f}, energy={budget.energy_units:.1f}\n"
         f"Routes (max 2):\n{routes_str}\n"
         "Required keys: action_type, target_domain, metric_changes, resource_cost, reasoning.\n"
+        "To complete a listed route, use action_type=\"execute\" and target_domain=the exact route id.\n"
+        "Prefer completing one route over vague domain-only metric edits when a route is available.\n"
+        "For a general domain intervention, target_domain must be one life domain.\n"
         "Keep reasoning under 25 words. No markdown.\n"
         f'{{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute", '
         f'"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time OR <route_id>", '
@@ -404,6 +410,106 @@ def generate_dataset(n_prompts: int = 200, difficulty: int = None) -> Dataset:
     return Dataset.from_list(prompts)
 
 
+def build_episode_prompt_for_task(
+    task,
+    person,
+    metrics,
+    budget,
+    seed=42,
+    horizon: int = 3,
+    event_descriptions=None,
+    history=None,
+) -> str:
+    """Build a compact prompt asking for a short action sequence."""
+    base = build_prompt_for_task(
+        task,
+        person,
+        metrics,
+        budget,
+        seed=seed,
+        step=0,
+        event_descriptions=event_descriptions,
+    )
+    history = history or []
+    if history:
+        history_lines = []
+        for item in history[-3:]:
+            history_lines.append(
+                f"- step {item['step']}: {item['action_type']} -> {item['target']} "
+                f"(reward {item['reward']:.3f})"
+            )
+        history_text = "\nEpisode history:\n" + "\n".join(history_lines)
+    else:
+        history_text = ""
+
+    return (
+        base
+        + history_text
+        + "\nEpisode objective: return a compact JSON object with an actions list.\n"
+        + f"Plan up to {horizon} sequential actions. Stop early if a route can be completed.\n"
+        + 'Schema: {"actions":[{"action_type":"execute","target_domain":"<route_id or domain>",'
+        + '"metric_changes":{"domain.submetric":0},"resource_cost":{"time":0,"money":0,"energy":0},'
+        + '"reasoning":"brief"}]}\n'
+    )
+
+
+def generate_episodic_dataset(
+    n_episodes: int = 40,
+    difficulty: int = None,
+    horizon: int = 3,
+) -> Dataset:
+    """Generate prompts whose reward is computed over an action sequence."""
+    person_pool = [
+        SimPerson(name="Alex", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
+        SimPerson(name="Chloe", openness=0.9, conscientiousness=0.2, extraversion=0.5, agreeableness=0.70, neuroticism=0.15),
+        SimPerson(name="Sam", openness=0.5, conscientiousness=0.6, extraversion=0.1, agreeableness=0.65, neuroticism=0.90),
+        SimPerson(name="Jordan", openness=0.7, conscientiousness=0.5, extraversion=0.6, agreeableness=0.50, neuroticism=0.40),
+        SimPerson(name="Maya", openness=0.8, conscientiousness=0.7, extraversion=0.3, agreeableness=0.80, neuroticism=0.60),
+    ]
+    generator = TaskGenerator()
+    graph = DependencyGraph()
+    prompts = []
+
+    for i in range(n_episodes):
+        person = random.choice(person_pool)
+        domain = ALL_DOMAINS[i % len(ALL_DOMAINS)]
+        curr_diff = difficulty if difficulty else min(5, 1 + (i % 5))
+
+        outer_state = random.getstate()
+        task_seed = random.randint(0, 999999)
+        random.seed(task_seed)
+        task = generator.generate(domain=domain, difficulty=curr_diff)
+        conflict = generate_conflict(curr_diff)
+        task.mutable_world.update(conflict.primary_disruption)
+        task.visible_world.update(conflict.primary_disruption)
+        random.setstate(outer_state)
+        _ = random.random()
+
+        metrics = graph.cascade(LifeMetrics(), task.mutable_world)
+        budget_dict = task.constraints.get("budget", {})
+        budget = ResourceBudget(
+            time_hours=budget_dict.get("time", 20.0),
+            money_dollars=budget_dict.get("money", 500.0),
+            energy_units=budget_dict.get("energy", 100.0),
+        )
+        prompt = build_episode_prompt_for_task(
+            task,
+            person,
+            metrics,
+            budget,
+            seed=task_seed,
+            horizon=horizon,
+        )
+        prompts.append({
+            "prompt": prompt,
+            "difficulty": curr_diff,
+            "domain": domain,
+            "episode_horizon": horizon,
+        })
+
+    return Dataset.from_list(prompts)
+
+
 # ──────────────────────────────────────────────
 # 3. REWARD FUNCTION for GRPO
 # ──────────────────────────────────────────────
@@ -417,6 +523,7 @@ SAMPLE_LOG_PATH = os.path.join(LOG_DIR, "generations.jsonl")
 # Cleared at the start of each reward-function batch call so stale results
 # from a previous GRPO generation cycle never bleed through.
 _EVAL_CACHE: dict[tuple[str, str], dict] = {}
+_EPISODE_EVAL_CACHE: dict[tuple[str, str, int], dict] = {}
 
 # Guard: print reward_human_feedback_fn unavailability warning only once per run.
 _HFB_WARN_SHOWN: bool = False
@@ -440,6 +547,10 @@ def _clear_eval_cache() -> None:
     _EVAL_CACHE.clear()
 
 
+def _clear_episode_eval_cache() -> None:
+    _EPISODE_EVAL_CACHE.clear()
+
+
 def _load_first_json_object(completion: str) -> dict:
     """Parse the first complete JSON object, ignoring trailing model text."""
     text = completion.strip()
@@ -458,6 +569,73 @@ def _load_first_json_object(completion: str) -> dict:
         if isinstance(data, dict):
             return data
     raise json.JSONDecodeError("No valid JSON object found", text, 0)
+
+
+def _route_ids_from_prompt(prompt: str) -> set[str]:
+    """Extract route ids that were explicitly shown to the model."""
+    import re as _re
+
+    m = _re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, _re.DOTALL)
+    if m:
+        try:
+            meta = json.loads(m.group(1).strip())
+            return {str(r) for r in meta.get("route_ids", []) if r}
+        except Exception:
+            pass
+
+    route_ids: set[str] = set()
+    in_routes = False
+    for line in prompt.splitlines():
+        if line.startswith("Routes"):
+            in_routes = True
+            continue
+        if in_routes and line.startswith("- "):
+            route_ids.add(line[2:].split(":", 1)[0].strip())
+            continue
+        if in_routes and line:
+            break
+    return route_ids
+
+
+def _actions_from_completion(completion: str) -> list[dict]:
+    """Accept either a single action object or an episode {"actions": [...]} payload."""
+    data = _load_first_json_object(completion)
+    if isinstance(data.get("actions"), list):
+        return [a for a in data["actions"] if isinstance(a, dict)]
+    return [data]
+
+
+def _to_lifestack_action(data: dict, completion: str, actions_taken: int = 1):
+    """Convert model JSON into the env action, supporting optional route_id."""
+    from core.lifestack_env import LifeStackAction
+
+    return LifeStackAction(
+        action_type=data.get("action_type"),
+        target=data.get("route_id") or data.get("target_domain"),
+        metric_changes=data.get("metric_changes", {}),
+        resource_cost=data.get("resource_cost", {}),
+        reasoning=data.get("reasoning", ""),
+        completion=completion,
+        actions_taken=actions_taken,
+    )
+
+
+def _metadata_from_prompt(prompt: str) -> dict:
+    import re
+
+    m = re.search(r'<SYSTEM_METADATA>\n(.*?)\n</SYSTEM_METADATA>', prompt, re.DOTALL)
+    if not m:
+        raise ValueError("SYSTEM_METADATA missing from prompt")
+    return json.loads(m.group(1).strip())
+
+
+def _task_from_metadata(meta: dict):
+    gen = TaskGenerator()
+    domain = meta.get("domain", "flight_crisis")
+    task = gen.generate(domain=domain, difficulty=meta.get("difficulty", 3))
+    task.mutable_world.update(meta.get("disruption", {}))
+    task.visible_world.update(meta.get("disruption", {}))
+    return task
 
 
 def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
@@ -513,15 +691,7 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             env.step(LifeStackAction(action_type="rest", target="time", actions_taken=0))
 
         initial_metrics = dict(env.state.current_metrics.flatten())
-        action = LifeStackAction(
-            action_type=data.get("action_type"),
-            target=data.get("target_domain"),
-            metric_changes=data.get("metric_changes", {}),
-            resource_cost=data.get("resource_cost", {}),
-            reasoning=data.get("reasoning", ""),
-            completion=completion,
-            actions_taken=1
-        )
+        action = _to_lifestack_action(data, completion, actions_taken=1)
         obs = env.step(action)
 
         # 7-day discounted rollout — real long-term signal, not decoration.
@@ -628,7 +798,30 @@ def reward_clean_eos_fn(completions: list[str], prompts: list[str], **kwargs) ->
 def reward_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Scores JSON format compliance independently (Static Check)."""
     from core.reward import reward_format_compliance
-    return [reward_format_compliance(c) for c in completions]
+    return [
+        reward_format_compliance(c, valid_route_ids=_route_ids_from_prompt(p))
+        for c, p in zip(completions, prompts)
+    ]
+
+
+def reward_route_target_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Reward using listed route ids so milestone/completion signals can fire."""
+    rewards = []
+    for c, p in zip(completions, prompts):
+        try:
+            data = _load_first_json_object(c)
+            route_ids = {r.lower() for r in _route_ids_from_prompt(p)}
+            target = str(data.get("route_id") or data.get("target_domain", "")).lower()
+            action_type = str(data.get("action_type", "")).lower()
+            if target in route_ids and action_type == "execute":
+                rewards.append(0.30)
+            elif target in route_ids:
+                rewards.append(0.15)
+            else:
+                rewards.append(0.0)
+        except Exception:
+            rewards.append(0.0)
+    return rewards
 
 def reward_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
     """Penalize zero-cost metric changes (Independent Logic Check)."""
@@ -696,10 +889,11 @@ def reward_human_feedback_fn(completions: list[str], prompts: list[str], **kwarg
         memo = LifeStackMemory(silent=True)
     except (ImportError, Exception) as e:
         if not _HFB_WARN_SHOWN:
-            print(f"[warning] reward_human_feedback_fn unavailable ({e}), applying small penalty.")
+            print(f"[warning] reward_human_feedback_fn unavailable ({e}), returning neutral rewards.")
             _HFB_WARN_SHOWN = True
-        # chromadb not installed or DB init failed — apply small penalty
-        return [-0.01] * len(completions)
+        # chromadb not installed or DB init failed — abstain instead of
+        # globally depressing the curriculum reward.
+        return [0.0] * len(completions)
 
     rewards = []
     for c, p in zip(completions, prompts):
@@ -767,6 +961,131 @@ def reward_longterm_fn(completions: list[str], prompts: list[str], **kwargs) -> 
         _cached_lifestack_evaluation(c, p).get("longterm_reward", 0.0)
         for c, p in zip(completions, prompts)
     ]
+
+
+def get_episode_evaluation(completion: str, prompt: str, horizon: int = 3, gamma: float = 0.9) -> dict:
+    """Evaluate a generated action sequence by stepping the real environment."""
+    from core.lifestack_env import LifeStackEnv
+
+    try:
+        actions = _actions_from_completion(completion)
+        if not actions:
+            return {"reward": -0.5, "steps": [], "success": False, "failure": True}
+
+        meta = _metadata_from_prompt(prompt)
+        eval_seed = meta.get("seed", 42)
+        random.seed(eval_seed)
+        task = _task_from_metadata(meta)
+        env = LifeStackEnv()
+        env.reset(task=task, conflict=meta.get("disruption", {}))
+
+        discounted = 0.0
+        steps = []
+        final_obs = None
+        for idx, action_data in enumerate(actions[:horizon]):
+            env_action = _to_lifestack_action(action_data, completion, actions_taken=1)
+            obs = env.step(env_action)
+            final_obs = obs
+            step_reward = float(obs.reward or 0.0)
+            discounted += (gamma ** idx) * step_reward
+            steps.append({
+                "step": idx + 1,
+                "action_type": env_action.action_type,
+                "target": env_action.target,
+                "reward": step_reward,
+                "success": bool(obs.metadata.get("success")),
+                "failure": bool(obs.metadata.get("failure")),
+                "events": obs.metadata.get("events", []),
+            })
+            if obs.done:
+                break
+
+        random.seed()
+        if not steps:
+            return {"reward": -0.5, "steps": [], "success": False, "failure": True}
+
+        success = bool(final_obs and final_obs.metadata.get("success"))
+        failure = bool(final_obs and final_obs.metadata.get("failure"))
+        terminal_bonus = 0.25 if success else (-0.15 if failure else 0.0)
+        route_completion = 1.0 if success else 0.0
+        normalized = discounted / max(1, min(horizon, len(actions)))
+        reward = max(-1.0, min(1.0, normalized + terminal_bonus))
+
+        return {
+            "reward": reward,
+            "discounted_reward": discounted,
+            "terminal_bonus": terminal_bonus,
+            "route_completion": route_completion,
+            "steps": steps,
+            "success": success,
+            "failure": failure,
+        }
+    except Exception as e:
+        random.seed()
+        return {"reward": -0.5, "steps": [], "success": False, "failure": True, "error": str(e)}
+
+
+def _cached_episode_evaluation(completion: str, prompt: str, horizon: int) -> dict:
+    key = (completion, prompt, horizon)
+    if key not in _EPISODE_EVAL_CACHE:
+        _EPISODE_EVAL_CACHE[key] = get_episode_evaluation(completion, prompt, horizon=horizon)
+    return _EPISODE_EVAL_CACHE[key]
+
+
+def reward_episode_format_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Format score for either single-action JSON or {"actions": [...]} JSON."""
+    from core.reward import reward_format_compliance
+
+    rewards = []
+    for completion, prompt in zip(completions, prompts):
+        try:
+            actions = _actions_from_completion(completion)
+            if not actions:
+                rewards.append(-0.5)
+                continue
+            route_ids = _route_ids_from_prompt(prompt)
+            per_action = [
+                reward_format_compliance(json.dumps(action), valid_route_ids=route_ids)
+                for action in actions
+            ]
+            rewards.append(float(np.mean(per_action)))
+        except Exception:
+            rewards.append(-0.5)
+    return rewards
+
+
+def reward_episode_plausibility_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Average plausibility over the proposed action sequence."""
+    from core.reward import reward_plausibility_check
+
+    rewards = []
+    for completion in completions:
+        try:
+            actions = _actions_from_completion(completion)
+            if not actions:
+                rewards.append(-0.1)
+                continue
+            scores = [
+                reward_plausibility_check(a.get("metric_changes", {}), a.get("resource_cost", {}))
+                for a in actions
+            ]
+            rewards.append(float(np.mean(scores)))
+        except Exception:
+            rewards.append(-0.1)
+    return rewards
+
+
+def reward_episode_return_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """Trajectory-level reward: discounted env return plus terminal success shaping."""
+    _clear_episode_eval_cache()
+    raw_horizons = kwargs.get("episode_horizon", 3)
+    if not isinstance(raw_horizons, list):
+        raw_horizons = [raw_horizons] * len(completions)
+    rewards = []
+    for c, p, h in zip(completions, prompts, raw_horizons):
+        horizon = int(h or 3)
+        rewards.append(_cached_episode_evaluation(c, p, horizon).get("reward", -0.5))
+    return rewards
 
 # ──────────────────────────────────────────────
 # 4. CHECKPOINT HELPERS
@@ -852,6 +1171,7 @@ def train_curriculum(
     else:
         first_stage, curr_diff = 1, 1
 
+    trainer = None
     for stage in range(first_stage, n_stages + 1):
         print(f"\n[STAGE {stage}/{n_stages}] Difficulty={curr_diff}")
 
@@ -879,11 +1199,10 @@ def train_curriculum(
             gradient_accumulation_steps=4,
             learning_rate=stage_lr,
             warmup_ratio=0.05,           # 5% warmup steps — smoother convergence
-            # 96 tokens is enough for one compact JSON action (~60 tokens) plus small margin.
-            # Keeping it tight forces the model to stop generating after the first JSON
-            # instead of filling the buffer with repeated/trailing objects.
-            max_completion_length=96,
-            temperature=0.9,
+            # 224 tokens avoids clipping valid nested JSON while the EOS-clean
+            # reward still discourages trailing explanation text.
+            max_completion_length=224,
+            temperature=0.7,
             # TRL rule: num_generations must divide per_device_train_batch_size.
             num_generations=4,
             # T4 (compute 7.5) reports bf16 supported via emulation but mismatches fp16 model
@@ -905,12 +1224,13 @@ def train_curriculum(
 
         if stage == 1:
             # Warm-up: learn valid JSON structure first, then optimize decisions.
-            stage_reward_funcs = [reward_format_fn, reward_clean_eos_fn]
+            stage_reward_funcs = [reward_format_fn, reward_clean_eos_fn, reward_route_target_fn]
             print("  Warm-up reward mode: format + EOS-cleanliness")
         else:
             stage_reward_funcs = [
                 reward_format_fn,
                 reward_clean_eos_fn,
+                reward_route_target_fn,
                 reward_plausibility_fn,
                 reward_task_success_fn,
                 reward_milestone_fn,
@@ -940,12 +1260,12 @@ def train_curriculum(
         # TRL 1.x logs mean reward as "reward"; some builds use "train/reward" — check both
         last_log = trainer.state.log_history[-1] if trainer.state.log_history else {}
         avg_reward = last_log.get("reward", last_log.get("train/reward", 0.0))
-        # Threshold lowered from 0.6 to 0.2: reward starts negative and slowly climbs.
-        # Advancing too early hurts learning; 0.2 means the model can reliably output
-        # valid, plausible JSON before facing harder scenarios.
-        advance_threshold = 0.2
-        if avg_reward > advance_threshold and curr_diff < 5:
-            print(f"  ✅ Reward {avg_reward:.3f} > {advance_threshold} — advancing to difficulty {curr_diff + 1}")
+        # Advance on non-negative reward. The earlier 0.2/0.6 gates kept every
+        # completed run stuck at difficulty 1, which hides whether the policy can
+        # generalize once basic syntax and route targeting are working.
+        advance_threshold = 0.0
+        if avg_reward >= advance_threshold and curr_diff < 5:
+            print(f"  ✅ Reward {avg_reward:.3f} ≥ {advance_threshold} — advancing to difficulty {curr_diff + 1}")
             curr_diff += 1
         else:
             print(f"  ⚠️  Reward {avg_reward:.3f} ≤ {advance_threshold} — holding at difficulty {curr_diff}")
@@ -957,13 +1277,122 @@ def train_curriculum(
     # ── Final model save ─────────────────────────────────────────────────
     # Guard: if all stages were already complete (resume from finished run),
     # the loop body never executed and trainer/tokenizer are not bound.
-    if 'trainer' not in dir() and first_stage > n_stages:
+    if trainer is None and first_stage > n_stages:
         print(f"\n✅ All {n_stages} stages already complete. Model is at {output_dir}")
         print("   Run --full-episode to evaluate, or --push-to-hub to upload.")
         return None
+    if trainer is None:
+        raise RuntimeError("No trainer was created; check stage/resume configuration.")
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
     print(f"\n🏁 Training complete. Final model → {output_dir}")
+    return trainer
+
+
+def train_episodic_curriculum(
+    n_stages=2,
+    n_episodes_per_stage=40,
+    output_dir="./lifestack_model_v2",
+    episode_horizon: int = 3,
+    model=None,
+    tokenizer=None,
+    resume=False,
+    start_stage=None,
+):
+    """
+    GRPO fine-tuning where each completion is rewarded by an environment episode.
+
+    Standard GRPO still samples one completion per prompt, so the trainable object
+    is a compact action sequence (`{"actions": [...]}`). The same environment
+    then executes that sequence step by step and returns a trajectory reward.
+    """
+    print("=" * 60)
+    print("🎬 LIFESTACK EPISODIC GRPO TRAINING")
+    print("=" * 60)
+
+    if model is None or tokenizer is None:
+        model, tokenizer = load_model()
+
+    if resume:
+        first_stage, curr_diff = load_stage_state(output_dir)
+    elif start_stage:
+        first_stage, curr_diff = start_stage, 1
+    else:
+        first_stage, curr_diff = 1, 1
+
+    trainer = None
+    for stage in range(first_stage, n_stages + 1):
+        print(f"\n[EPISODE STAGE {stage}/{n_stages}] Difficulty={curr_diff} | horizon={episode_horizon}")
+        stage_dir = f"{output_dir}/episode_stage_{stage}"
+        resume_ckpt = find_latest_checkpoint(stage_dir) if resume else None
+        if resume_ckpt:
+            print(f"  [ckpt] Resuming mid-stage from: {resume_ckpt}")
+
+        dataset = generate_episodic_dataset(
+            n_episodes=n_episodes_per_stage,
+            difficulty=curr_diff,
+            horizon=episode_horizon,
+        )
+
+        stage_lr_schedule = {1: 3e-6, 2: 2e-6}
+        stage_lr = stage_lr_schedule.get(stage, 1e-6)
+        max_completion = min(640, max(256, 160 * episode_horizon))
+
+        config = GRPOConfig(
+            output_dir=stage_dir,
+            num_train_epochs=1,
+            per_device_train_batch_size=4,
+            gradient_accumulation_steps=4,
+            learning_rate=stage_lr,
+            warmup_ratio=0.05,
+            max_completion_length=max_completion,
+            temperature=0.7,
+            num_generations=4,
+            bf16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8),
+            fp16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8),
+            save_strategy="steps",
+            save_steps=5,
+            save_total_limit=3,
+            logging_steps=5,
+            report_to="tensorboard" if _tensorboard_available() else "none",
+        )
+        config.unsloth_num_chunks = -1
+
+        trainer = GRPOTrainer(
+            model=model,
+            processing_class=tokenizer,
+            args=config,
+            train_dataset=dataset,
+            reward_funcs=[
+                reward_episode_format_fn,
+                reward_clean_eos_fn,
+                reward_episode_plausibility_fn,
+                reward_episode_return_fn,
+            ],
+        )
+        trainer.train(resume_from_checkpoint=resume_ckpt)
+        trainer.save_model(stage_dir)
+        tokenizer.save_pretrained(stage_dir)
+        print(f"  ✅ Episode stage {stage} model saved → {stage_dir}")
+
+        last_log = trainer.state.log_history[-1] if trainer.state.log_history else {}
+        avg_reward = last_log.get("reward", last_log.get("train/reward", 0.0))
+        advance_threshold = 0.0
+        if avg_reward >= advance_threshold and curr_diff < 5:
+            print(f"  ✅ Episode reward {avg_reward:.3f} ≥ {advance_threshold} — advancing to difficulty {curr_diff + 1}")
+            curr_diff += 1
+        else:
+            print(f"  ⚠️  Episode reward {avg_reward:.3f} ≤ {advance_threshold} — holding at difficulty {curr_diff}")
+        save_stage_state(output_dir, stage, curr_diff)
+
+    if trainer is None and first_stage > n_stages:
+        print(f"\n✅ All {n_stages} episodic stages already complete. Model is at {output_dir}")
+        return None
+    if trainer is None:
+        raise RuntimeError("No episodic trainer was created; check stage/resume configuration.")
+    trainer.save_model(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    print(f"\n🏁 Episodic training complete. Final model → {output_dir}")
     return trainer
 
 
@@ -1122,7 +1551,11 @@ def validate_saved_model(output_dir: str = "./lifestack_model"):
 # 7. DRY-RUN MODE (validates pipeline without GPU)
 # ──────────────────────────────────────────────
 
-def dry_run(output_dir: str = "./lifestack_model_dryrun"):
+def dry_run(
+    output_dir: str = "./lifestack_model_dryrun",
+    episode_train: bool = False,
+    episode_horizon: int = 2,
+):
     """
     Runs a single GRPO training step on a minimal dataset (4 prompts).
     Verifies the entire pipeline: dataset → prompt → reward → trainer.train() → save.
@@ -1135,12 +1568,16 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
     - model.save_pretrained() writes real weight files
     """
     print("=" * 60)
-    print("🧪 LIFESTACK DRY-RUN (1 step, CPU, tiny dataset)")
+    mode = "EPISODIC" if episode_train else "SINGLE-STEP"
+    print(f"🧪 LIFESTACK DRY-RUN ({mode}, 1 step, CPU, tiny dataset)")
     print("=" * 60)
 
     model, tokenizer = load_model_for_dry_run()
 
-    dataset = generate_dataset(n_prompts=4, difficulty=1)
+    if episode_train:
+        dataset = generate_episodic_dataset(n_episodes=4, difficulty=1, horizon=episode_horizon)
+    else:
+        dataset = generate_dataset(n_prompts=4, difficulty=1)
     print(f"  Dataset size : {len(dataset)} prompts")
 
     config = GRPOConfig(
@@ -1149,8 +1586,8 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
         per_device_train_batch_size=4,
         gradient_accumulation_steps=1,
         learning_rate=1e-5,
-        max_completion_length=128,
-        temperature=0.9,
+        max_completion_length=320 if episode_train else 224,
+        temperature=0.7,
         num_generations=4,
         max_steps=1,          # ONE step — just proves the pipeline works
         bf16=False,
@@ -1165,9 +1602,11 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
         processing_class=tokenizer,  # TRL 1.x: renamed from tokenizer=
         args=config,
         train_dataset=dataset,
-        reward_funcs=[
-            reward_format_fn,
-        ],
+        reward_funcs=(
+            [reward_episode_format_fn, reward_episode_return_fn]
+            if episode_train else
+            [reward_format_fn, reward_route_target_fn]
+        ),
     )
 
     print("  Running 1 training step...")
@@ -1201,13 +1640,103 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
         )
 
     print("\n  ✅ DRY-RUN PASSED — full training pipeline is wired correctly.")
-    print("  → Run train_curriculum() on a GPU for a production model (> 50 MB).")
+    next_call = "train_episodic_curriculum()" if episode_train else "train_curriculum()"
+    print(f"  → Run {next_call} on a GPU for a production model (> 50 MB).")
     return trainer
 
 
 # ──────────────────────────────────────────────
 # 8. MULTI-STEP FULL EPISODE RUNNER
 # ──────────────────────────────────────────────
+
+def _model_completion(model, tokenizer, prompt: str, max_new_tokens: int = 160, temperature: float = 0.3) -> str:
+    device = next(model.parameters()).device
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    with torch.no_grad():
+        out = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            do_sample=temperature > 0,
+            pad_token_id=pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+    return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+
+
+def rollout_model_episode(
+    model,
+    tokenizer,
+    task,
+    person,
+    seed: int,
+    horizon: int = 5,
+    temperature: float = 0.3,
+) -> dict:
+    """Closed-loop model rollout: generate one action, step env, repeat."""
+    from core.lifestack_env import LifeStackEnv, LifeStackAction
+
+    random.seed(seed)
+    env = LifeStackEnv()
+    env.reset(task=task, conflict=task.mutable_world)
+    random.seed()
+
+    history = []
+    total_reward = 0.0
+    for step in range(horizon):
+        prompt = build_prompt_for_task(
+            task,
+            person,
+            env.state.current_metrics,
+            env.state.budget,
+            seed=seed,
+            step=step,
+            event_descriptions=env.state.fired_event_ids,
+        )
+        if history:
+            prompt += "\nPast actions:\n" + "\n".join(
+                f"- step {h['step']}: {h['action_type']} -> {h['target']} (reward {h['reward']:.3f})"
+                for h in history[-3:]
+            )
+            prompt += "\nReturn the next single JSON action only.\n"
+
+        completion = _model_completion(model, tokenizer, prompt, max_new_tokens=128, temperature=temperature)
+        try:
+            data = _actions_from_completion(completion)[0]
+            env_action = _to_lifestack_action(data, completion, actions_taken=1)
+        except Exception:
+            env_action = LifeStackAction(
+                action_type="rest",
+                target="time",
+                metric_changes={},
+                resource_cost={},
+                actions_taken=0,
+            )
+
+        obs = env.step(env_action)
+        step_reward = float(obs.reward or 0.0)
+        total_reward += step_reward
+        history.append({
+            "step": step + 1,
+            "action_type": env_action.action_type,
+            "target": env_action.target,
+            "reward": step_reward,
+            "completion": completion,
+            "success": bool(obs.metadata.get("success")),
+            "failure": bool(obs.metadata.get("failure")),
+            "events": obs.metadata.get("info", []),
+        })
+        if obs.done:
+            break
+
+    return {
+        "total_reward": total_reward,
+        "steps": history,
+        "success": bool(history and history[-1].get("success")),
+        "failure": bool(history and history[-1].get("failure")),
+    }
+
 
 def run_full_episode(
     model_dir: str = "./lifestack_model",
@@ -1297,7 +1826,7 @@ def run_full_episode(
                 d = _load_first_json_object(completion)
                 env_action = LifeStackAction(
                     action_type=d.get("action_type", "rest"),
-                    target=d.get("target_domain", "time"),
+                    target=d.get("route_id") or d.get("target_domain", "time"),
                     metric_changes=d.get("metric_changes", {}),
                     resource_cost=d.get("resource_cost", {}),
                     reasoning=d.get("reasoning", ""),
@@ -1358,6 +1887,12 @@ Examples:
   # Run multi-step episodes with the trained model
   python train_trl.py --full-episode --output-dir ./lifestack_model
 
+  # Train v2 with episode-level rewards after a short single-step warm-up
+  python train_trl.py --episode-train --stages 2 --episodes-per-stage 40 --episode-horizon 3
+
+  # Validate the episodic path locally
+  python train_trl.py --episode-train --dry-run
+
   # Train then push to HuggingFace Hub
   python train_trl.py --stages 5 --push-to-hub --hub-repo-id username/lifestack-grpo
         """
@@ -1391,6 +1926,22 @@ Examples:
         help="Run multi-step episodes with the trained model (post-training evaluation)."
     )
     parser.add_argument(
+        "--episode-train", action="store_true",
+        help="Train with episode-level action-sequence rewards instead of single-step rewards."
+    )
+    parser.add_argument(
+        "--episode-horizon", type=int, default=3,
+        help="Maximum number of actions in an episode-training completion (default: 3)."
+    )
+    parser.add_argument(
+        "--episodes-per-stage", type=int, default=40,
+        help="Episode prompts per episodic stage (default: 40)."
+    )
+    parser.add_argument(
+        "--episode-warmup-stages", type=int, default=1,
+        help="Single-step warm-up stages before episodic fine-tuning (default: 1)."
+    )
+    parser.add_argument(
         "--push-to-hub", action="store_true",
         help="Push trained model to HuggingFace Hub after training or --full-episode."
     )
@@ -1401,13 +1952,46 @@ Examples:
     args = parser.parse_args()
 
     if args.dry_run:
-        dry_run(output_dir="./lifestack_model_dryrun")
+        dry_run(
+            output_dir="./lifestack_model_dryrun",
+            episode_train=args.episode_train,
+            episode_horizon=args.episode_horizon,
+        )
     elif args.full_episode:
         run_full_episode(
             model_dir=args.output_dir,
             push_to_hub=args.push_to_hub,
             hub_repo_id=args.hub_repo_id,
         )
+    elif args.episode_train:
+        warmup_trainer = None
+        if args.episode_warmup_stages > 0 and not args.resume:
+            warmup_trainer = train_curriculum(
+                n_stages=args.episode_warmup_stages,
+                n_prompts_per_stage=args.prompts_per_stage,
+                output_dir=args.output_dir,
+                resume=False,
+                start_stage=args.start_stage,
+            )
+        trainer = train_episodic_curriculum(
+            n_stages=args.stages,
+            n_episodes_per_stage=args.episodes_per_stage,
+            output_dir=args.output_dir,
+            episode_horizon=args.episode_horizon,
+            model=warmup_trainer.model if warmup_trainer else None,
+            tokenizer=warmup_trainer.processing_class if warmup_trainer else None,
+            resume=args.resume,
+            start_stage=args.start_stage if not warmup_trainer else None,
+        )
+        validate_saved_model(args.output_dir)
+        if args.push_to_hub and trainer:
+            try:
+                print(f"\nPushing episodic model to HuggingFace Hub: {args.hub_repo_id} ...")
+                trainer.model.push_to_hub(args.hub_repo_id)
+                trainer.processing_class.push_to_hub(args.hub_repo_id)
+                print(f"✅ Pushed → https://huggingface.co/{args.hub_repo_id}")
+            except Exception as e:
+                print(f"❌ push_to_hub failed: {e}")
     else:
         trainer = train_curriculum(
             n_stages=args.stages,

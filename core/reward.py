@@ -255,15 +255,17 @@ def compute_task_reward(
     dead_end_pen = compute_dead_end_penalty(routes_remaining)
     
     # 3. Final weighting (all components are now unique/non-overlapping)
-    # Weights: Milestone 35%, Completion 25%, Outcome 10%, Preservation 5%, Replan 10%, Efficiency 10%, Reasoning 5%
+    # Reasoning is kept as a standalone GRPO signal to avoid double counting it
+    # inside both task reward and reward_reasoning_fn.
+    # Weights: Milestone 35%, Completion 25%, Outcome 15%, Preservation 5%,
+    # Replan 10%, Efficiency 10%.
     base_reward = (
         (0.35 * milestone_score) + 
         (0.25 * completion_score) + 
-        (0.10 * outcome_score_local) + 
+        (0.15 * outcome_score_local) +
         (0.05 * preservation_score) +
         (0.10 * replan_score) + 
-        (0.10 * efficiency_score) + 
-        (0.05 * reasoning_score)
+        (0.10 * efficiency_score)
     )
 
     # 4. Penalties
@@ -325,17 +327,18 @@ VALID_ACTION_TYPES = frozenset({
 
 VALID_DOMAINS = frozenset({
     "career", "finances", "relationships", "physical_health",
-    "mental_wellbeing", "time", "transport_crisis", "code_merge_crisis",
+    "mental_wellbeing", "time", "transport_crisis", "flight_crisis",
+    "code_merge_crisis",
 })
 
 
-def reward_format_compliance(completion: str) -> float:
+def reward_format_compliance(completion: str, valid_route_ids: set[str] | None = None) -> float:
     """
     Scores the completion based on its format (JSON validity and required fields).
 
     Returns:
         +1.0: Valid JSON, all 5 required keys present, action_type is one of the 8
-              valid types, target_domain is a known domain
+              valid types, target_domain is a known domain or listed route id
         +0.5: Valid JSON with all 5 keys but action_type / target_domain unrecognised
         +0.2: Valid JSON but missing some required keys
         -0.5: Invalid JSON / unparseable
@@ -354,9 +357,15 @@ def reward_format_compliance(completion: str) -> float:
             return -0.5
         if not all(k in data and data.get(k) is not None for k in required):
             return 0.2
-        action_ok = str(data.get("action_type", "")).lower() in VALID_ACTION_TYPES
-        domain_ok = str(data.get("target_domain", "")).lower() in VALID_DOMAINS
-        if action_ok and domain_ok:
+        action = str(data.get("action_type", "")).lower()
+        target = str(data.get("target_domain", "")).lower()
+        route_id = str(data.get("route_id", "")).lower()
+        valid_routes = {str(r).lower() for r in (valid_route_ids or set())}
+
+        action_ok = action in VALID_ACTION_TYPES
+        domain_ok = target in VALID_DOMAINS
+        route_ok = bool(valid_routes) and (target in valid_routes or route_id in valid_routes)
+        if action_ok and (domain_ok or route_ok):
             return 1.0
         # Valid structure but unrecognised action_type or domain — partial credit
         return 0.5
