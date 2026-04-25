@@ -77,7 +77,7 @@ def load_model():
         model_name = "Qwen/Qwen2.5-1.5B-Instruct"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, dtype=torch.float16, device_map="auto"
+            model_name, dtype=torch.float32, device_map="auto"
         )
         lora_cfg = LoraConfig(
             r=16,
@@ -278,7 +278,6 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             from agent.conflict_generator import TaskGenerator
             gen = TaskGenerator()
             domain = meta.get("domain", "flight_crisis")
-            import random
             # Keep seed active through the ENTIRE env evaluation — task gen, reset,
             # fast-forward, and the action step.  Without this, stochastic events
             # (event.step == -1, random.random() < probability) fire differently each
@@ -717,7 +716,7 @@ def evaluate_and_plot(model_dir="./lifestack_model"):
         from peft import PeftModel
         tokenizer = AutoTokenizer.from_pretrained(model_dir)
         base = AutoModelForCausalLM.from_pretrained(
-            "Qwen/Qwen2.5-1.5B-Instruct", dtype=torch.float16, device_map="auto"
+            "Qwen/Qwen2.5-1.5B-Instruct", dtype=torch.float32, device_map="auto"
         )
         model = PeftModel.from_pretrained(base, model_dir)
     model.eval()

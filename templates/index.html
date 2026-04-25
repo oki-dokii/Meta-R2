@@ -58,13 +58,13 @@
                     <div class="space-y-4 mb-6">
                         <div class="text-sm">
                             <label class="block text-slate-400 mb-2">Subject Persona</label>
-                            <select id="person-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
+                            <select id="person-select" onchange="resetDemoUI()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
                                 {% for p in persons %} <option value="{{ p }}">{{ p }}</option> {% endfor %}
                             </select>
                         </div>
                         <div class="text-sm">
                             <label class="block text-slate-400 mb-2">Life Conflict</label>
-                            <select id="conflict-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
+                            <select id="conflict-select" onchange="resetDemoUI()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
                                 {% for c in conflicts %} <option value="{{ c }}">{{ c }}</option> {% endfor %}
                             </select>
                         </div>
@@ -745,18 +745,28 @@
 
         function renderMetrics(containerId, metrics, statusMap = {}, before = {}) {
             const container = document.getElementById(containerId);
+            if (!container) return;
             let html = '';
             const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
 
-            // Update Domain Risk Heatmap cells (labelled individual tiles)
+            // Update Domain Risk Heatmap cells — now using normalized Health Score
             if (containerId === 'metrics-container') {
                 domains.forEach(dom => {
                     const cell = document.getElementById('hm-' + dom);
                     if (!cell) return;
                     const submetrics = Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.'));
-                    const avg = submetrics.reduce((acc, [, v]) => acc + v, 0) / (submetrics.length || 1);
-                    cell.style.backgroundColor = getMetricColor(dom + '.dummy', avg);
-                    cell.title = `${dom}: ${avg.toFixed(0)}%`;
+                    
+                    // Normalize: Flip inverted metrics (e.g. higher stress = lower health)
+                    const healthScores = submetrics.map(([k, v]) => {
+                        const sub = k.split('.')[1];
+                        return INVERTED_METRICS.has(sub) ? (100 - v) : v;
+                    });
+                    
+                    const avgHealth = healthScores.reduce((acc, v) => acc + v, 0) / (healthScores.length || 1);
+                    
+                    // Use a special high/low map for the heatmap intensity
+                    cell.style.backgroundColor = avgHealth > 70 ? '#4ade80' : (avgHealth > 40 ? '#facc15' : '#ef4444');
+                    cell.title = `${dom}: ${avgHealth.toFixed(0)}% Health`;
                 });
             }
 
@@ -773,107 +783,141 @@
             container.innerHTML = html;
         }
 
-        async function startDemo() {
+        function _setBtnState(icon, text, disabled = true) {
             const btn = document.getElementById('simulate-btn');
-            btn.disabled = true; btn.innerText = "🌀 Running AI Coach...";
-            const person = document.getElementById('person-select').value;
-            const conflict = document.getElementById('conflict-select').value;
-            const startRes = await fetch('/api/simulation/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
-            const startData = await startRes.json();
-            renderMetrics('metrics-container', startData.metrics);
-            const cascadeRes = await fetch('/api/simulation/cascade', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
-            const cascadeData = await cascadeRes.json();
-            const phaseNames = ["STABLE", "DISRUPTION", "1ST CASCADE", "2ND CASCADE"];
-            
-            for (let i = 0; i < cascadeData.frames.length; i++) {
-                document.getElementById('metric-phase').innerText = phaseNames[i];
-                const frame = cascadeData.frames[i];
-                renderMetrics('metrics-container', frame.flat, frame.status);
-                
-                // Animate Graph
-                const activeNodes = Object.entries(frame.status).filter(([k, v]) => v !== 'unchanged').map(([k, v]) => k);
-                const firstOrder = Object.entries(frame.status).filter(([k, v]) => v === 'first').map(([k, v]) => k);
-                const secondOrder = Object.entries(frame.status).filter(([k, v]) => v === 'second').map(([k, v]) => k);
+            btn.disabled = disabled;
+            document.getElementById('btn-icon').innerText = icon;
+            document.getElementById('btn-text').innerText = text;
+        }
 
-                graphData.nodes.update(graphData.nodes.get().map(n => ({
-                    id: n.id,
-                    size: activeNodes.includes(n.id) ? 15 : 8,
-                    font: { color: activeNodes.includes(n.id) ? "#fff" : "#94a3b8", size: activeNodes.includes(n.id) ? 12 : 10 },
-                    shadow: activeNodes.includes(n.id) ? { enabled: true, color: "#fff", size: 10 } : { enabled: false }
-                })));
+        async function startDemo() {
+            _setBtnState('🌀', 'Loading State...');
+
+            try {
+                const person = document.getElementById('person-select').value;
+                const conflict = document.getElementById('conflict-select').value;
+
+                // 1. Initial State
+                const startRes = await fetch('/api/simulation/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
+                if (!startRes.ok) throw new Error(`/api/simulation/start → ${startRes.status}`);
+                const startData = await startRes.json();
+                renderMetrics('metrics-container', startData.metrics);
+
+                // 2. Cascade Animation
+                _setBtnState('⚡', 'Simulating Cascade...');
+                const cascadeRes = await fetch('/api/simulation/cascade', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({conflict}) });
+                if (!cascadeRes.ok) throw new Error(`/api/simulation/cascade → ${cascadeRes.status}`);
+                const cascadeData = await cascadeRes.json();
+                const phaseNames = ["STABLE", "DISRUPTION", "1ST CASCADE", "2ND CASCADE"];
+
+                for (let i = 0; i < cascadeData.frames.length; i++) {
+                    document.getElementById('metric-phase').innerText = phaseNames[i] || 'CASCADING';
+                    const frame = cascadeData.frames[i];
+                    renderMetrics('metrics-container', frame.flat, frame.status);
+
+                    const activeNodes = Object.entries(frame.status).filter(([k, v]) => v !== 'unchanged').map(([k]) => k);
+                    graphData.nodes.update(graphData.nodes.get().map(n => ({
+                        id: n.id,
+                        size: activeNodes.includes(n.id) ? 15 : 8,
+                        font: { color: activeNodes.includes(n.id) ? "#fff" : "#94a3b8", size: activeNodes.includes(n.id) ? 12 : 10 },
+                        shadow: activeNodes.includes(n.id) ? { enabled: true, color: "#fff", size: 10 } : { enabled: false }
+                    })));
+
+                    await new Promise(r => setTimeout(r, 900));
+                }
+
+                setTimeout(() => {
+                    graphData.nodes.update(graphData.nodes.get().map(n => ({ id: n.id, size: 8, font: { color: "#94a3b8", size: 10 }, shadow: { enabled: false } })));
+                }, 1000);
+
+                // 3. AI Agent Decision (this is the slow step — LLM call)
+                _setBtnState('🧠', 'AI Agent Deciding...');
+                const useMemory = document.getElementById('memory-toggle').checked;
+                const actionRes = await fetch('/api/simulation/action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({person, conflict, use_memory: useMemory})
+                });
+                if (!actionRes.ok) throw new Error(`/api/simulation/action → ${actionRes.status}`);
+                const finalData = await actionRes.json();
 
                 await new Promise(r => setTimeout(r, 600));
-            }
-            
-            // Pulse the edges briefly (optional/placeholder for complex edge animation)
-            setTimeout(() => {
-                graphData.nodes.update(graphData.nodes.get().map(n => ({ id: n.id, size: 8, font: { color: "#94a3b8", size: 10 }, shadow: { enabled: false } })));
-            }, 1000);
-            
-            const useMemory = document.getElementById('memory-toggle').checked;
-            const actionRes = await fetch('/api/simulation/action', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({person, conflict, use_memory: useMemory}) 
-            });
-            const finalData = await actionRes.json();
-            document.getElementById('metric-phase').innerText = `RESOLVED`;
-            renderMetrics('metrics-container', finalData.metrics, {}, startData.metrics);
-            document.getElementById('action-card').classList.remove('hidden');
-            document.getElementById('action-type').innerText = finalData.action.type;
-            document.getElementById('action-desc').innerText = finalData.action.description;
-            document.getElementById('action-reasoning').innerText = finalData.action.reasoning;
-            document.getElementById('action-time').innerText = finalData.action.cost.time.toFixed(1) + 'h';
-            document.getElementById('action-money').innerText = '$' + (finalData.action.cost.money || 0);
-            document.getElementById('episode-tag').innerText = `ID: ${finalData.action.id}`;
-            
-            // Memory Insight
-            if (finalData.action.memories_retrieved && finalData.action.memories_retrieved.length > 0) {
-                document.getElementById('memory-card').classList.remove('hidden');
-                document.getElementById('memory-container').innerHTML = finalData.action.memories_retrieved.map(m => `
-                    <div class="p-2.5 bg-green-500/5 border border-green-500/10 rounded-xl">
-                        <div class="flex justify-between text-[9px] font-black text-green-400 mb-1">
-                            <span class="uppercase">Similar Conflict: ${m.action_type}</span>
-                            <span>Score: ${m.reward.toFixed(2)}</span>
+                document.getElementById('metric-phase').innerText = 'RESOLVED';
+                renderMetrics('metrics-container', finalData.metrics, {}, startData.metrics);
+                
+                // Update UI cards
+                document.getElementById('action-card').classList.remove('hidden');
+                document.getElementById('action-type').innerText = finalData.action.type;
+                document.getElementById('action-desc').innerText = finalData.action.description;
+                document.getElementById('action-reasoning').innerText = finalData.action.reasoning;
+                document.getElementById('action-time').innerText = finalData.action.cost.time.toFixed(1) + 'h';
+                document.getElementById('action-money').innerText = '$' + (finalData.action.cost.money || 0);
+                document.getElementById('episode-tag').innerText = `ID: ${finalData.action.id}`;
+                
+                if (finalData.action.memories_retrieved?.length > 0) {
+                    document.getElementById('memory-card').classList.remove('hidden');
+                    document.getElementById('memory-container').innerHTML = finalData.action.memories_retrieved.map(m => `
+                        <div class="p-2.5 bg-green-500/5 border border-green-500/10 rounded-xl">
+                            <div class="flex justify-between text-[9px] font-black text-green-400 mb-1">
+                                <span class="uppercase">Similar Conflict: ${m.action_type}</span>
+                                <span>Score: ${m.reward.toFixed(2)}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-300 italic leading-tight">"${m.reasoning.substring(0, 80)}..."</p>
                         </div>
-                        <p class="text-[10px] text-slate-300 italic leading-tight">"${m.reasoning.substring(0, 80)}..."</p>
-                    </div>
-                `).join('');
-            } else {
-                document.getElementById('memory-card').classList.add('hidden');
+                    `).join('');
+                } else {
+                    document.getElementById('memory-card').classList.add('hidden');
+                }
+
+                document.getElementById('trajectory-panel').classList.remove('hidden');
+                document.getElementById('traj-summary').innerText = finalData.prediction.summary;
+                document.getElementById('traj-bar').style.width = (finalData.prediction.risk_score * 100) + '%';
+                
+                document.getElementById('whatif-placeholder').classList.add('hidden');
+                document.getElementById('whatif-content').classList.remove('hidden');
+                document.getElementById('wi-name-actual').innerText = finalData.action.type;
+                document.getElementById('wi-reward-actual').innerText = `REWARD: ${finalData.action.reward.toFixed(2)}`;
+                document.getElementById('wi-desc-actual').innerText = finalData.action.description;
+                renderMetrics('wi-metrics-actual', finalData.metrics);
+                
+                finalData.counterfactuals.forEach((cf, idx) => {
+                    const i = idx + 1;
+                    document.getElementById(`wi-name-cf${i}`).innerText = cf.action_type;
+                    document.getElementById(`wi-reward-cf${i}`).innerText = `REWARD: ${cf.reward.toFixed(2)}`;
+                    document.getElementById(`wi-desc-cf${i}`).innerText = cf.description;
+                    document.getElementById(`wi-tradeoff-cf${i}`).innerText = `Trade-off: ${cf.trade_off}`;
+                    renderMetrics(`wi-metrics-cf${i}`, cf.metrics);
+                });
+
+                document.getElementById('counterfactual-card').classList.remove('hidden');
+                document.getElementById('cf-container').innerHTML = finalData.counterfactuals.map(cf => `<div class="p-2.5 bg-slate-900 border-l rounded-r-lg border-slate-700 leading-tight space-y-1"><div class="flex justify-between font-black"><span class="text-slate-500 uppercase">vs ${cf.action_type}</span><span class="text-indigo-400 font-bold">${cf.reward.toFixed(2)}</span></div><p class="text-slate-400 italic">"${cf.description}"</p><div class="text-[9px] text-slate-600"><b>IMPACT:</b> ${cf.trade_off}</div></div>`).join('');
+
+                _setBtnState('✅', 'Complete — Run Again', false);
+                fetchAndRenderTrajectory(person, conflict);
+                return; // skip finally reset so button stays "Complete"
+
+            } catch (err) {
+                console.error('Simulation error:', err);
+                _setBtnState('❌', err.message.substring(0, 30) + '...');
+                await new Promise(r => setTimeout(r, 2000));
+            } finally {
+                _setBtnState('▶', 'Start Simulation', false);
             }
+        }
 
-            document.getElementById('trajectory-panel').classList.remove('hidden');
-            document.getElementById('traj-summary').innerText = finalData.prediction.summary;
-            document.getElementById('traj-bar').style.width = (finalData.prediction.risk_score * 100) + '%';
-            
-            // Populate What-If Lab
-            document.getElementById('whatif-placeholder').classList.add('hidden');
-            document.getElementById('whatif-content').classList.remove('hidden');
-            
-            // Actual
-            document.getElementById('wi-name-actual').innerText = finalData.action.type;
-            document.getElementById('wi-reward-actual').innerText = `REWARD: ${finalData.action.reward.toFixed(2)}`;
-            document.getElementById('wi-desc-actual').innerText = finalData.action.description;
-            renderMetrics('wi-metrics-actual', finalData.metrics);
-            
-            // CFs
-            finalData.counterfactuals.forEach((cf, idx) => {
-                const i = idx + 1;
-                document.getElementById(`wi-name-cf${i}`).innerText = cf.action_type;
-                document.getElementById(`wi-reward-cf${i}`).innerText = `REWARD: ${cf.reward.toFixed(2)}`;
-                document.getElementById(`wi-desc-cf${i}`).innerText = cf.description;
-                document.getElementById(`wi-tradeoff-cf${i}`).innerText = `Trade-off: ${cf.trade_off}`;
-                renderMetrics(`wi-metrics-cf${i}`, cf.metrics);
+        function resetDemoUI() {
+            _setBtnState('▶', 'Start Simulation', false);
+            document.getElementById('action-card').classList.add('hidden');
+            document.getElementById('trajectory-panel').classList.add('hidden');
+            document.getElementById('forecast-panel').classList.add('hidden');
+            document.getElementById('counterfactual-card').classList.add('hidden');
+            document.getElementById('memory-card').classList.add('hidden');
+            document.getElementById('metric-phase').innerText = 'STABLE';
+            // Reset heatmap tiles to neutral
+            ['career','finances','relationships','physical_health','mental_wellbeing','time'].forEach(dom => {
+                const cell = document.getElementById('hm-' + dom);
+                if (cell) { cell.style.backgroundColor = ''; cell.title = dom; }
             });
-
-            document.getElementById('counterfactual-card').classList.remove('hidden');
-            document.getElementById('cf-container').innerHTML = finalData.counterfactuals.map(cf => `<div class="p-2.5 bg-slate-900 border-l rounded-r-lg border-slate-700 leading-tight space-y-1"><div class="flex justify-between font-black"><span class="text-slate-500 uppercase">vs ${cf.action_type}</span><span class="text-indigo-400 font-bold">${cf.reward.toFixed(2)}</span></div><p class="text-slate-400 italic">"${cf.description}"</p><div class="text-[9px] text-slate-600"><b>IMPACT:</b> ${cf.trade_off}</div></div>`).join('');
-
-            // ── 7-Day Forecast (async — doesn't block the above) ──
-            fetchAndRenderTrajectory(person, conflict);
-
-            btn.disabled = false; btn.innerText = "▶ Start Simulation";
         }
 
         async function fetchAndRenderTrajectory(person, conflict) {
