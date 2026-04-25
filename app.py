@@ -29,6 +29,271 @@ from intake.gmail_intake import GmailIntake
 from core.task import Task, ExoEvent, Route, Milestone
 from core.feedback import OutcomeFeedback, compute_human_feedback_reward
 
+# ─── GRPO Trained Model Registry ─────────────────────────────────────────────
+# Map display label → HuggingFace Hub repo ID.
+# Override any of these with environment variables if your repo names differ.
+MODEL_REGISTRY = {
+    "v1": os.environ.get("LIFESTACK_MODEL_V1", "jdsb06/lifestack-grpo-v1"),
+    "v2": os.environ.get("LIFESTACK_MODEL_V2", "jdsb06/lifestack-grpo-v2"),
+    "v3": os.environ.get("LIFESTACK_MODEL_V3", "jdsb06/lifestack-grpo-v3"),
+}
+
+# Runtime cache — models loaded from HF Hub on first use (never reloaded)
+_GRPO_CACHE: dict = {}
+
+_GRPO_SYSTEM = (
+    "You are LifeStack, an AI life-management agent. "
+    "Given a real-life crisis, respond with a single optimal action as valid JSON.\n\n"
+    "Required JSON format:\n"
+    '{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute", '
+    '"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time|'
+    'transport_crisis|flight_crisis|code_merge_crisis", '
+    '"metric_changes": {"domain.submetric": delta_value}, '
+    '"resource_cost": {"time": hours, "money": dollars, "energy": units}, '
+    '"reasoning": "brief explanation"}'
+)
+
+
+def _load_grpo_model(repo_id: str):
+    """Lazy-load a GRPO LoRA adapter from HF Hub; cached after first load."""
+    if repo_id in _GRPO_CACHE:
+        return _GRPO_CACHE[repo_id]
+    import torch
+    ampere = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    dtype = torch.bfloat16 if ampere else torch.float16
+    try:
+        from unsloth import FastLanguageModel
+        model, tok = FastLanguageModel.from_pretrained(
+            model_name=repo_id,
+            max_seq_length=1024,
+            load_in_4bit=True,
+            dtype=dtype,
+        )
+        FastLanguageModel.for_inference(model)
+    except Exception:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel
+        tok = AutoTokenizer.from_pretrained(repo_id)
+        base = AutoModelForCausalLM.from_pretrained(
+            "Qwen/Qwen2.5-1.5B-Instruct",
+            torch_dtype=dtype if torch.cuda.is_available() else torch.float32,
+            device_map="auto",
+        )
+        model = PeftModel.from_pretrained(base, repo_id)
+        model.eval()
+    _GRPO_CACHE[repo_id] = (model, tok)
+    return model, tok
+
+
+def _grpo_infer_html(scenario: str, version: str) -> str:
+    """Run *scenario* through the named GRPO version, return a styled HTML card."""
+    import re as _re, torch
+    repo_id = MODEL_REGISTRY.get(version, "")
+    if not repo_id:
+        return "<div style='color:#888;font-style:italic;padding:12px'>Not configured.</div>"
+    try:
+        model, tok = _load_grpo_model(repo_id)
+        prompt = (
+            f"<|im_start|>system\n{_GRPO_SYSTEM}<|im_end|>\n"
+            f"<|im_start|>user\nCRISIS: {scenario}\n\n"
+            "Respond with ONLY valid JSON.<|im_end|>\n"
+            "<|im_start|>assistant\n"
+        )
+        inputs = tok(prompt, return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=200,
+                temperature=0.3,
+                do_sample=True,
+                pad_token_id=tok.eos_token_id or tok.pad_token_id,
+            )
+        raw = tok.decode(
+            out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+        ).strip()
+
+        m = _re.search(r"\{.*\}", raw, _re.DOTALL)
+        if m:
+            try:
+                data = json.loads(m.group())
+                action = data.get("action_type", "?").upper()
+                domain = data.get("target_domain", "?")
+                reasoning = data.get("reasoning", "")[:220]
+                cost = data.get("resource_cost", {})
+                cstr = (
+                    f"⏱ {cost.get('time', 0):.1f}h &nbsp;·&nbsp;"
+                    f"💵 ${cost.get('money', 0):.0f} &nbsp;·&nbsp;"
+                    f"⚡ {cost.get('energy', 0):.0f}"
+                )
+                raw_escaped = json.dumps(data, indent=2).replace("<", "&lt;").replace(">", "&gt;")
+                # Detect if the model stopped cleanly after JSON
+                trailing = len(raw) - (m.start() + len(m.group()))
+                eos_tag = (
+                    "<span style='background:#14532d;color:#4ade80;padding:2px 6px;"
+                    "border-radius:4px;font-size:10px;margin-left:6px'>✅ Clean EOS</span>"
+                    if trailing <= 15 else
+                    "<span style='background:#450a0a;color:#f87171;padding:2px 6px;"
+                    "border-radius:4px;font-size:10px;margin-left:6px'>"
+                    f"⚠ +{trailing} trailing chars</span>"
+                )
+                return (
+                    f"<div style='background:#12122a;border:1px solid #333;"
+                    f"border-radius:8px;padding:16px;font-family:sans-serif'>"
+                    f"<div style='font-size:17px;font-weight:900;color:#eee;margin-bottom:6px'>"
+                    f"{action} → {domain}{eos_tag}</div>"
+                    f"<div style='font-size:12px;color:#aaa;margin-bottom:8px'>{reasoning}</div>"
+                    f"<div style='font-size:11px;color:#666;margin-bottom:10px'>{cstr}</div>"
+                    f"<details style='margin-top:4px'>"
+                    f"<summary style='color:#555;font-size:11px;cursor:pointer'>Raw JSON</summary>"
+                    f"<pre style='font-size:10px;color:#888;overflow:auto;max-height:180px;"
+                    f"background:#0d0d1a;padding:8px;border-radius:4px'>{raw_escaped}</pre>"
+                    f"</details></div>"
+                )
+            except json.JSONDecodeError:
+                pass
+        raw_escaped = raw[:600].replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            f"<div style='background:#12122a;border:1px solid #f87171;border-radius:8px;"
+            f"padding:16px;font-family:monospace;font-size:11px;color:#f87171'>"
+            f"<b>JSON parse failed</b><br>"
+            f"<pre style='color:#ccc;overflow:auto;max-height:200px'>{raw_escaped}</pre></div>"
+        )
+    except Exception as e:
+        err = str(e)[:300].replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            f"<div style='background:#12122a;border:2px solid #f87171;border-radius:8px;"
+            f"padding:16px;font-size:12px;color:#f87171;font-family:sans-serif'>"
+            f"❌ {err}<br>"
+            f"<span style='font-size:10px;color:#666;margin-top:6px;display:block'>"
+            f"Check that {MODEL_REGISTRY.get(version, '?')} is pushed to HF Hub.</span></div>"
+        )
+
+
+def compare_grpo_versions(scenario: str):
+    """Return HTML cards for v1, v2, v3 responses to the given scenario."""
+    return (
+        _grpo_infer_html(scenario, "v1"),
+        _grpo_infer_html(scenario, "v2"),
+        _grpo_infer_html(scenario, "v3"),
+    )
+
+
+_TRAINING_STORY_HTML = f"""
+<div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;
+            padding:20px;font-family:sans-serif;margin-bottom:16px'>
+  <div style='font-size:20px;font-weight:900;color:#a78bfa;margin-bottom:4px'>
+    🚀 Training Journey: v1 → v2 → v3
+  </div>
+  <div style='font-size:13px;color:#888;margin-bottom:16px'>
+    All models: Qwen2.5-1.5B-Instruct · Unsloth 4-bit LoRA r=16 · GRPO (TRL 1.2) · A100 80GB
+  </div>
+  <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px'>
+
+    <div style='background:#0d1117;border:1px solid #60a5fa;border-radius:8px;padding:14px'>
+      <div style='font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:4px'>
+        v1 — Single-step Curriculum
+      </div>
+      <div style='font-size:11px;color:#888;margin-bottom:10px'>
+        5 curriculum stages · format + route-target rewards
+      </div>
+      <div style='display:flex;flex-direction:column;gap:5px;font-size:12px'>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Avg reward</span>
+          <span style='color:#4ade80;font-weight:700'>0.734</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Reward std</span>
+          <span style='color:#fbbf24'>0.396</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Clipped ratio</span>
+          <span style='color:#f87171'>1.0 (all hit cap)</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>EOS terminations</span>
+          <span style='color:#f87171'>0 / step</span>
+        </div>
+      </div>
+      <div style='margin-top:10px;font-size:10px'>
+        <a href='https://huggingface.co/{MODEL_REGISTRY["v1"]}'
+           target='_blank' style='color:#60a5fa'>
+          🤗 {MODEL_REGISTRY["v1"]}
+        </a>
+      </div>
+    </div>
+
+    <div style='background:#0d1117;border:1px solid #4ade80;border-radius:8px;padding:14px'>
+      <div style='font-size:13px;font-weight:700;color:#4ade80;margin-bottom:4px'>
+        v2 — Episodic GRPO
+      </div>
+      <div style='font-size:11px;color:#888;margin-bottom:10px'>
+        Multi-step episodes · trajectory-level return reward
+      </div>
+      <div style='display:flex;flex-direction:column;gap:5px;font-size:12px'>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Avg reward</span>
+          <span style='color:#4ade80;font-weight:700'>0.775</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Reward std</span>
+          <span style='color:#fbbf24'>0.498</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Clipped ratio</span>
+          <span style='color:#f87171'>1.0 (still filling cap)</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Episode return</span>
+          <span style='color:#4ade80'>0.207</span>
+        </div>
+      </div>
+      <div style='margin-top:10px;font-size:10px'>
+        <a href='https://huggingface.co/{MODEL_REGISTRY["v2"]}'
+           target='_blank' style='color:#4ade80'>
+          🤗 {MODEL_REGISTRY["v2"]}
+        </a>
+      </div>
+    </div>
+
+    <div style='background:#0d1117;border:1px solid #a78bfa;border-radius:8px;padding:14px'>
+      <div style='font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:4px'>
+        v3 — EOS-Aware GRPO
+        <span style='background:#3b1d8a;border-radius:4px;padding:2px 6px;
+                     font-size:10px;margin-left:4px;color:#c4b5fd'>New</span>
+      </div>
+      <div style='font-size:11px;color:#888;margin-bottom:10px'>
+        Gradient masking at JSON boundary · compact reward · temp 0.9
+      </div>
+      <div style='display:flex;flex-direction:column;gap:5px;font-size:12px'>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Clipped ratio</span>
+          <span style='color:#a78bfa'>↓ target &lt;0.5</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>EOS terminations</span>
+          <span style='color:#a78bfa'>↑ target &gt;0</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Compact reward</span>
+          <span style='color:#a78bfa'>✅ Added</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Gradient focus</span>
+          <span style='color:#a78bfa'>JSON-only (masked)</span>
+        </div>
+      </div>
+      <div style='margin-top:10px;font-size:10px'>
+        <a href='https://huggingface.co/{MODEL_REGISTRY["v3"]}'
+           target='_blank' style='color:#a78bfa'>
+          🤗 {MODEL_REGISTRY["v3"]}
+        </a>
+      </div>
+    </div>
+
+  </div>
+</div>
+"""
+
 # ─── Pre-load at startup ──────────────────────────────────────────────────────
 print("🚀 LifeStack booting…")
 
@@ -1248,6 +1513,67 @@ with gr.Blocks(
                 )
             
             load_task_btn.click(fn=load_demo_task, outputs=[task_out, route_out, event_out])
+
+        # ── Tab 7: Model Evolution ────────────────────────────────────────────
+        with gr.Tab("🤖 Model Evolution"):
+            gr.HTML(_TRAINING_STORY_HTML)
+
+            gr.Markdown(
+                "### 🔬 Live Inference Comparison\n"
+                "Enter a real-life scenario and compare how each trained model version responds.\n"
+                "Models are loaded from HuggingFace Hub on first use — first call takes ~20s, "
+                "subsequent calls are instant."
+            )
+
+            evo_scenario = gr.Textbox(
+                label="Life Scenario",
+                placeholder=(
+                    "e.g. My boss just assigned a critical project due Monday, "
+                    "I haven't slept in two days, and I'm $500 short on rent."
+                ),
+                value=(
+                    "My boss just added a critical deadline for Monday, "
+                    "I haven't slept properly in two days, and my partner wants "
+                    "to have an important conversation tonight."
+                ),
+                lines=2,
+            )
+            evo_btn = gr.Button(
+                "🔬 Compare v1 vs v2 vs v3", variant="primary", size="lg"
+            )
+
+            with gr.Row():
+                with gr.Column():
+                    gr.HTML(
+                        "<div style='font-size:13px;font-weight:700;color:#60a5fa;"
+                        "padding:8px 0 4px'>v1 — Single-step Curriculum</div>"
+                    )
+                    v1_out = gr.HTML()
+                with gr.Column():
+                    gr.HTML(
+                        "<div style='font-size:13px;font-weight:700;color:#4ade80;"
+                        "padding:8px 0 4px'>v2 — Episodic GRPO</div>"
+                    )
+                    v2_out = gr.HTML()
+                with gr.Column():
+                    gr.HTML(
+                        "<div style='font-size:13px;font-weight:700;color:#a78bfa;"
+                        "padding:8px 0 4px'>v3 — EOS-Aware GRPO</div>"
+                    )
+                    v3_out = gr.HTML()
+
+            gr.HTML(
+                "<div style='font-size:11px;color:#555;padding:8px;text-align:center'>"
+                "✅ Clean EOS = model stopped immediately after JSON (good). "
+                "⚠ trailing chars = model kept generating beyond JSON (v1/v2 issue being fixed in v3)."
+                "</div>"
+            )
+
+            evo_btn.click(
+                fn=compare_grpo_versions,
+                inputs=[evo_scenario],
+                outputs=[v1_out, v2_out, v3_out],
+            )
 
         # ── Tab 6: Follow-up ─────────────────────────────────────────────────
         with gr.Tab("📬 Follow-up"):
