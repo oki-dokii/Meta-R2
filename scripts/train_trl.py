@@ -119,8 +119,24 @@ def _install_trl_optional_dependency_shims() -> None:
 
         return _decorator
 
+    class EvaluationLogger:  # noqa: D401
+        """Compatibility placeholder for TRL's optional weave EvaluationLogger."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def log_prediction(self, *args, **kwargs):
+            return None
+
+        def log_summary(self, *args, **kwargs):
+            return None
+
+        def finish(self, *args, **kwargs):
+            return None
+
     weave_mod.init = _weave_init
     weave_mod.op = _weave_op
+    weave_mod.EvaluationLogger = EvaluationLogger
     weave_mod.__spec__ = importlib.machinery.ModuleSpec("weave", loader=None)
     sys.modules["weave"] = weave_mod
 
