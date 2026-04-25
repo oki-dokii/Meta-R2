@@ -150,16 +150,19 @@ def _install_trl_optional_dependency_shims() -> None:
     sys.modules["vllm.transformers_utils.tokenizer"] = vllm_tok_mod
 
     # Some HF Spaces images include a partial vLLM install whose package
-    # metadata reports version "N/A". TRL checks this before importing GRPO and
-    # `packaging.Version("N/A")` crashes. Force a valid version for the shim.
+    # metadata reports version "N/A" which crashes `packaging.Version("N/A")`.
+    # Raise PackageNotFoundError instead — TRL catches that and treats vLLM
+    # as absent, so is_vllm_available() returns False and VLLMGeneration is
+    # never imported regardless of how many vLLM submodules TRL would need.
     try:
         import importlib.metadata as _importlib_metadata
+        from importlib.metadata import PackageNotFoundError as _PkgNF
 
         _original_version = _importlib_metadata.version
 
         def _patched_version(package_name):
             if str(package_name).lower() == "vllm":
-                return vllm_mod.__version__
+                raise _PkgNF("vllm")
             return _original_version(package_name)
 
         _importlib_metadata.version = _patched_version
@@ -169,6 +172,18 @@ def _install_trl_optional_dependency_shims() -> None:
 
 
 _install_trl_optional_dependency_shims()
+
+# Belt-and-suspenders: some TRL builds cache is_vllm_available at module-load
+# time before our metadata patch takes effect. Force False directly.
+try:
+    import trl.import_utils as _trl_iu
+    _trl_iu.is_vllm_available = lambda: False
+    for _attr in ("_vllm_version",):
+        if hasattr(_trl_iu, _attr):
+            setattr(_trl_iu, _attr, None)
+    del _trl_iu, _attr
+except Exception:
+    pass
 
 import torch
 from datasets import Dataset
