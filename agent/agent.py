@@ -8,6 +8,8 @@ from agent.conflict_generator import ConflictEvent, generate_conflict
 from core.action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
 from intake.simperson import SimPerson
 
+DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo"
+
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
@@ -21,7 +23,7 @@ class LifeStackAgent:
 
         # 2. Fall back to HuggingFace Hub
         if not self.api_only and not self.local_model_path:
-            self.local_model_path = "jdsb06/lifestack-agent"
+            self.local_model_path = DEFAULT_HF_MODEL_REPO
 
         # Wire up HF Inference API (Premium Priority - Direct Protocol)
         from huggingface_hub import InferenceClient
@@ -29,7 +31,7 @@ class LifeStackAgent:
         if self.hf_token:
             print("🚀 HF_TOKEN found. Prioritizing Direct Hugging Face Inference.")
             self.hf_client = InferenceClient(token=self.hf_token)
-        self.hf_model = "google/gemma-1.1-2b-it"
+        self.hf_model = os.getenv("LIFESTACK_HF_MODEL", DEFAULT_HF_MODEL_REPO)
 
         # Wire up Groq as a fallback
         if self.api_key:
@@ -52,13 +54,23 @@ class LifeStackAgent:
             print(f"📦 Loading GRPO model from {self.local_model_path}...")
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
+            from peft import PeftConfig, PeftModel
+
+            device_map = "auto" if torch.cuda.is_available() else None
+            dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+            peft_config = PeftConfig.from_pretrained(self.local_model_path)
+            base_model_name = peft_config.base_model_name_or_path
+
             self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
-            self.local_model = AutoModelForCausalLM.from_pretrained(
-                self.local_model_path,
-                torch_dtype=torch.float32,
-                device_map=None
+            base_model = AutoModelForCausalLM.from_pretrained(
+                base_model_name,
+                torch_dtype=dtype,
+                device_map=device_map,
             )
-            print("✅ GRPO model loaded (CPU mode).")
+            self.local_model = PeftModel.from_pretrained(base_model, self.local_model_path)
+            self.local_model.eval()
+            device_label = "GPU" if torch.cuda.is_available() else "CPU"
+            print(f"✅ GRPO adapter loaded on {device_label}.")
         except Exception as e:
             print(f"⚠️ Failed to load local model: {e}. Falling back to APIs.")
             self.local_model_path = None

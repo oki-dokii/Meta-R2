@@ -34,7 +34,7 @@ app = Flask(__name__)
 app.secret_key = "lifestack_secret_key_2026"
 
 # ─── Global Instances ───
-AGENT  = LifeStackAgent(api_only=not bool(os.getenv('LIFESTACK_MODEL_PATH')))
+AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
 INTAKE = LifeIntake()
 USER_HEALTH_OVERRIDES: dict = {}          # persisted health/calendar metric deltas
