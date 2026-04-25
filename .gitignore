@@ -25,3 +25,8 @@ data/*
 !data/before_after_comparison.json
 !data/demo_signals.json
 !data/holdout_tasks.json
+
+# Secrets
+credentials.json
+token.json
+*.pickle
