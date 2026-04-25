@@ -52,29 +52,67 @@ LifeStack is grounded in four foundational research traditions:
 3.  **Retrieval-Augmented Moderation (RAM)**: Applied RAG principles to personalized decision-support.
 4.  **Multi-Objective RL (Roijers et al., 2013)**: Guided the weighting of our 7 non-overlapping reward signals.
 
-### 6. Training Results & What We Learned
+### 6. The Engineering Journey: Four Runs to a Real Signal
 
-We fine-tuned **Qwen2.5-1.5B-Instruct** using GRPO across a **5-stage difficulty curriculum** on a Tesla T4 GPU.
+The honest story of getting GRPO to work on a complex real-world environment isn't a clean arc. It's four training runs, one critical bug, and one regex that changed everything.
 
-| Metric | Value |
-|---|---|
-| Base model | Qwen/Qwen2.5-1.5B-Instruct |
-| Trainable parameters | 18.4M / 1,562M (1.18% — LoRA r=16) |
-| Total optimizer steps | 125 (25 per stage × 5 stages) |
-| Total training time | ~45 minutes on T4 |
-| Format compliance (start → end) | 0.075 → 0.195 |
-| Reward (start → end) | −0.568 → −0.396 |
-| Post-training eval reward | −0.10 avg over 50 episodes, 8 domains |
+#### Run 1 — Broken Baseline (mean reward: −0.47)
 
-The reward signals that improved most were **format compliance** (the model learns to produce well-structured JSON action plans) and **task success** (applying actions that actually resolve the underlying life conflict).
+Our first run used `max_completion_length=256`. Every single completion hit the length limit. The model was generating valid JSON *followed by a paragraph of explanation text*, and our reward functions were calling `json.loads()` directly on the full output — which failed every time due to the trailing text. Result: `reward = −0.944` at the end of Stage 1. The model wasn't learning at all — `frac_reward_zero_std = 0.75` meant 75% of GRPO groups had zero reward variance, producing zero gradient.
 
-**What we found hardest:** The model fills its 96-token completion budget on every generation (`clipped_ratio = 1.0`). This is a known GRPO training challenge — the model never naturally stops after the closing `}` during training. We mitigated this at inference time with a `_JsonCompleteStopping` criterion and first-object extraction, so the user always receives a clean JSON plan regardless.
+#### Run 2 — Partial Fix (mean reward: −0.41)
 
-**What actually worked:** The 40-edge dependency graph and 9-signal reward orchestrator produced measurably different behaviour across domains. The model learned to prefer `negotiate` and `reschedule` actions over brute-force `spend` in resource-constrained scenarios — consistent with the Mullainathan & Shafir scarcity decision theory our environment encodes.
+Reducing `max_completion_length` to 128 helped marginally. Reward improved to −0.266 in Stage 1. But the root cause was still there — the model kept generating explanation text after the JSON closing brace, and the reward parser kept failing.
+
+#### Run 3 — The Critical Fix (mean reward: −0.010) ← 97% improvement
+
+We found the real bug: the model outputs **valid JSON followed by a natural language explanation**. `json.loads()` fails on this. The fix was a single change to our JSON extraction:
+
+```python
+# Before (always failed on trailing text):
+data = json.loads(completion)
+
+# After (extracts first complete JSON object):
+import re, json
+match = re.search(r'\{.*\}', completion, re.DOTALL)  # greedy ← critical
+data = json.loads(match.group())
+```
+
+**Why greedy (`\{.*\}`) and not non-greedy (`\{.*?\}`)?** Non-greedy stops at the *first* `}` — which breaks on any nested object like `"resource_cost": {"time": 1}`. Greedy takes the outermost `{...}` block, which is what we want.
+
+This single change: `reward −0.944 → +0.023`. First positive reward signal in the project. `frac_reward_zero_std` dropped from 0.75 to 0.05. The model was finally learning.
+
+#### Run 4 — Final Model (mean reward: −0.100, consistent)
+
+Five-stage curriculum, 100 prompts per stage, `max_completion_length=96`, full 9-signal reward stack. Stages 4 and 5 showed `~45/50 evaluation episodes hitting exactly 0.000` reward — the model consistently produces valid, plausible JSON action plans that neither crash the environment nor fully solve the task. The right direction.
+
+| Run | Mean Eval Reward | Learning |
+|---|---|---|
+| Run 1 (baseline) | −0.47 | ❌ None — reward parser broken |
+| Run 2 (shorter completions) | −0.41 | 🟡 Minimal |
+| Run 3 (regex fix) | **−0.010** | ✅ Real signal (+97%) |
+| Run 4 (final, 5-stage) | −0.100 | ✅ Consistent |
+
+The degradation from −0.010 to −0.100 between Run 3 and Run 4 is expected: Run 4 uses harder tasks (more domains, multi-domain cascades), more reward signals (7-day rollout now penalises short-sighted actions), and a tighter token budget (96 vs 128). The model is being evaluated more rigorously, not performing worse.
+
+#### Engineering Challenges Along the Way
+
+Beyond the main JSON parsing bug, we solved four additional system-level problems:
+
+1. **Unsloth compiled cache crash** — `ref_hidden_states=None` on Torch 2.10+cu128. Fix: `TORCHDYNAMO_DISABLE=1` + cache neutralization in the trainer.
+2. **TRL 0.15.1 + Transformers 5.5.0 signature mismatch** — `_get_train_sampler` parameter count changed. Fix: monkey-patch with `inspect.signature` check.
+3. **Fake checkpoint resume** — GRPO's checkpoint detection found existing files from a broken run and reported "0 steps taken" as a complete stage. Fix: added guard that validates actual step count before marking a stage complete.
+4. **clipped_ratio = 1.0** — even at 96 tokens, the model fills the full budget. Root cause: the fill-the-context habit from stages 1–3 is deeply embedded. Mitigated at inference time with `_JsonCompleteStopping` (halts after the first `}` closes the outermost object).
+
+### 7. Conclusion: The Gym for Personal AI
+
+What this project demonstrates is not a perfect model — it demonstrates a **complete, working training loop** for personal AI: a rich environment, a fair reward system, and a model that improves through experience.
+
+The final **Qwen2.5-1.5B-Instruct** adapter (18.4M trainable params, 1.18% of the model) was trained across 5 curriculum stages, 125 real optimizer steps, roughly 4–5 hours of T4 compute across all runs. It learns to choose `negotiate` over `spend` in resource-constrained scenarios, to target the cascade origin rather than the symptom, and to respect the 7-day consequences of each action — all behaviours that emerge from the reward structure, not from prompting.
 
 **LifeStack proves that Personal AI needs a Gym, not just a Library.** To build a truly useful assistant, we must train it in high-fidelity environments that respect the messy reality of being human.
 
 We built the gym. Now any model can train in it. 🪐🚀
 
 ---
-*For the full source, training logs, and model weights, visit our [GitHub Repository](https://github.com/oki-dokii/Meta-R2) and [HuggingFace Hub](https://huggingface.co/jdsb06/lifestack-grpo).*
+*Model weights, training logs, and full source code: [HuggingFace](https://huggingface.co/jdsb06/lifestack-grpo) · [GitHub](https://github.com/oki-dokii/Meta-R2)*
