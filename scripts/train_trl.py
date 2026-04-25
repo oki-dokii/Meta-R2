@@ -322,14 +322,28 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
             actions_taken=1
         )
         obs = env.step(action)
+
+        # 7-day discounted rollout — real long-term signal, not decoration.
+        # Runs BEFORE random.seed() so the null steps share the same eval_seed,
+        # keeping the trajectory deterministic for the same (completion, prompt).
+        rollout_data = env.rollout(n_steps=7, gamma=0.9)
         random.seed()  # restore global RNG — eval_seed must not bleed into trainer
+
+        # Inject longterm component into the breakdown so reward_longterm_fn
+        # can extract it without a second env construction.
+        breakdown = obs.metadata.get("breakdown", {})
+        components = breakdown.get("components", {})
+        components["longterm"] = rollout_data["discounted_reward"]
+        breakdown["components"] = components
 
         result = {
             "reward": float(obs.reward),
-            "breakdown": obs.metadata.get("breakdown", {}),
+            "breakdown": breakdown,
             "action": action,
             "obs_metrics": dict(obs.metrics),
-            "initial_metrics": initial_metrics
+            "initial_metrics": initial_metrics,
+            "longterm_reward": rollout_data["discounted_reward"],
+            "trajectory": rollout_data["trajectory"],
         }
 
         # 4. Global Logging
@@ -343,15 +357,15 @@ def get_lifestack_evaluation(completion: str, prompt: str) -> dict:
                 "completion": completion,
                 "action": data,
                 "reward": result["reward"],
+                "longterm_reward": result["longterm_reward"],
                 "breakdown": result["breakdown"],
-                "components": result["breakdown"].get("components", {})
+                "components": components,
             }
             with open(SAMPLE_LOG_PATH, "a") as f:
                 f.write(json.dumps(log_entry) + "\n")
-            components = result["breakdown"].get("components", {})
             if components:
                 comp_str = " | ".join(f"{k}={v:.3f}" for k, v in components.items())
-                print(f"[step {_GLOBAL_REWARD_CALL_COUNT}] reward={result['reward']:.3f} | {comp_str}")
+                print(f"[step {_GLOBAL_REWARD_CALL_COUNT}] r0={result['reward']:.3f} | r_lt={result['longterm_reward']:.3f} | {comp_str}")
 
         return result
         
@@ -486,6 +500,23 @@ def reward_replan_fn(completions, prompts, **kwargs) -> list[float]:
         eval_data = get_lifestack_evaluation(c, p)
         rewards.append(eval_data.get("breakdown", {}).get("components", {}).get("replan", 0.0))
     return rewards
+
+def reward_longterm_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
+    """
+    7-day γ=0.9 discounted rollout reward.
+
+    After the model's action is applied, the env runs 7 null/rest steps to
+    model "what happens to your life if nothing extraordinary occurs after
+    this decision."  The discounted sum is the training signal.
+
+    This is the only reward function whose gradient explicitly penalises
+    actions that look good on day 0 but trigger a cascade collapse by day 4.
+    It is NOT a decoration — the rollout runs inside the real LifeStack env.
+    """
+    return [
+        get_lifestack_evaluation(c, p).get("longterm_reward", 0.0)
+        for c, p in zip(completions, prompts)
+    ]
 
 # ──────────────────────────────────────────────
 # 4. CHECKPOINT HELPERS
@@ -622,6 +653,7 @@ def train_curriculum(
                 reward_replan_fn,
                 reward_reasoning_fn,
                 reward_human_feedback_fn,
+                reward_longterm_fn,   # 7-day discounted rollout — real long-term signal
             ],
         )
 

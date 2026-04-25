@@ -225,6 +225,50 @@ def perform_action():
         
     return jsonify(result)
 
+# ─── 7-Day Trajectory ───
+@app.route('/api/simulation/trajectory', methods=['POST'])
+def get_trajectory():
+    """
+    Run the agent action then perform a 7-step rollout.
+    Returns per-day metric snapshots for the forecast panel.
+    """
+    data = request.json
+    conflict_label = data.get('conflict')
+    person_label   = data.get('person')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+    person   = PERSONS.get(person_label, PERSONS["Alex (Executive) — driven, high-stress"])
+
+    env = LifeStackEnv()
+    env.reset(conflict=conflict.primary_disruption, budget=conflict.resource_budget)
+
+    before_metrics = copy.deepcopy(env.state.current_metrics)
+    before_budget  = copy.deepcopy(env.state.budget)
+
+    action = AGENT.get_action(before_metrics, before_budget, conflict, person)
+    _normalize_action_metric_changes(action)
+    uptake = person.respond_to_action(
+        action.primary.action_type, action.primary.resource_cost,
+        before_metrics.mental_wellbeing.stress_level,
+    )
+    env_action = LifeStackAction.from_agent_action(action)
+    env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+
+    obs = env.step(env_action)
+    rollout = env.rollout(n_steps=7, gamma=0.9)
+
+    return jsonify({
+        "action": {
+            "type": action.primary.action_type,
+            "target": action.primary.target_domain,
+            "reasoning": action.reasoning,
+            "reward": obs.reward,
+        },
+        "day0_metrics": dict(obs.metrics),
+        "discounted_reward": rollout["discounted_reward"],
+        "trajectory": rollout["trajectory"],
+    })
+
+
 # ─── Custom Situation Entry ───
 @app.route('/api/custom/run', methods=['POST'])
 def run_custom():

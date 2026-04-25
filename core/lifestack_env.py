@@ -560,6 +560,68 @@ class LifeStackEnv(_EnvBase):
         observation.metadata["info"] = info_msgs
         return observation
 
+    def rollout(self, n_steps: int = 7, gamma: float = 0.9) -> dict:
+        """
+        Simulate n_steps null/rest actions starting from the current env state.
+
+        Intended to be called immediately AFTER env.step(model_action) so it
+        models "what happens to your life over the next N days if nothing
+        extraordinary occurs."
+
+        The env state is fully restored after the rollout — calling this is
+        side-effect-free from the caller's perspective.
+
+        Returns:
+            {
+              "discounted_reward": float,          # γ-discounted cumulative
+              "immediate_r0": float,               # reward from the action (caller supplies)
+              "trajectory": [                      # one entry per simulated day
+                  {
+                      "step": int,                 # 1-indexed future day
+                      "reward": float,
+                      "metrics": Dict[str, float], # flattened snapshot
+                      "discounted_contribution": float,
+                  },
+                  ...
+              ],
+              "n_steps_completed": int,
+            }
+        """
+        saved_state = copy.deepcopy(self._internal_state)
+
+        null_action = LifeStackAction(
+            action_type="rest",
+            target="time",
+            metric_changes={},
+            resource_cost={},
+            actions_taken=0,
+        )
+
+        trajectory = []
+        cumulative = 0.0
+
+        for t in range(n_steps):
+            obs = self.step(null_action)
+            disc = (gamma ** (t + 1)) * float(obs.reward)
+            cumulative += disc
+            trajectory.append({
+                "step": t + 1,
+                "reward": float(obs.reward),
+                "metrics": dict(obs.metrics),
+                "discounted_contribution": round(disc, 5),
+            })
+            if obs.done:
+                break
+
+        # Restore — rollout must not mutate the env visible to the caller
+        self._internal_state = saved_state
+
+        return {
+            "discounted_reward": round(cumulative, 5),
+            "trajectory": trajectory,
+            "n_steps_completed": len(trajectory),
+        }
+
     def render(self):
         """Vibrant status report of the current state and task progress."""
         task = self._internal_state.current_task

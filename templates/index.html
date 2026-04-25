@@ -148,6 +148,25 @@
             </div>
         </div>
 
+        <!-- ── 7-DAY FORECAST (spans full width below the portal) ── -->
+        <div id="forecast-panel" class="hidden glass p-6 rounded-2xl mt-6 border-t-2 border-cyan-500/30">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 class="text-base font-black tracking-tighter text-cyan-400">7-DAY LIFE TRAJECTORY</h3>
+                    <p class="text-[10px] text-slate-500 mt-0.5">What happens to your six domains over the next week if nothing extraordinary occurs — computed from the real LifeStack env rollout, not estimated.</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-[9px] font-black text-slate-600 uppercase tracking-widest">Discounted Reward (γ=0.9)</div>
+                    <div id="forecast-total-reward" class="text-xl font-black text-cyan-400">--</div>
+                </div>
+            </div>
+            <div class="relative h-52">
+                <canvas id="trajectoryChart"></canvas>
+            </div>
+            <!-- Per-day step summary -->
+            <div id="forecast-steps" class="grid grid-cols-7 gap-2 mt-4 text-[9px]"></div>
+        </div>
+
         <!-- ── TAB 2: TRY YOUR CASE ── -->
         <div id="content-custom" class="hidden space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -796,7 +815,97 @@
 
             document.getElementById('counterfactual-card').classList.remove('hidden');
             document.getElementById('cf-container').innerHTML = finalData.counterfactuals.map(cf => `<div class="p-2.5 bg-slate-900 border-l rounded-r-lg border-slate-700 leading-tight space-y-1"><div class="flex justify-between font-black"><span class="text-slate-500 uppercase">vs ${cf.action_type}</span><span class="text-indigo-400 font-bold">${cf.reward.toFixed(2)}</span></div><p class="text-slate-400 italic">"${cf.description}"</p><div class="text-[9px] text-slate-600"><b>IMPACT:</b> ${cf.trade_off}</div></div>`).join('');
+
+            // ── 7-Day Forecast (async — doesn't block the above) ──
+            fetchAndRenderTrajectory(person, conflict);
+
             btn.disabled = false; btn.innerText = "▶ Start Simulation";
+        }
+
+        async function fetchAndRenderTrajectory(person, conflict) {
+            try {
+                const res = await fetch('/api/simulation/trajectory', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ person, conflict })
+                });
+                const data = await res.json();
+                renderTrajectory(data);
+            } catch (e) {
+                console.error('Trajectory fetch failed:', e);
+            }
+        }
+
+        function renderTrajectory(data) {
+            const panel = document.getElementById('forecast-panel');
+            panel.classList.remove('hidden');
+
+            document.getElementById('forecast-total-reward').innerText = data.discounted_reward.toFixed(4);
+
+            const traj = data.trajectory;
+            const domains = ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"];
+            const domainColors = {
+                career: '#818cf8', finances: '#fbbf24', relationships: '#f87171',
+                physical_health: '#4ade80', mental_wellbeing: '#22d3ee', time: '#a78bfa'
+            };
+            const labels = ['Day 0', ...traj.map((_, i) => `Day ${i + 1}`)];
+
+            // Build per-domain avg series
+            const day0 = data.day0_metrics;
+            const domainAvg = (metrics, dom) => {
+                const vals = Object.entries(metrics).filter(([k]) => k.startsWith(dom + '.')).map(([, v]) => v);
+                return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 50;
+            };
+
+            const datasets = domains.map(dom => ({
+                label: dom.replace('_', ' '),
+                data: [domainAvg(day0, dom), ...traj.map(t => domainAvg(t.metrics, dom))],
+                borderColor: domainColors[dom],
+                backgroundColor: domainColors[dom] + '18',
+                tension: 0.4,
+                fill: false,
+                pointRadius: 3,
+                borderWidth: 2,
+            }));
+
+            const ctx = document.getElementById('trajectoryChart').getContext('2d');
+            if (window.trajectoryChart) window.trajectoryChart.destroy();
+            window.trajectoryChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    maintainAspectRatio: false,
+                    animation: { duration: 800, easing: 'easeInOutQuart' },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { color: '#94a3b8', font: { size: 9 }, boxWidth: 10, padding: 8 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                        y: { min: 0, max: 100, ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                    }
+                }
+            });
+
+            // Per-day step badges
+            document.getElementById('forecast-steps').innerHTML = traj.map((t, i) => {
+                const r = t.reward;
+                const col = r > 0.05 ? 'text-green-400 border-green-500/20 bg-green-500/5'
+                           : r < -0.05 ? 'text-red-400 border-red-500/20 bg-red-500/5'
+                           : 'text-slate-500 border-slate-700 bg-slate-800/30';
+                return `<div class="text-center p-2 rounded-lg border ${col}">
+                    <div class="font-black">Day ${t.step}</div>
+                    <div class="text-[8px] mt-0.5">${r >= 0 ? '+' : ''}${r.toFixed(3)}</div>
+                    <div class="text-[7px] text-slate-600 mt-0.5">γ: ${t.discounted_contribution >= 0 ? '+' : ''}${t.discounted_contribution.toFixed(3)}</div>
+                </div>`;
+            }).join('');
         }
 
         async function runDigitalSync() {
