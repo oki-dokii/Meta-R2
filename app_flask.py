@@ -518,49 +518,63 @@ def run_custom():
                 cur = getattr(dom_obj, sub_name)
                 setattr(dom_obj, sub_name, max(0.0, min(100.0, cur + float(delta))))
 
-    conflict = INTAKE.extract_conflict(situation_input, m)
-    pers_dict = INTAKE.get_personality_from_description(situation_input)
-    person = SimPerson(
-        name=pers_dict.get("name", "Inferred Self"),
-        openness=pers_dict.get("openness", 0.5),
-        conscientiousness=pers_dict.get("conscientiousness", 0.5),
-        extraversion=pers_dict.get("extraversion", 0.5),
-        agreeableness=pers_dict.get("agreeableness", 0.5),
-        neuroticism=pers_dict.get("neuroticism", 0.5)
-    )
+    try:
+        conflict = INTAKE.extract_conflict(situation_input, m)
+        pers_dict = INTAKE.get_personality_from_description(situation_input)
+        person = SimPerson(
+            name=pers_dict.get("name", "Inferred Self"),
+            openness=pers_dict.get("openness", 0.5),
+            conscientiousness=pers_dict.get("conscientiousness", 0.5),
+            extraversion=pers_dict.get("extraversion", 0.5),
+            agreeableness=pers_dict.get("agreeableness", 0.5),
+            neuroticism=pers_dict.get("neuroticism", 0.5)
+        )
 
-    budget = ResourceBudget(time_hours=24.0, money_dollars=1000.0, energy_units=100.0)
+        budget = ResourceBudget(time_hours=24.0, money_dollars=1000.0, energy_units=100.0)
 
-    few_shot = MEMORY.build_few_shot_prompt(conflict.title, m.flatten())
+        # RAG Memory context (hardened with fallback)
+        few_shot = ""
+        if MEMORY:
+            try:
+                few_shot = MEMORY.build_few_shot_prompt(conflict.title, m.flatten())
+            except Exception as e:
+                print(f"⚠️ Memory retrieval failed: {e}")
 
-    action = AGENT.get_action(m, budget, conflict, person, few_shot_context=few_shot)
-    _normalize_action_metric_changes(action)
+        # AI Action Generation
+        if not AGENT:
+             return jsonify({"error": "Agent not initialized (check API keys)"}), 503
+             
+        action = AGENT.get_action(m, budget, conflict, person, few_shot_context=few_shot)
+        _normalize_action_metric_changes(action)
 
-    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
-                                      m.mental_wellbeing.stress_level)
+        uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                          m.mental_wellbeing.stress_level)
 
-    env = LifeStackEnv()
-    env.state.current_metrics = copy.deepcopy(m)
-    env.state.budget = copy.deepcopy(budget)
+        env = LifeStackEnv()
+        env.state.current_metrics = copy.deepcopy(m)
+        env.state.budget = copy.deepcopy(budget)
 
-    env_action = LifeStackAction.from_agent_action(action)
-    env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
-    obs = env.step(env_action)
+        env_action = LifeStackAction.from_agent_action(action)
+        env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
+        obs = env.step(env_action)
 
-    return jsonify({
-        "before_metrics": m.flatten(),
-        "after_metrics": obs.metrics,
-        "domain_health": compute_domain_health(obs.metrics),
-        "action": {
-            "type": action.primary.action_type,
-            "target": action.primary.target_domain,
-            "description": action.primary.description,
-            "reasoning": action.reasoning,
-            "id": "".join(str(uuid.uuid4()).split("-")[:2]).upper()
-        },
-        "person": {"name": person.name or "Inferred Self"},
-        "conflict_inferred": conflict.title,
-    })
+        return jsonify({
+            "before_metrics": m.flatten(),
+            "after_metrics": obs.metrics,
+            "domain_health": compute_domain_health(obs.metrics),
+            "action": {
+                "type": action.primary.action_type,
+                "target": action.primary.target_domain,
+                "description": action.primary.description,
+                "reasoning": action.reasoning,
+                "id": "".join(str(uuid.uuid4()).split("-")[:2]).upper()
+            },
+            "person": {"name": person.name or "Inferred Self"},
+            "conflict_inferred": conflict.title,
+        })
+    except Exception as e:
+        print(f"❌ Custom run failure: {e}")
+        return jsonify({"error": str(e), "details": "Check server logs for traceback"}), 500
 
 @app.route('/api/gmail/sync', methods=['POST'])
 def sync_gmail():
