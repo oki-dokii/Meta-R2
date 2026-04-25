@@ -1,6 +1,20 @@
 import pytest
 from core.task import TaskGenerator
 
+def test_task_solvability():
+    """Verify that the task goal is achievable through the provided routes."""
+    gen = TaskGenerator()
+    task = gen.get_random_task()
+    
+    # Check that at least one success condition key appears in some route consequence
+    success_keys = [cond["key"] for cond in task.success_conditions]
+    consequence_keys = []
+    for route in task.viable_routes:
+        consequence_keys.extend(route.consequences.keys())
+        
+    reachable = any(sk in consequence_keys for sk in success_keys)
+    assert reachable, f"Task {task.id} success conditions {success_keys} are not reachable by any route consequences"
+
 def test_task_generation_validity():
     """Verify that the TaskGenerator produces tasks with valid structures (routes, milestones)."""
     gen = TaskGenerator()
