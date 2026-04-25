@@ -23,9 +23,6 @@ from core.reward import compute_reward
 from intake.intake import LifeIntake
 from agent.conflict_predictor import ConflictPredictor
 from agent.counterfactuals import generate_counterfactuals
-from scripts.longitudinal_demo import LongitudinalDemo
-from intake.gmail_intake import GmailIntake
-from intake.calendar_intake import CalendarIntake
 from core.task import Task, ExoEvent, Route, Milestone
 from core.feedback import OutcomeFeedback, compute_human_feedback_reward
 from core.cascade_utils import animate_cascade
@@ -34,8 +31,18 @@ app = Flask(__name__)
 app.secret_key = "lifestack_secret_key_2026"
 
 # ─── Global Instances ───
-AGENT  = LifeStackAgent()
-MEMORY = LifeStackMemory(silent=True)
+try:
+    AGENT  = LifeStackAgent()
+except Exception as e:
+    print(f"⚠️ Agent init failed: {e}")
+    AGENT = None
+
+try:
+    MEMORY = LifeStackMemory(silent=True)
+except Exception as e:
+    print(f"⚠️ Memory init failed: {e}")
+    MEMORY = None
+
 INTAKE = LifeIntake()
 USER_STATE_OVERRIDES: dict = {}           # persisted health/calendar metric deltas
 EPISODE_HISTORY: deque = deque(maxlen=5)  # ring buffer, most recent first
@@ -62,10 +69,24 @@ def replay_episode(episode_id):
             return jsonify(ep)
     return jsonify({"error": "Episode not found"}), 404
 
-GMAIL    = GmailIntake()
-CALENDAR = CalendarIntake()
-LONG_DEMO = LongitudinalDemo()
-DEMO_PREDICTOR = ConflictPredictor()
+try:
+    from intake.gmail_intake import GmailIntake
+    from intake.calendar_intake import CalendarIntake
+    GMAIL    = GmailIntake()
+    CALENDAR = CalendarIntake()
+except Exception as e:
+    print(f"⚠️ Digital Intake init failed: {e}")
+    GMAIL = None
+    CALENDAR = None
+
+try:
+    from scripts.longitudinal_demo import LongitudinalDemo
+    LONG_DEMO = LongitudinalDemo()
+    DEMO_PREDICTOR = ConflictPredictor()
+except Exception as e:
+    print(f"⚠️ Demo/Predictor init failed: {e}")
+    LONG_DEMO = None
+    DEMO_PREDICTOR = None
 
 # Friday 6PM is always the default demo conflict
 DEMO_CONFLICT = next(t for t in TEMPLATES if t.id == "d5_friday")
