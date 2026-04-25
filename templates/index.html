@@ -1081,8 +1081,8 @@
             }));
 
             const ctx = document.getElementById('trajectoryChart').getContext('2d');
-            if (window.trajectoryChart) window.trajectoryChart.destroy();
-            window.trajectoryChart = new Chart(ctx, {
+            if (window.trajChart instanceof Chart) window.trajChart.destroy();
+            window.trajChart = new Chart(ctx, {
                 type: 'line',
                 data: { labels, datasets },
                 options: {
