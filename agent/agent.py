@@ -2,6 +2,7 @@ import os
 import json
 import copy
 from openai import OpenAI
+from huggingface_hub import InferenceClient
 from core.life_state import LifeMetrics, ResourceBudget
 from core.metric_schema import format_valid_metrics, normalize_metric_path, is_valid_metric_path
 from agent.conflict_generator import ConflictEvent, generate_conflict
@@ -11,36 +12,43 @@ from intake.simperson import SimPerson
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
-        self.api_only = api_only  # if True, always use Groq, never load local model
+        self.hf_token = os.getenv('HF_TOKEN')
+        self.api_only = api_only  # if True, always use APIs, never load local model
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
 
         # 1. Check for local folder (Kaggle / local dev)
         if not self.api_only and not self.local_model_path and os.path.exists("./lifestack_model"):
             self.local_model_path = "./lifestack_model"
 
-        # 2. Fall back to HuggingFace Hub — loaded lazily on first get_action call,
-        # so Flask startup is never blocked waiting on a 1.5B download.
+        # 2. Fall back to HuggingFace Hub (Local loading)
         if not self.api_only and not self.local_model_path:
             self.local_model_path = "jdsb06/lifestack-agent"
 
-        # Fallback to .env file if env var is missing
-        if not self.api_key and os.path.exists('.env'):
+        # Fallback to .env file if tokens are missing
+        if (not self.api_key or not self.hf_token) and os.path.exists('.env'):
             try:
                 with open('.env') as f:
                     for line in f:
-                        if line.startswith('GROQ_API_KEY='):
+                        if line.startswith('GROQ_API_KEY=') and not self.api_key:
                             self.api_key = line.split('=', 1)[1].strip()
-                            break
+                        if line.startswith('HF_TOKEN=') and not self.hf_token:
+                            self.hf_token = line.split('=', 1)[1].strip()
             except Exception:
                 pass
 
         self.client = None
+        self.hf_client = None
         self.tokenizer = None
         self.local_model = None
         self._model_load_attempted = False  # lazy-load flag
 
-        # Always wire up Groq as a fallback (used immediately when api_only=True,
-        # or as fallback if local model fails to load).
+        # Wire up HF Inference API (Premium Priority)
+        if self.hf_token:
+            print("🚀 HF_TOKEN found. Prioritizing Hugging Face Inference API.")
+            self.hf_client = InferenceClient(token=self.hf_token)
+        self.hf_model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+
+        # Wire up Groq as a fallback
         if self.api_key:
             self.client = OpenAI(
                 base_url='https://api.groq.com/openai/v1',
@@ -169,6 +177,30 @@ SCHEMA:
                         pad_token_id=self.tokenizer.pad_token_id
                     )
                 content = self.tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+            elif self.hf_client:
+                # Use Hugging Face Inference API (Priority API)
+                try:
+                    response = self.hf_client.text_generation(
+                        prompt,
+                        model=self.hf_model,
+                        max_new_tokens=350,
+                        temperature=0.3,
+                        stop_sequences=["}"], # Help keep it to JSON
+                    )
+                    content = response.strip()
+                    if not content.endswith("}"):
+                        content += "}"
+                except Exception as hf_err:
+                    print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
+                    if not self.client: raise hf_err
+                    # Fallback to Groq
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                        max_tokens=350
+                    )
+                    content = response.choices[0].message.content.strip()
             else:
                 # Use Groq API
                 for attempt in range(3):  # Up to 3 retries on rate limit
