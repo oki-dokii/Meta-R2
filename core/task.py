@@ -143,3 +143,11 @@ def CodeMergeCrisisTask() -> Task:
         difficulty=4,
         domain_metadata={}
     )
+
+class TaskGenerator:
+    def __init__(self):
+        self.tasks = [FlightCrisisTask, CodeMergeCrisisTask]
+        
+    def get_random_task(self) -> Task:
+        import random
+        return random.choice(self.tasks)()

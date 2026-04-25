@@ -1,0 +1,26 @@
+import pytest
+from core.task import TaskGenerator
+
+def test_task_generation_validity():
+    """Verify that the TaskGenerator produces tasks with valid structures (routes, milestones)."""
+    gen = TaskGenerator()
+    task = gen.get_random_task()
+    
+    assert task.goal is not None
+    assert len(task.viable_routes) > 0
+    assert len(task.milestones) > 0
+    
+    # Check that at least one route has valid action types
+    sample_route = task.viable_routes[0]
+    assert len(sample_route.required_action_types) > 0
+
+def test_task_diversity():
+    """Verify that multiple calls to get_random_task return different goals."""
+    gen = TaskGenerator()
+    ids = set()
+    for _ in range(5):
+        task = gen.get_random_task()
+        ids.add(task.id)
+    
+    # Usually we expect some diversity even in a small pool
+    assert len(ids) > 1, "TaskGenerator failed to produce diverse tasks"
