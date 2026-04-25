@@ -169,7 +169,7 @@ def load_model():
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name="unsloth/Qwen2.5-1.5B-Instruct",
             max_seq_length=1024,
-            dtype=None,  # auto-detect
+            dtype=torch.float16,  # T4-safe; avoid bf16/fp16 mismatch
             load_in_4bit=True,
         )
         model = FastLanguageModel.get_peft_model(
@@ -796,7 +796,10 @@ def train_curriculum(
             temperature=0.9,
             # TRL rule: num_generations must divide per_device_train_batch_size.
             num_generations=4,
-            bf16=torch.cuda.is_bf16_supported() if torch.cuda.is_available() else False,
+            # T4 (compute 7.5) reports bf16 supported via emulation but mismatches fp16 model
+            # → use bf16 only on Ampere+ (compute >= 8), otherwise fp16.
+            bf16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8),
+            fp16=(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8),
             # ── Checkpoint settings ──────────────────────────────────────
             save_strategy="steps",
             save_steps=25,
