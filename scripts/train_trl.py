@@ -227,10 +227,16 @@ def _dtype_flags(model=None) -> tuple[bool, bool]:
     """
     Return (bf16, fp16) for GRPOConfig based on the ACTUAL loaded model dtype.
 
-    Why this matters: Unsloth's patched trainer raises TypeError if
-    `bf16=True` but the model was loaded in float16 (or vice versa).
-    Reading the model's own dtype avoids any mismatch regardless of GPU.
-    Falls back to GPU-capability heuristic when no model is provided.
+    Why the float16 case returns (False, False):
+      - fp16=True  → Accelerate creates a GradScaler. GradScaler.unscale_() requires
+                     float32 gradients, but Unsloth's LoRA kernels produce float16
+                     gradients → "Attempting to unscale FP16 gradients" crash.
+      - bf16=True  → Unsloth's patched trainer raises TypeError when the model's
+                     compute dtype is float16 but bf16=True is requested.
+      - (False, False) → No AMP / no GradScaler. Model forward pass runs in float16
+                     (LoRA matrices are float16), gradients are float16, the small
+                     LR (≈3e-6) prevents overflow. Unsloth's smart gradient
+                     offloading still applies. Safe on all Ampere+ GPUs.
     """
     if model is not None:
         try:
@@ -238,7 +244,10 @@ def _dtype_flags(model=None) -> tuple[bool, bool]:
                 if p.dtype == torch.bfloat16:
                     return True, False
                 if p.dtype == torch.float16:
-                    return False, True
+                    # fp16=True  → GradScaler → "Attempting to unscale FP16 gradients"
+                    # bf16=True  → Unsloth TypeError (float16 model vs bf16 config)
+                    # (False, False) → no AMP; Unsloth handles precision internally
+                    return False, False
                 # 4-bit params have a quant_state; check their compute dtype
                 qs = getattr(p, "quant_state", None)
                 if qs is not None:
@@ -246,13 +255,14 @@ def _dtype_flags(model=None) -> tuple[bool, bool]:
                     if cdtype == torch.bfloat16:
                         return True, False
                     if cdtype == torch.float16:
-                        return False, True
+                        return False, False
                 break
         except Exception:
             pass
-    # Fallback: Ampere+ (compute ≥ 8) → bfloat16; older → float16
+    # Fallback: Ampere+ → bfloat16; older → no AMP (fp16 GradScaler breaks Unsloth)
     if torch.cuda.is_available():
-        return (torch.cuda.get_device_capability()[0] >= 8, torch.cuda.get_device_capability()[0] < 8)
+        cap = torch.cuda.get_device_capability()[0]
+        return (cap >= 8, False)
     return False, False
 
 
