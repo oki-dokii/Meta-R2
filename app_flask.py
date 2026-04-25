@@ -9,6 +9,7 @@ import json
 import copy
 import uuid
 import datetime
+import html
 from collections import deque
 from flask import Flask, render_template, request, jsonify, session
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
@@ -46,6 +47,137 @@ except Exception as e:
 INTAKE = LifeIntake()
 USER_STATE_OVERRIDES: dict = {}           # persisted health/calendar metric deltas
 EPISODE_HISTORY: deque = deque(maxlen=5)  # ring buffer, most recent first
+
+# ─── GRPO Trained Model Registry ─────────────────────────────────────────────
+# Deployed Docker/Spaces entrypoint is app_flask.py, so the live model-evolution
+# comparison belongs here rather than only in the Gradio app.py.
+MODEL_REGISTRY = {
+    "v1": os.environ.get("LIFESTACK_MODEL_V1", "jdsb06/lifestack-grpo-v1"),
+    "v2": os.environ.get("LIFESTACK_MODEL_V2", "jdsb06/lifestack-grpo-v2"),
+    "v3": os.environ.get("LIFESTACK_MODEL_V3", "jdsb06/lifestack-grpo-v3"),
+}
+_GRPO_CACHE: dict = {}
+
+_GRPO_SYSTEM = (
+    "You are LifeStack, an AI life-management agent. "
+    "Given a real-life crisis, respond with a single optimal action as valid JSON.\n\n"
+    "Required JSON format:\n"
+    '{"action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute", '
+    '"target_domain": "career|finances|relationships|physical_health|mental_wellbeing|time|'
+    'transport_crisis|flight_crisis|code_merge_crisis", '
+    '"metric_changes": {"domain.submetric": delta_value}, '
+    '"resource_cost": {"time": hours, "money": dollars, "energy": units}, '
+    '"reasoning": "brief explanation"}'
+)
+
+
+def _load_grpo_model(repo_id: str):
+    """Lazy-load a GRPO LoRA adapter from HF Hub; cached after first use."""
+    if repo_id in _GRPO_CACHE:
+        return _GRPO_CACHE[repo_id]
+    import torch
+
+    ampere = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    dtype = torch.bfloat16 if ampere else torch.float16
+    try:
+        from unsloth import FastLanguageModel
+
+        model, tok = FastLanguageModel.from_pretrained(
+            model_name=repo_id,
+            max_seq_length=1024,
+            load_in_4bit=torch.cuda.is_available(),
+            dtype=dtype,
+        )
+        FastLanguageModel.for_inference(model)
+    except Exception:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel
+
+        tok = AutoTokenizer.from_pretrained(repo_id)
+        base = AutoModelForCausalLM.from_pretrained(
+            "Qwen/Qwen2.5-1.5B-Instruct",
+            torch_dtype=dtype if torch.cuda.is_available() else torch.float32,
+            device_map="auto",
+        )
+        model = PeftModel.from_pretrained(base, repo_id)
+        model.eval()
+    _GRPO_CACHE[repo_id] = (model, tok)
+    return model, tok
+
+
+def _format_grpo_card(scenario: str, version: str) -> str:
+    """Run a scenario through one GRPO version and return a small HTML card."""
+    import re
+    import torch
+
+    repo_id = MODEL_REGISTRY.get(version, "")
+    if not repo_id:
+        return "<div class='text-slate-500 italic p-4'>Model not configured.</div>"
+    try:
+        model, tok = _load_grpo_model(repo_id)
+        prompt = (
+            f"<|im_start|>system\n{_GRPO_SYSTEM}<|im_end|>\n"
+            f"<|im_start|>user\nCRISIS: {scenario}\n\n"
+            "Respond with ONLY valid JSON.<|im_end|>\n"
+            "<|im_start|>assistant\n"
+        )
+        device = getattr(model, "device", None) or next(model.parameters()).device
+        inputs = tok(prompt, return_tensors="pt").to(device)
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=200,
+                temperature=0.3,
+                do_sample=True,
+                pad_token_id=tok.eos_token_id or tok.pad_token_id,
+            )
+        raw = tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return (
+                "<div class='rounded-xl border border-red-500/40 bg-red-950/20 p-4'>"
+                "<div class='text-red-300 text-xs font-bold mb-2'>JSON parse failed</div>"
+                f"<pre class='text-[10px] text-slate-300 whitespace-pre-wrap max-h-48 overflow-auto'>{html.escape(raw[:700])}</pre>"
+                "</div>"
+            )
+        data = json.loads(match.group())
+        cost = data.get("resource_cost", {}) or {}
+        trailing = len(raw) - (match.start() + len(match.group()))
+        eos_badge = (
+            "<span class='text-[10px] rounded bg-emerald-500/15 text-emerald-300 px-2 py-1'>Clean EOS</span>"
+            if trailing <= 15
+            else f"<span class='text-[10px] rounded bg-red-500/15 text-red-300 px-2 py-1'>+{trailing} trailing chars</span>"
+        )
+        pretty = html.escape(json.dumps(data, indent=2))
+        action = html.escape(str(data.get("action_type", "?")).upper())
+        domain = html.escape(str(data.get("target_domain", "?")))
+        reasoning = html.escape(str(data.get("reasoning", ""))[:260])
+        return f"""
+        <div class="rounded-xl border border-slate-700 bg-slate-950/60 p-4 h-full">
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <div class="text-base font-black text-white">{action} → {domain}</div>
+                {eos_badge}
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed mb-3">{reasoning}</p>
+            <div class="grid grid-cols-3 gap-2 text-[10px] text-slate-300 mb-3">
+                <div class="rounded-lg bg-slate-900 p-2">Time<br><b>{cost.get("time", 0)}</b>h</div>
+                <div class="rounded-lg bg-slate-900 p-2">Money<br><b>${cost.get("money", 0)}</b></div>
+                <div class="rounded-lg bg-slate-900 p-2">Energy<br><b>{cost.get("energy", 0)}</b></div>
+            </div>
+            <details>
+                <summary class="cursor-pointer text-[10px] text-slate-500">Raw JSON</summary>
+                <pre class="mt-2 max-h-48 overflow-auto rounded bg-black/40 p-3 text-[10px] text-slate-400 whitespace-pre-wrap">{pretty}</pre>
+            </details>
+        </div>
+        """
+    except Exception as e:
+        err = html.escape(str(e)[:500])
+        return (
+            "<div class='rounded-xl border border-red-500/50 bg-red-950/20 p-4 text-red-300 text-xs'>"
+            f"<b>{html.escape(version.upper())} failed</b><br>{err}<br>"
+            f"<span class='text-slate-500'>Repo: {html.escape(repo_id)}</span>"
+            "</div>"
+        )
 
 @app.route('/api/history', methods=['GET'])
 @app.route('/api/history/list', methods=['GET'])
@@ -151,6 +283,23 @@ def index():
     return render_template('index.html', 
                           persons=list(PERSONS.keys()), 
                           conflicts=list(CONFLICT_CHOICES.keys()))
+
+
+@app.route('/api/model-evolution/run', methods=['POST'])
+def run_model_evolution():
+    """Compare v1/v2/v3 GRPO adapters on the same user-provided scenario."""
+    data = request.json or {}
+    scenario = (data.get("scenario") or "").strip()
+    if len(scenario) < 12:
+        return jsonify({"error": "Please provide a more detailed life scenario."}), 400
+    return jsonify({
+        "models": MODEL_REGISTRY,
+        "cards": {
+            "v1": _format_grpo_card(scenario, "v1"),
+            "v2": _format_grpo_card(scenario, "v2"),
+            "v3": _format_grpo_card(scenario, "v3"),
+        }
+    })
 
 @app.route('/api/simulation/start', methods=['POST'])
 def start_simulation():

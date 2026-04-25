@@ -43,6 +43,7 @@
             <button onclick="showTab('situation')" id="tab-situation" class="pb-4 text-sm font-semibold transition tab-active">Situational Portal</button>
             <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
             <button onclick="showTab('compare')" id="tab-compare" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">⚡ Untrained vs GRPO-Trained</button>
+            <button onclick="showTab('evolution')" id="tab-evolution" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🤖 Model Evolution</button>
             <button onclick="showTab('memeffect')" id="tab-memeffect" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧠 Memory Effect</button>
             <button onclick="showTab('lab')" id="tab-lab" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🎭 Personality Lab</button>
             <button onclick="showTab('whatif')" id="tab-whatif" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧩 What-If Lab</button>
@@ -333,6 +334,77 @@
                 <!-- Delta badge -->
                 <div id="cmp-delta" class="hidden mt-6 text-center">
                     <span class="inline-block px-6 py-2 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 font-black text-sm"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── TAB B: MODEL EVOLUTION ── -->
+        <div id="content-evolution" class="hidden space-y-6">
+            <div class="glass p-8 rounded-2xl">
+                <div class="flex flex-col lg:flex-row lg:items-end gap-6 mb-8">
+                    <div class="flex-1">
+                        <div class="text-[10px] uppercase tracking-[0.3em] text-violet-400 font-black mb-2">Training Journey</div>
+                        <h2 class="text-3xl font-black tracking-tight mb-2">v1 → v2 → v3 GRPO Evolution</h2>
+                        <p class="text-sm text-slate-400 max-w-3xl">
+                            Compare the three pushed HuggingFace adapters on the same crisis prompt. This is the live deployed
+                            Flask/Docker path, not the local Gradio app.
+                        </p>
+                    </div>
+                    <div class="rounded-2xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-xs text-violet-200">
+                        Qwen2.5-1.5B · LoRA r=16 · GRPO · HF Hub
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <div class="rounded-2xl border border-blue-500/30 bg-slate-950/50 p-5">
+                        <div class="text-blue-300 font-black mb-1">v1 — Single-step Curriculum</div>
+                        <p class="text-xs text-slate-500 mb-4">Format + route-target rewards.</p>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between"><span class="text-slate-500">Avg reward</span><b class="text-emerald-300">0.734</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Reward std</span><b class="text-amber-300">0.396</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Clipped ratio</span><b class="text-red-300">1.0</b></div>
+                        </div>
+                    </div>
+                    <div class="rounded-2xl border border-emerald-500/30 bg-slate-950/50 p-5">
+                        <div class="text-emerald-300 font-black mb-1">v2 — Episodic GRPO</div>
+                        <p class="text-xs text-slate-500 mb-4">Multi-step episodes + trajectory reward.</p>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between"><span class="text-slate-500">Avg reward</span><b class="text-emerald-300">0.775</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Reward std</span><b class="text-amber-300">0.498</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Episode return</span><b class="text-emerald-300">0.207</b></div>
+                        </div>
+                    </div>
+                    <div class="rounded-2xl border border-violet-500/30 bg-slate-950/50 p-5">
+                        <div class="text-violet-300 font-black mb-1">v3 — EOS-Aware GRPO <span class="text-[9px] rounded bg-violet-500/20 px-2 py-1">NEW</span></div>
+                        <p class="text-xs text-slate-500 mb-4">JSON-boundary masking + compactness reward.</p>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between"><span class="text-slate-500">Clipped ratio</span><b class="text-violet-300">target ↓</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">EOS termination</span><b class="text-violet-300">target ↑</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Gradient focus</span><b class="text-violet-300">JSON-only</b></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 mb-6">
+                    <label class="block text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Life Scenario</label>
+                    <textarea id="evo-scenario" class="w-full h-28 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200 outline-none focus:border-violet-500" placeholder="Example: I have a product deadline tonight, my partner is upset that I missed dinner, and I am exhausted after three days of poor sleep."></textarea>
+                    <button onclick="runModelEvolution()" id="evo-btn" class="mt-4 rounded-xl bg-violet-600 px-6 py-3 text-sm font-bold hover:bg-violet-500 transition">🔬 Compare v1 vs v2 vs v3</button>
+                    <div id="evo-status" class="mt-3 text-xs text-slate-500"></div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div>
+                        <div class="text-xs font-black text-blue-300 mb-2">v1 Output</div>
+                        <div id="evo-v1" class="min-h-[180px] rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">Run comparison to load model output.</div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-black text-emerald-300 mb-2">v2 Output</div>
+                        <div id="evo-v2" class="min-h-[180px] rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">Run comparison to load model output.</div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-black text-violet-300 mb-2">v3 Output</div>
+                        <div id="evo-v3" class="min-h-[180px] rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">Run comparison to load model output.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1511,6 +1583,51 @@
         }
 
         async function submitFeedback(e) { e.preventDefault(); const formData = new FormData(e.target); const res = await fetch('/api/feedback/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(formData.entries())) }); document.getElementById('fb-status').innerText = "✅ Outcome Broadcasted to ChromaDB!"; e.target.reset(); }
+
+        // ── Model Evolution: v1 vs v2 vs v3 HF adapters ──
+        async function runModelEvolution() {
+            const scenario = document.getElementById('evo-scenario').value.trim();
+            const btn = document.getElementById('evo-btn');
+            const status = document.getElementById('evo-status');
+            if (scenario.length < 12) {
+                status.innerText = "Please enter a more detailed life scenario.";
+                status.className = "mt-3 text-xs text-red-300";
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Loading HF adapters...";
+            status.className = "mt-3 text-xs text-slate-500";
+            status.innerText = "First run may take time while models download from HuggingFace Hub.";
+            ['v1', 'v2', 'v3'].forEach(v => {
+                document.getElementById(`evo-${v}`).innerHTML = "<div class='animate-pulse text-slate-500'>Generating...</div>";
+            });
+
+            try {
+                const res = await fetch('/api/model-evolution/run', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ scenario })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                document.getElementById('evo-v1').innerHTML = data.cards.v1;
+                document.getElementById('evo-v2').innerHTML = data.cards.v2;
+                document.getElementById('evo-v3').innerHTML = data.cards.v3;
+                status.innerText = "Comparison complete. Models are cached for faster reruns.";
+            } catch (err) {
+                const msg = String(err.message || err);
+                status.className = "mt-3 text-xs text-red-300";
+                status.innerText = `Model comparison failed: ${msg}`;
+                ['v1', 'v2', 'v3'].forEach(v => {
+                    document.getElementById(`evo-${v}`).innerHTML =
+                        `<div class='rounded-xl border border-red-500/40 bg-red-950/20 p-4 text-red-300 text-xs'>${msg}</div>`;
+                });
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "🔬 Compare v1 vs v2 vs v3";
+            }
+        }
 
         // ── Feature A: Trained vs Baseline ──
         async function runComparison() {
