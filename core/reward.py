@@ -128,9 +128,10 @@ def compute_reward(
         penalties -= 0.30
         fired.append("CASCADE_SPREAD_WIDER")
         
-    # -0.40 if actions_taken == 0
+    # -0.60 if actions_taken == 0
+    # (increased from -0.40 — 0.525 base reward made inaction net-positive)
     if actions_taken == 0:
-        penalties -= 0.40
+        penalties -= 0.60
         fired.append("INACTION_PENALTY")
         
     # -0.15 if relationships domain average dropped more than 20 points
@@ -162,6 +163,9 @@ def compute_reward(
     reasoning_score = reward_reasoning_coherence(reasoning, action_type=action_type)
     
     final_reward = max(-1.0, min(1.0, base_reward + penalties))
+    # Hard guarantee: inaction must always produce a negative reward
+    if actions_taken == 0:
+        final_reward = min(final_reward, -0.05)
     
     breakdown = {
         "components": {

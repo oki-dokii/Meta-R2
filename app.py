@@ -903,7 +903,25 @@ def run_memory_demo(conflict_label: str, person_label: str):
         pass
 
     outcome_lbl = "Good \u2014 build on this" if ep1_r >= 0.4 else "Suboptimal \u2014 try different approach"
+
+    # ── RAG retrieval: pull precedents from ChromaDB before building context ──
+    rag_lines = ""
+    try:
+        similar = MEMORY.retrieve_similar(conflict.title, ep1_mb.flatten(), n=2)
+        if similar:
+            rag_lines = "RETRIEVED PRECEDENTS (ChromaDB semantic search):\n"
+            for s in similar:
+                rag_lines += (
+                    f"  [{s['action_type']} \u2192 {s['target_domain']}] "
+                    f"reward={s['reward']:.2f} similarity={s['similarity_score']:.3f} "
+                    f"| {s['reasoning'][:80]}\n"
+                )
+            rag_lines += "\n"
+    except Exception:
+        rag_lines = ""
+
     few_shot = (
+        f"{rag_lines}"
         f"RETRIEVED MEMORY \u2014 Previous attempt at '{conflict.title}':\n"
         f"  Action: {ep1_act.primary.action_type} \u2192 {ep1_act.primary.target_domain}\n"
         f"  Done: {ep1_act.primary.description}\n"
