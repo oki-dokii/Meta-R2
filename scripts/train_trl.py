@@ -111,8 +111,26 @@ def _install_trl_optional_dependency_shims() -> None:
 
     vllm_mod.SamplingParams = SamplingParams
     vllm_mod.LLM = LLM
+    vllm_mod.__version__ = "0.11.1"
     vllm_mod.__spec__ = importlib.machinery.ModuleSpec("vllm", loader=None)
     sys.modules["vllm"] = vllm_mod
+
+    # Some HF Spaces images include a partial vLLM install whose package
+    # metadata reports version "N/A". TRL checks this before importing GRPO and
+    # `packaging.Version("N/A")` crashes. Force a valid version for the shim.
+    try:
+        import importlib.metadata as _importlib_metadata
+
+        _original_version = _importlib_metadata.version
+
+        def _patched_version(package_name):
+            if str(package_name).lower() == "vllm":
+                return vllm_mod.__version__
+            return _original_version(package_name)
+
+        _importlib_metadata.version = _patched_version
+    except Exception:
+        pass
     print("[warning] using local shims for mergekit/llm_blender compatibility.")
 
 
