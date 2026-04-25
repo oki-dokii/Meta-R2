@@ -475,35 +475,120 @@ def activate_arjun():
 
 @app.route('/api/task/demo', methods=['GET'])
 def get_demo_task():
-    dummy_routes = [
-        Route(id="r1", name="Rebook Premium Option", description="Call agent and rebook on premium ticket", required_action_types=["communicate", "spend"], milestones_unlocked=["m1"], final_reward=2.5),
-        Route(id="r2", name="Accept Delay & Work", description="Stay at airport lounge and work on laptop", required_action_types=["rest", "delegate"], milestones_unlocked=["m2"], final_reward=1.8),
+    conflict_label = request.args.get('conflict')
+    conflict = CONFLICT_CHOICES.get(conflict_label, DEMO_CONFLICT)
+
+    # Keyword → action types mapping for route inference
+    _ROUTE_ACTION_MAP = {
+        "leave": ["rest", "delegate"], "rest": ["rest"], "sleep": ["rest"],
+        "medical": ["rest", "spend"], "specialist": ["spend", "communicate"],
+        "diet": ["rest", "execute"], "negotiate": ["negotiate", "communicate"],
+        "call": ["communicate"], "pay": ["spend", "execute"],
+        "hire": ["spend", "delegate"], "delegate": ["delegate"],
+        "plan": ["execute", "communicate"], "date": ["spend", "communicate"],
+        "talk": ["communicate"], "network": ["communicate", "negotiate"],
+        "remote": ["communicate", "reschedule"], "reschedule": ["reschedule"],
+        "work": ["execute"], "book": ["spend", "execute"], "repair": ["spend"],
+        "bus": ["spend", "execute"], "rideshare": ["spend"], "carpool": ["communicate"],
+        "disconnect": ["rest", "deprioritize"], "refuse": ["negotiate", "communicate"],
+        "deny": ["negotiate"], "scan": ["inspect", "execute"], "lawyer": ["spend", "delegate"],
+    }
+
+    def _infer_action_types(decision_text: str) -> list:
+        lower = decision_text.lower()
+        for keyword, actions in _ROUTE_ACTION_MAP.items():
+            if keyword in lower:
+                return actions
+        return ["execute", "communicate"]
+
+    # Route reward scales with difficulty
+    base_reward = round(1.0 + conflict.difficulty * 0.3, 1)
+    routes = [
+        {
+            "id": f"r{i+1}",
+            "name": dec,
+            "description": f"Approach: {dec}",
+            "required_action_types": _infer_action_types(dec),
+            "final_reward": base_reward,
+        }
+        for i, dec in enumerate(conflict.decisions_required)
     ]
-    dummy_milestones = [
-        Milestone(id="m1", description="Successfully rebooked flight before deadline", reward=1.0),
-        Milestone(id="m2", description="Caught up with all emergency slack messages", reward=0.8),
+
+    # Milestones — one per disrupted metric, reward proportional to hit magnitude
+    _METRIC_LABELS = {
+        "physical_health.fitness": "Restore fitness baseline",
+        "physical_health.sleep_quality": "Recover healthy sleep",
+        "physical_health.energy": "Rebuild energy reserves",
+        "finances.liquidity": "Stabilise immediate cash flow",
+        "finances.long_term_health": "Protect long-term financial health",
+        "finances.debt_pressure": "Reduce debt pressure below danger zone",
+        "relationships.romantic": "Repair romantic relationship",
+        "relationships.family": "Resolve family situation",
+        "relationships.social": "Restore social connections",
+        "relationships.professional_network": "Protect professional reputation",
+        "career.workload": "Bring workload back to manageable level",
+        "career.stability": "Secure career stability",
+        "career.satisfaction": "Recover career satisfaction",
+        "career.growth_trajectory": "Get growth trajectory back on track",
+        "mental_wellbeing.stress_level": "Reduce stress to safe level",
+        "mental_wellbeing.motivation": "Recover motivation",
+        "mental_wellbeing.clarity": "Restore mental clarity",
+        "mental_wellbeing.emotional_stability": "Regain emotional stability",
+        "time.free_hours_per_week": "Reclaim personal time",
+        "time.commute_burden": "Resolve commute disruption",
+        "time.admin_overhead": "Clear admin backlog",
+    }
+    milestones = [
+        {
+            "id": f"m{idx+1}",
+            "metric": metric_key,
+            "description": _METRIC_LABELS.get(
+                metric_key,
+                f"Recover {metric_key.split('.')[-1].replace('_', ' ')}"
+            ),
+            "impact": delta,
+            "reward": round(abs(delta) / 40.0, 1),
+        }
+        for idx, (metric_key, delta) in enumerate(conflict.primary_disruption.items())
     ]
-    dummy_events = [
-        ExoEvent(step=2, probability=1.0, id="price_surge", description="Ticket prices sharply increased by $300."),
-        ExoEvent(step=4, probability=1.0, id="lounge_full", description="The airport lounge is now at maximum capacity."),
-    ]
-    task = Task(
-        id="sample_flight_crisis", domain="flight_crisis", goal="Survive Airport Cancellation",
-        event_schedule=dummy_events, viable_routes=dummy_routes, milestones=dummy_milestones,
-        horizon=10, difficulty=4
-    )
+
+    # World events scaled by difficulty (display only)
+    _EVENTS_BY_DIFF = {
+        1: [],
+        2: [{"step": 3, "id": "minor_complication", "description": "Situation slightly worsened — act soon."}],
+        3: [
+            {"step": 2, "id": "cascade_trigger", "description": "Cascading effect detected — secondary metric dropping."},
+            {"step": 5, "id": "window_closing", "description": "Optimal resolution window is closing."},
+        ],
+        4: [
+            {"step": 1, "id": "immediate_pressure", "description": "Immediate action required — every step costs resources."},
+            {"step": 3, "id": "escalation_risk", "description": "Risk of escalation if no action taken."},
+            {"step": 6, "id": "resource_drain", "description": "Budget shrinking faster than expected."},
+        ],
+        5: [
+            {"step": 1, "id": "critical_state", "description": "CRITICAL: Multiple systems failing simultaneously."},
+            {"step": 2, "id": "cascade_chain", "description": "Cascade chain activated — metrics affecting each other."},
+            {"step": 4, "id": "last_window", "description": "Last viable window for intervention."},
+            {"step": 7, "id": "terminal_risk", "description": "Terminal failure risk if not resolved this step."},
+        ],
+    }
+    events = _EVENTS_BY_DIFF.get(conflict.difficulty, [])
+
+    # Primary domain = worst-hit metric
+    top_metric = max(conflict.primary_disruption.items(), key=lambda x: abs(x[1]))[0]
+    domain_tag = top_metric.split(".")[0]
+
     return jsonify({
-        "goal": task.goal,
-        "difficulty": task.difficulty,
-        "story": "A major storm grounded commercial flights.",
-        "routes": [{"name": r.name, "description": r.description,
-                    "actions": r.required_action_types, "reward": r.final_reward}
-                   for r in dummy_routes],
-        "milestones": [{"id": m.id, "description": m.description, "reward": m.reward}
-                       for m in dummy_milestones],
-        "events": [{"step": e.step, "id": e.id, "description": e.description,
-                    "probability": e.probability}
-                   for e in dummy_events],
+        "goal": f"Resolve '{conflict.title}' without cascading failure",
+        "difficulty": conflict.difficulty,
+        "story": conflict.story,
+        "domain": domain_tag,
+        "budget": conflict.resource_budget,
+        "disruption": conflict.primary_disruption,
+        "routes": routes,
+        "milestones": milestones,
+        "events": events,
+        "conflict_id": conflict.id,
     })
 
 @app.route('/api/task/list', methods=['GET'])

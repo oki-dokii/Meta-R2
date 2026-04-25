@@ -585,9 +585,20 @@
                     <div id="task-milestones" class="space-y-2"></div>
                 </div>
             </div>
+            <!-- Budget + Disruption -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="glass p-6 rounded-2xl border border-slate-800">
+                    <h4 class="text-[10px] uppercase font-black text-cyan-400 tracking-widest mb-4">💰 Resource Budget</h4>
+                    <div id="task-budget" class="space-y-2"></div>
+                </div>
+                <div class="glass p-6 rounded-2xl border border-slate-800">
+                    <h4 class="text-[10px] uppercase font-black text-orange-400 tracking-widest mb-4">📉 Initial Disruption</h4>
+                    <div id="task-disruption" class="space-y-2"></div>
+                </div>
+            </div>
             <!-- Events -->
             <div class="glass p-6 rounded-2xl">
-                <h4 class="text-[10px] uppercase font-black text-red-500 tracking-widest mb-4">☄️ Disruption / Event Log</h4>
+                <h4 class="text-[10px] uppercase font-black text-red-500 tracking-widest mb-4">☄️ World Event Timeline</h4>
                 <div id="task-events" class="space-y-3"></div>
             </div>
         </div>
@@ -788,6 +799,7 @@
             if (id === 'history') fetchHistory();
             if (id === 'performance') loadStats();
             if (id === 'system-map') initSystemMap();
+            if (id === 'tasks') _initTaskSelector();
             if (id === 'tasks') _initTaskSelector();
             if (id === 'whatif') _initWhatIfTab();
         }
@@ -1335,50 +1347,87 @@
             document.getElementById('task-goal').innerText = data.goal || data.title || '—';
             document.getElementById('task-story').innerText = data.story || '';
             const diff = data.difficulty || '?';
-            const diffLabel = ['','Easy','Moderate','Hard','Expert','Crisis'][diff] || `Difficulty ${diff}`;
-            document.getElementById('task-difficulty').innerText = `Difficulty ${diff} — ${diffLabel}`;
+            const diffColors = ['','text-green-400','text-green-400','text-yellow-400','text-orange-400','text-red-400'];
+            const diffLabels = ['','Easy','Moderate','Hard','Expert','Crisis'];
+            const diffLabel = diffLabels[diff] || `Difficulty ${diff}`;
+            const diffEl = document.getElementById('task-difficulty');
+            diffEl.innerText = `${'★'.repeat(diff)} ${diffLabel.toUpperCase()}`;
+            diffEl.className = `text-[9px] font-black px-3 py-1 rounded-full bg-slate-800 border border-slate-700 uppercase tracking-widest ${diffColors[diff] || 'text-slate-400'}`;
 
-            document.getElementById('task-routes').innerHTML = (data.routes || []).map(r => `
+            // Routes
+            document.getElementById('task-routes').innerHTML = (data.routes || []).map((r, i) => `
                 <div class="p-4 bg-slate-950/80 rounded-xl border-l-2 border-indigo-500">
                     <div class="flex justify-between items-start mb-1">
-                        <b class="text-sm">${r.name}</b>
-                        ${r.reward != null ? `<span class="text-[9px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">⭐ ${r.reward}</span>` : ''}
+                        <b class="text-sm text-slate-100">${r.name}</b>
+                        ${r.final_reward != null ? `<span class="text-[9px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">⭐ ${r.final_reward}</span>` : (r.reward != null ? `<span class="text-[9px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">⭐ ${r.reward}</span>` : '')}
                     </div>
-                    <p class="text-xs text-slate-400">${r.description}</p>
-                    ${r.actions && r.actions.length ? `<div class="mt-2 flex gap-1 flex-wrap">${r.actions.map(a => `<span class="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-400">${a}</span>`).join('')}</div>` : ''}
+                    ${(r.required_action_types || r.actions || []).length ? `<div class="mt-2 flex gap-1 flex-wrap">${(r.required_action_types || r.actions).map(a => `<span class="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-indigo-900/40 text-indigo-300 border border-indigo-500/20">${a}</span>`).join('')}</div>` : ''}
                 </div>`).join('') || '<p class="text-slate-500 text-xs">No routes defined.</p>';
 
+            // Milestones
             document.getElementById('task-milestones').innerHTML = (data.milestones || []).map(m => `
                 <div class="flex justify-between items-center bg-slate-950/50 p-3 rounded-xl px-4">
-                    <span class="text-xs">${m.description}</span>
-                    <span class="text-yellow-400 font-black text-xs shrink-0 ml-3">${m.reward != null ? `+${m.reward}` : '⭐'}</span>
+                    <div class="flex-1">
+                        <span class="text-xs text-slate-200">${m.description}</span>
+                        ${m.metric ? `<div class="text-[8px] text-slate-500 mt-0.5 font-mono">${m.metric}</div>` : ''}
+                    </div>
+                    <span class="text-yellow-400 font-black text-xs shrink-0 ml-3">+${m.reward != null ? m.reward : '?'}</span>
                 </div>`).join('') || '<p class="text-slate-500 text-xs">No milestones defined.</p>';
 
+            // Budget
+            const budget = data.budget || {};
+            const budgetIcons = { time: '⏱️', money: '💵', energy: '⚡' };
+            const budgetUnits = { time: 'hrs', money: '$', energy: 'units' };
+            document.getElementById('task-budget').innerHTML = Object.keys(budget).length
+                ? Object.entries(budget).map(([k, v]) => `
+                    <div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2">
+                        <span class="text-xs text-slate-400 uppercase font-bold">${budgetIcons[k] || '📦'} ${k}</span>
+                        <span class="text-sm font-black text-cyan-300">${k === 'money' ? '$' : ''}${v}${k !== 'money' ? ' ' + (budgetUnits[k] || '') : ''}</span>
+                    </div>`).join('')
+                : '<p class="text-slate-500 text-xs">No budget data.</p>';
+
+            // Disruption
+            const disruption = data.disruption || {};
+            document.getElementById('task-disruption').innerHTML = Object.keys(disruption).length
+                ? Object.entries(disruption).map(([k, v]) => {
+                    const isNeg = v < 0;
+                    const domain = k.split('.')[0];
+                    const metric = k.split('.')[1]?.replace(/_/g, ' ') || k;
+                    const domainColors = { career: 'text-blue-400', finances: 'text-green-400', relationships: 'text-pink-400', physical_health: 'text-orange-400', mental_wellbeing: 'text-purple-400', time: 'text-yellow-400' };
+                    const col = isNeg ? 'text-red-400' : 'text-orange-400';
+                    return `<div class="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2">
+                        <span class="text-xs ${domainColors[domain] || 'text-slate-400'} font-bold capitalize">${metric}</span>
+                        <span class="text-xs font-black ${col}">${v > 0 ? '+' : ''}${v}</span>
+                    </div>`;
+                }).join('')
+                : '<p class="text-slate-500 text-xs">No disruption data.</p>';
+
+            // Events
             document.getElementById('task-events').innerHTML = (data.events || []).map(e => `
-                <div class="p-3 border-l-2 border-red-500 bg-slate-950/80 flex gap-4 items-center">
-                    <b class="text-red-400 shrink-0 text-xs">STEP ${e.step}</b>
+                <div class="p-3 border-l-2 border-red-500 bg-slate-950/80 flex gap-4 items-center rounded-r-lg">
+                    <div class="shrink-0 text-center">
+                        <div class="text-[8px] font-black text-slate-500 uppercase">Step</div>
+                        <div class="text-red-400 font-black text-sm">${e.step}</div>
+                    </div>
                     <span class="text-slate-300 text-xs flex-1">${e.description}</span>
-                    ${e.probability != null && e.probability < 1.0 ? `<span class="text-[8px] font-black text-slate-500 shrink-0">${(e.probability*100).toFixed(0)}% chance</span>` : '<span class="text-[8px] font-black text-red-500/60 shrink-0">CERTAIN</span>'}
-                </div>`).join('') || '<p class="text-slate-500 text-xs">No events defined.</p>';
+                </div>`).join('') || '<p class="text-slate-500 text-xs italic">No world events for this scenario.</p>';
         }
 
         async function loadTaskDemo() {
-            const res = await fetch('/api/task/demo');
-            const data = await res.json();
-            _renderTask(data);
+            const sel = document.getElementById('task-selector');
+            const val = sel ? sel.value : '';
+            const url = (!val || val === '__demo__')
+                ? '/api/task/demo'
+                : `/api/task/demo?conflict=${encodeURIComponent(val)}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                _renderTask(data);
+            } catch(e) { console.error('Task load failed', e); }
         }
 
         async function loadSelectedTask() {
-            const sel = document.getElementById('task-selector');
-            const val = sel.value;
-            if (val === '__demo__') { await loadTaskDemo(); return; }
-            const res = await fetch('/api/task/list');
-            const tasks = await res.json();
-            const task = tasks.find(t => t.id === val);
-            if (task) {
-                // Adapt conflict template shape to task display shape
-                _renderTask({ goal: `Resolve: ${task.title}`, ...task });
-            }
+            await loadTaskDemo();
         }
 
         // ── What-If Lab ──────────────────────────────────────────────────────────
@@ -1456,10 +1505,16 @@
             try {
                 const res = await fetch('/api/task/list');
                 const tasks = await res.json();
+                // Clear the hardcoded demo option and rebuild all from real templates
+                sel.innerHTML = '';
                 tasks.forEach(t => {
                     const opt = document.createElement('option');
-                    opt.value = t.id;
-                    opt.textContent = `${'★'.repeat(t.difficulty || 1)} ${t.title}`;
+                    // Value = title, because /api/task/demo?conflict= is keyed by title
+                    opt.value = t.title;
+                    const stars = '★'.repeat(t.difficulty || 1);
+                    const domainEmoji = { career: '💼', finances: '💰', relationships: '❤️', physical_health: '🏃', mental_wellbeing: '🧠', time: '⏰' };
+                    const topMetric = Object.keys(t.events?.[0]?.id?.split('_') || {})[0];
+                    opt.textContent = `${stars} ${t.title}`;
                     sel.appendChild(opt);
                 });
                 sel.dataset.loaded = '1';
