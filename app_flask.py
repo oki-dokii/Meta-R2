@@ -35,6 +35,12 @@ app.secret_key = "lifestack_secret_key_2026"
 AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
 INTAKE = LifeIntake()
+EPISODE_HISTORY = [] # Store last 5 episodes
+
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    return jsonify(EPISODE_HISTORY)
+
 GMAIL  = GmailIntake()
 LONG_DEMO = LongitudinalDemo()
 DEMO_PREDICTOR = ConflictPredictor()
@@ -185,7 +191,7 @@ def perform_action():
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
     episode_id = "".join(str(uuid.uuid4()).split("-")[:2]).upper()
     
-    return jsonify({
+    result = {
         "metrics": obs.metrics,
         "action": {
             "type": action.primary.action_type,
@@ -202,8 +208,20 @@ def perform_action():
         "prediction": {
             "summary": DEMO_PREDICTOR.get_prediction_summary(),
             "risk_score": DEMO_PREDICTOR.get_risk_score()
-        }
-    })
+        },
+        "conflict": {
+            "title": conflict.title,
+            "person": person.name
+        },
+        "timestamp": datetime.now().strftime("%H:%M:%S")
+    }
+    
+    # Store in history
+    EPISODE_HISTORY.insert(0, result)
+    if len(EPISODE_HISTORY) > 5:
+        EPISODE_HISTORY.pop()
+        
+    return jsonify(result)
 
 # ─── Custom Situation Entry ───
 @app.route('/api/custom/run', methods=['POST'])

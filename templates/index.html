@@ -39,6 +39,7 @@
             <button onclick="showTab('situation')" id="tab-situation" class="pb-4 text-sm font-semibold transition tab-active">Situational Portal</button>
             <button onclick="showTab('custom')" id="tab-custom" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">💭 Try Your Case</button>
             <button onclick="showTab('arjun')" id="tab-arjun" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗓️ Arjun's Journey</button>
+            <button onclick="showTab('history')" id="tab-history" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">📼 Episode Replay</button>
             <button onclick="showTab('lab')" id="tab-lab" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🎭 Personality Lab</button>
             <button onclick="showTab('whatif')" id="tab-whatif" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🧩 What-If Lab</button>
             <button onclick="showTab('tasks')" id="tab-tasks" class="pb-4 text-sm font-semibold text-slate-400 hover:text-white transition">🗺️ Task Explorer</button>
@@ -257,6 +258,21 @@
             </div>
         </div>
 
+        <!-- ── TAB 3.8: EPISODE HISTORY ── -->
+        <div id="content-history" class="hidden space-y-8">
+            <div class="glass p-8 rounded-2xl">
+                <div class="flex justify-between items-center mb-10">
+                    <div>
+                        <h3 class="text-2xl font-black italic tracking-tighter">EPISODE REPLAY</h3>
+                        <p class="text-xs text-slate-500 uppercase font-bold tracking-widest mt-1">Audit log of agent reasoning & causal chains</p>
+                    </div>
+                </div>
+                <div id="history-container" class="space-y-6">
+                    <div class="text-center py-20 text-slate-500 italic">No episodes logged yet. Start a simulation in the Portal!</div>
+                </div>
+            </div>
+        </div>
+
         <!-- ── TAB 4: TASKS ── -->
         <div id="content-tasks" class="hidden space-y-6">
             <div class="glass p-8 rounded-2xl">
@@ -357,12 +373,64 @@
 
         window.addEventListener('DOMContentLoaded', initGraph);
 
-        function showTab(tabId) {
+        function showTab(id) {
             document.querySelectorAll('[id^="content-"]').forEach(el => el.classList.add('hidden'));
-            document.getElementById(`content-${tabId}`).classList.remove('hidden');
-            document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.remove('tab-active', 'text-white'));
-            document.getElementById(`tab-${tabId}`).classList.add('tab-active');
-            if (tabId === 'performance') loadStats();
+            document.getElementById('content-' + id).classList.remove('hidden');
+            document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.remove('border-b-2', 'border-indigo-500', 'text-white'));
+            document.getElementById('tab-' + id).classList.add('border-b-2', 'border-indigo-500', 'text-white');
+            
+            if (id === 'history') fetchHistory();
+            if (id === 'performance') loadStats();
+        }
+
+        async function fetchHistory() {
+            const res = await fetch('/api/history');
+            const data = await res.json();
+            const container = document.getElementById('history-container');
+            if (data.length === 0) return;
+            
+            container.innerHTML = data.map(ep => `
+                <div class="glass p-6 rounded-2xl border-l-4 border-indigo-500 bg-indigo-500/5 transition hover:bg-indigo-500/10 mb-4">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <span class="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-2 py-0.5 rounded">EPISODE ${ep.action.id}</span>
+                            <h4 class="text-lg font-black mt-1">${ep.conflict.title}</h4>
+                            <p class="text-[10px] text-slate-400 uppercase font-bold">${ep.conflict.person} • ${ep.timestamp}</p>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-black text-indigo-400">${(ep.action.reward * 100).toFixed(0)}% RESOLVED</div>
+                            <div class="text-[9px] text-slate-500 uppercase font-bold">REWARD: ${ep.action.reward.toFixed(3)}</div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                        <div>
+                            <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Internal Reasoning</div>
+                            <p class="text-xs text-slate-300 italic leading-relaxed">"${ep.action.reasoning}"</p>
+                            <div class="mt-4 flex gap-4">
+                                <div class="bg-slate-800 p-2 rounded-lg">
+                                    <div class="text-[8px] text-slate-500 uppercase font-black mb-1">Choice</div>
+                                    <div class="text-[10px] font-black text-white uppercase">${ep.action.type}</div>
+                                </div>
+                                <div class="bg-slate-800 p-2 rounded-lg">
+                                    <div class="text-[8px] text-slate-500 uppercase font-black mb-1">Target</div>
+                                    <div class="text-[10px] font-black text-white uppercase">${ep.action.target}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                             <div class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Metric Impact Grid</div>
+                             <div class="grid grid-cols-3 gap-2">
+                                ${Object.entries(ep.metrics).slice(0, 9).map(([k, v]) => `
+                                    <div class="text-center">
+                                        <div class="text-[8px] text-slate-600 uppercase truncate">${k.split('.')[1]}</div>
+                                        <div class="text-[10px] font-bold ${v < 40 ? 'text-red-400' : 'text-green-400'}">${v.toFixed(0)}%</div>
+                                    </div>
+                                `).join('')}
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
         }
 
         async function loadStats() {
