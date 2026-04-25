@@ -481,7 +481,11 @@ def run_custom():
     )
     
     budget = ResourceBudget(time=24, money=1000, energy=100)
-    action = AGENT.get_action(m, budget, conflict, person)
+    
+    # RAG: Build memory context for the trained model
+    few_shot = MEMORY.build_few_shot_prompt(conflict.title, m.flatten())
+    
+    action = AGENT.get_action(m, budget, conflict, person, few_shot_context=few_shot)
     _normalize_action_metric_changes(action)
     
     uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, 
@@ -884,7 +888,13 @@ def _run_agent_comparison_side(conflict, person, api_only: bool):
     env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
     before_metrics = copy.deepcopy(env.state.current_metrics)
     before_budget = copy.deepcopy(env.state.budget)
-    action = AGENT.get_action(before_metrics, before_budget, conflict, person, api_only=api_only)
+    
+    # RAG: If we are running the trained side (not api_only), fetch memories
+    few_shot = ""
+    if not api_only:
+        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
+        
+    action = AGENT.get_action(before_metrics, before_budget, conflict, person, api_only=api_only, few_shot_context=few_shot)
     _normalize_action_metric_changes(action)
     uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
                                       before_metrics.mental_wellbeing.stress_level)
