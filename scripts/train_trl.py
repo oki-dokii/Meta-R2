@@ -20,10 +20,27 @@ import copy
 import random
 import numpy as np
 
+# ── EARLY PATCHES ─────────────────────────────────────────
+# Unsloth MUST be imported before transformers/trl to apply its patches
+try:
+    import unsloth
+except ImportError:
+    pass
+
 import torch
 from datasets import Dataset
 from transformers import AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
+
+# Fix for TRL 0.15.1 + Transformers 4.56.2 incompatibility with _get_train_sampler
+import inspect
+_original_get_train_sampler = GRPOTrainer._get_train_sampler
+def _patched_get_train_sampler(self, *args, **kwargs):
+    sig = inspect.signature(_original_get_train_sampler)
+    if len(sig.parameters) == 1:
+        return _original_get_train_sampler(self)
+    return _original_get_train_sampler(self, *args, **kwargs)
+GRPOTrainer._get_train_sampler = _patched_get_train_sampler
 
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
