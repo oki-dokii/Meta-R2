@@ -37,7 +37,10 @@ class LifeStackAgent:
                 base_url='https://api.groq.com/openai/v1',
                 api_key=self.api_key
             )
-        self.model = 'llama3-70b-8192'
+        self.model = 'llama-3.3-70b-versatile'
+        self.tokenizer = None
+        self.local_model = None
+        self._model_load_attempted = False
         self.memory = []  # Will store last 10 decisions
 
     def _try_load_model(self):
@@ -150,8 +153,10 @@ SCHEMA:
                 import torch
                 content = None
                 
+                used_model_name = "unknown"
                 if self.local_model and not force_api:
                     # ── Local / HF Transformers model ─────────────────────
+                    used_model_name = self.local_model_path
                     inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
                     with torch.no_grad():
                         outputs = self.local_model.generate(
@@ -165,6 +170,7 @@ SCHEMA:
                 
                 elif self.hf_client:
                     # ── Hugging Face Inference API (Golden Pool) ──────────
+                    used_model_name = f"hf:{self.hf_model}"
                     try:
                         content = self.hf_client.text_generation(
                             prompt,
@@ -178,7 +184,8 @@ SCHEMA:
                         print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
                 
                 if content is None:
-                    # ── Groq API Fallback (Llama-3-70B) ──────────────────
+                    # ── Groq API Fallback (Llama-3.3-70B) ──────────────────
+                    used_model_name = f"groq:{self.model}"
                     response = None
                     for attempt in range(2):
                         try:
@@ -235,6 +242,7 @@ SCHEMA:
                             content=data.get("message_content") or ""
                         ) if data.get("recipient") and data.get("recipient") != "none" else None,
                         reasoning=data.get("reasoning", "Strategic choice."),
+                        model_used=used_model_name,
                         raw_completion=content
                     )
             except Exception as e:

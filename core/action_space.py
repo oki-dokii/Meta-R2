@@ -33,6 +33,7 @@ class AgentAction:
     primary: PrimaryAction
     communication: CommunicationAction = None
     reasoning: str = ""
+    model_used: str = "unknown"
     raw_completion: str = ""
 
 def validate_action(action: AgentAction, budget: ResourceBudget) -> tuple[bool, str]:

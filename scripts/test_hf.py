@@ -26,11 +26,16 @@ def test_hf_connection():
         print("🚀 Sending request to Hugging Face...")
         action = agent.get_action(metrics, budget, conflict, person, api_only=True)
         
-        if "FALLBACK" in action.reasoning:
-            print("❌ FAILED: System fell back to Groq/Local.")
+        print(f"📡 Model Used: {action.model_used}")
+        
+        if action.model_used.startswith("hf:"):
+            print("✅ SUCCESS: Inference through Hugging Face Golden Model confirmed.")
+            print(f"Agent Reasoning: {action.reasoning[:100]}...")
+        elif "FALLBACK" in action.reasoning:
+            print("❌ FAILED: System returned a hard fallback action.")
             print(f"Error Log: {action.reasoning}")
         else:
-            print("✅ SUCCESS: Inference through Hugging Face Golden Model confirmed.")
+            print("⚠️ SEMI-SUCCESS: System fell back to Groq, but reasoning is intact.")
             print(f"Agent Reasoning: {action.reasoning[:100]}...")
     except Exception as e:
         print(f"💥 CRITICAL ERROR: {e}")
