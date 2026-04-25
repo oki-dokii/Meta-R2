@@ -441,16 +441,24 @@ def get_trajectory():
 def run_custom():
     data = request.json
     situation_input = data.get('situation', "")
-    
-    # Map sliders to metrics
+
+    # Slider values arrive as 0-100 strings from HTML range inputs
+    work_stress  = float(data.get('work_stress',  50))
+    money_stress = float(data.get('money_stress', 30))
+    rel_quality  = float(data.get('rel_quality',  70))
+    energy_level = float(data.get('energy_level', 70))
+
+    # Map sliders to the correct LifeMetrics field names
     m = LifeMetrics()
-    m.career.stress_level = float(data.get('work_stress', 5)) * 10
-    m.finances.debt_pressure = float(data.get('money_stress', 5)) * 10
-    m.relationships.conflict_frequency = (10 - float(data.get('rel_quality', 5))) * 10
-    m.physical_health.energy_level = float(data.get('energy_level', 5)) * 10
-    m.time.free_time = (10 - float(data.get('time_pressure', 5))) * 10
-    
-    # Apply uploaded health/calendar overrides to custom metrics
+    m.career.workload               = work_stress
+    m.mental_wellbeing.stress_level = min(100.0, work_stress * 0.8)
+    m.finances.debt_pressure        = money_stress
+    m.relationships.romantic        = rel_quality
+    m.relationships.social          = min(100.0, rel_quality * 0.9)
+    m.physical_health.energy        = energy_level
+    m.time.free_hours_per_week      = max(10.0, 100.0 - work_stress)
+
+    # Apply uploaded health/calendar overrides
     for path, delta in USER_STATE_OVERRIDES.items():
         if '.' in path:
             dom, sub = path.split('.', 1)
@@ -460,7 +468,6 @@ def run_custom():
 
     gmail_signals = data.get('gmail_signals')
     if gmail_signals:
-        # Merge digital signals if provided
         for k, v in gmail_signals.items():
             parts = k.split(".")
             if len(parts) == 2:
@@ -468,7 +475,6 @@ def run_custom():
                 if dom and hasattr(dom, parts[1]):
                     setattr(dom, parts[1], v)
 
-    # Extract conflict from text using LLM
     conflict = INTAKE.extract_conflict(situation_input, m)
     pers_dict = INTAKE.get_personality_from_description(situation_input)
     person = SimPerson(
@@ -479,26 +485,25 @@ def run_custom():
         agreeableness=pers_dict.get("agreeableness", 0.5),
         neuroticism=pers_dict.get("neuroticism", 0.5)
     )
-    
-    budget = ResourceBudget(time=24, money=1000, energy=100)
-    
-    # RAG: Build memory context for the trained model
+
+    budget = ResourceBudget(time_hours=24.0, money_dollars=1000.0, energy_units=100.0)
+
     few_shot = MEMORY.build_few_shot_prompt(conflict.title, m.flatten())
-    
+
     action = AGENT.get_action(m, budget, conflict, person, few_shot_context=few_shot)
     _normalize_action_metric_changes(action)
-    
-    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, 
-                                     m.mental_wellbeing.stress_level)
-    
+
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                      m.mental_wellbeing.stress_level)
+
     env = LifeStackEnv()
     env.state.current_metrics = copy.deepcopy(m)
-    env.state.budget = budget
-    
+    env.state.budget = copy.deepcopy(budget)
+
     env_action = LifeStackAction.from_agent_action(action)
     env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
     obs = env.step(env_action)
-    
+
     return jsonify({
         "before_metrics": m.flatten(),
         "after_metrics": obs.metrics,
@@ -510,7 +515,8 @@ def run_custom():
             "reasoning": action.reasoning,
             "id": "".join(str(uuid.uuid4()).split("-")[:2]).upper()
         },
-        "person": {"name": person.name or "Inferred Self"}
+        "person": {"name": person.name or "Inferred Self"},
+        "conflict_inferred": conflict.title,
     })
 
 @app.route('/api/gmail/sync', methods=['POST'])
@@ -1183,4 +1189,4 @@ def server_error_handler(e):
 
 if __name__ == '__main__':
     LONG_DEMO.pre_seed_arjun()
-    app.run(host='0.0.0.0', port=7860, debug=True)
+    app.run(host='0.0.0.0', port=7860, debug=False)

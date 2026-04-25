@@ -17,7 +17,11 @@ class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
         self.hf_token = os.getenv('HF_TOKEN')
-        self.api_only = api_only
+
+        # On HF Spaces the container lacks enough VRAM headroom to load the full
+        # base model alongside Flask + ChromaDB. Force API-only to prevent OOM kills.
+        on_hf_spaces = bool(os.getenv('SPACE_ID') or os.getenv('SPACE_AUTHOR_NAME'))
+        self.api_only = api_only or on_hf_spaces
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
 
         if not self.api_only and not self.local_model_path and os.path.exists("./lifestack_model"):

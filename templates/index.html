@@ -281,7 +281,12 @@
 
                 <!-- Right: result -->
                 <div id="custom-result" class="hidden glass p-6 rounded-2xl overflow-y-auto max-h-[620px]">
-                    <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold">Personalised Resolution</h3><span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span></div>
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-bold">Personalised Resolution</h3>
+                        <span id="custom-id" class="text-[10px] font-mono opacity-40">ID: --</span>
+                    </div>
+                    <div id="custom-inferred-conflict" class="mb-4 text-[10px] font-black text-indigo-400 uppercase tracking-widest"></div>
+                    <div id="custom-error" class="hidden mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-300 font-bold"></div>
                     <div id="custom-metrics-grid" class="mb-8"></div>
                     <div id="custom-plan" class="p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl space-y-4"></div>
                 </div>
@@ -1309,37 +1314,49 @@
             btn.disabled = true; 
             btn.innerHTML = `<span class="flex items-center justify-center gap-2"><svg class="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 🧠 Analysing NLP Context...</span>`;
             
+            const errBox = document.getElementById('custom-error');
+            errBox.classList.add('hidden');
+            document.getElementById('custom-result').classList.remove('hidden');
+
             try {
                 const res = await fetch('/api/custom/run', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
-                        situation: sit, 
+                        situation: sit,
                         work_stress: document.getElementById('custom-work').value,
                         money_stress: document.getElementById('custom-money').value,
                         rel_quality: document.getElementById('custom-rel').value,
                         energy_level: document.getElementById('custom-energy').value,
-                        time_pressure: 7, // Fixed reasonable default for custom cases
                         gmail_signals: globalGmailSignals
                     })
                 });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`Server error ${res.status}: ${errText.substring(0, 120)}`);
+                }
                 const data = await res.json();
-                
-                // Show "Before" metrics first
-                document.getElementById('custom-result').classList.remove('hidden');
+
                 document.getElementById('custom-id').innerText = `ID: ${data.action.id}`;
+                if (data.conflict_inferred) {
+                    document.getElementById('custom-inferred-conflict').innerText = `Inferred conflict: ${data.conflict_inferred}`;
+                }
+
+                // Animate: show before metrics, then transition to after
                 renderMetrics('custom-metrics-grid', data.before_metrics);
-                
-                // Fetch and run cascade animation for this custom conflict
-                // (Note: custom conflicts don't have a label, we'd need a separate logic or pass disruption)
-                // For simplicity in the demo, we show the jump, but we can animate the delta
-                await new Promise(r => setTimeout(r, 800));
-                
+                await new Promise(r => setTimeout(r, 700));
                 renderMetrics('custom-metrics-grid', data.after_metrics, {}, data.before_metrics);
-                document.getElementById('custom-plan').innerHTML = `<h4 class="font-black text-indigo-400 uppercase tracking-tighter text-xl">THE PLAN: ${data.action.type} → ${data.action.target}</h4><p class="text-sm font-bold text-slate-200">"${data.action.description}"</p><div class="text-xs text-indigo-300 italic p-3 bg-indigo-500/10 rounded-lg"><b>Strategy:</b> ${data.action.reasoning}</div><div class="text-[10px] uppercase font-black text-slate-500">Subject: ${data.person.name}</div>`;
+
+                document.getElementById('custom-plan').innerHTML = `
+                    <h4 class="font-black text-indigo-400 uppercase tracking-tighter text-lg">THE PLAN: ${data.action.type} → ${data.action.target}</h4>
+                    <p class="text-sm font-bold text-slate-200">"${data.action.description}"</p>
+                    <div class="text-xs text-indigo-300 italic p-3 bg-indigo-500/10 rounded-lg"><b>Strategy:</b> ${data.action.reasoning}</div>
+                    <div class="text-[10px] uppercase font-black text-slate-500 mt-2">Inferred persona: ${data.person.name}</div>`;
             } catch (e) {
                 console.error(e);
+                errBox.innerText = e.message;
+                errBox.classList.remove('hidden');
             } finally {
-                btn.disabled = false; btn.innerText = originalText;
+                btn.disabled = false; btn.innerHTML = originalText;
             }
         }
 
