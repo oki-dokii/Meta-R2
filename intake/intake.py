@@ -187,8 +187,20 @@ class LifeIntake:
 
         raw = self._call_llm(prompt, max_tokens=400)
 
+        # Robust JSON extraction
+        import re
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if not json_match:
+            print(f"  ⚠️ No JSON found in LLM response: {raw}")
+            kw = self._match_template_by_keywords(user_description)
+            if kw: return kw
+            return ConflictEvent(id="custom_intake", title="Your Situation", story=user_description or "Feeling overwhelmed.", 
+                                primary_disruption={"mental_wellbeing.stress_level": 20.0},
+                                decisions_required=["Take action", "Seek help", "Rest"],
+                                resource_budget={"time": 10.0, "money": 200.0, "energy": 50.0}, difficulty=3)
+
         try:
-            data = json.loads(raw)
+            data = json.loads(json_match.group(0))
             disruption = {}
             for k, v in data.get("primary_disruption", {}).items():
                 norm_key = normalize_metric_path(k)

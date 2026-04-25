@@ -37,7 +37,7 @@ app.secret_key = "lifestack_secret_key_2026"
 AGENT  = LifeStackAgent()
 MEMORY = LifeStackMemory(silent=True)
 INTAKE = LifeIntake()
-USER_HEALTH_OVERRIDES: dict = {}          # persisted health/calendar metric deltas
+USER_STATE_OVERRIDES: dict = {}           # persisted health/calendar metric deltas
 EPISODE_HISTORY: deque = deque(maxlen=5)  # ring buffer, most recent first
 
 @app.route('/api/history', methods=['GET'])
@@ -451,7 +451,7 @@ def run_custom():
     m.time.free_time = (10 - float(data.get('time_pressure', 5))) * 10
     
     # Apply uploaded health/calendar overrides to custom metrics
-    for path, delta in USER_HEALTH_OVERRIDES.items():
+    for path, delta in USER_STATE_OVERRIDES.items():
         if '.' in path:
             dom, sub = path.split('.', 1)
             dom_obj = getattr(m, dom, None)
@@ -1135,7 +1135,7 @@ def upload_health_data():
     }
     summary = f"Sleep {sleep:.1f}h | HR {hr:.0f}bpm | Steps {int(steps):,}/day"
     # Persist overrides so future simulations use the uploaded health data
-    USER_HEALTH_OVERRIDES.update(deltas)
+    USER_STATE_OVERRIDES.update(deltas)
     return jsonify({"status": "success", "deltas": deltas, "summary": summary,
                     "signals": {"avg_sleep_hours": sleep, "resting_heart_rate": hr, "daily_steps_avg": steps}})
 
@@ -1155,6 +1155,8 @@ def upload_calendar_data():
         "career.workload": round((occupancy - 50) / 2 + critical_count * 5, 1),
     }
     summary = f"Occupancy {occupancy:.0f}% | {len(deadlines)} deadlines ({critical_count} critical)"
+    # Persist overrides so future simulations use the uploaded calendar data
+    USER_STATE_OVERRIDES.update(deltas)
     return jsonify({"status": "success", "deltas": deltas, "summary": summary,
                     "signals": {"week_occupancy_pct": occupancy, "back_to_back_blocks": btb,
                                 "upcoming_deadlines": deadlines}})
