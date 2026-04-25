@@ -32,3 +32,4 @@ data/*
 credentials.json
 token.json
 *.pickle
+.uv/

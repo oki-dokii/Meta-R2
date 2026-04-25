@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lifestack"
+version = "1.1.0"
+description = "Premium multi-domain life conflict resolution simulation — OpenEnv environment."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # OpenEnv — mandatory requirement
+    "openenv-core>=0.2.3",
+    # OpenEnv runtime deps (explicit to survive Docker + HF Spaces)
+    "fastapi>=0.110.0",
+    "fastmcp>=2.0.0",
+    "httpx>=0.27.0",
+    "uvicorn>=0.30.0",
+    # LLM client
+    "openai>=1.30.0",
+    "pydantic>=2.7.0",
+    # RAG Memory
+    "chromadb>=0.5.0",
+    "sentence-transformers>=2.7.0",
+    # Flask dashboard
+    "flask>=3.0.0",
+    # Plotting / numerics
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
+    "gymnasium>=0.29.0",
+    # HuggingFace Hub
+    "huggingface_hub>=0.23.0",
+    # Calendar
+    "icalendar>=5.0.0",
+    # Google API (Gmail Intake)
+    "google-auth>=2.29.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-api-python-client>=2.128.0",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "agent", "intake", "scripts", "server"]

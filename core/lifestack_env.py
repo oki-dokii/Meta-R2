@@ -8,37 +8,46 @@ from core.reward import compute_reward, compute_task_reward
 from core.task import Task, ExoEvent, Route, Milestone, FlightCrisisTask
 from core.verifier import LifeStackVerifier
 
+_openenv_import_error: Optional[str] = None
 try:
     from openenv.core import Environment, Action, Observation, State
     from openenv.core.env_server.types import EnvironmentMetadata
     from openenv.core.rubrics import Rubric
     USING_MODERN_API = True
-except ImportError:
+except Exception as _e:
+    _openenv_import_error = f"{type(_e).__name__}: {_e}"
+    import warnings
+    warnings.warn(
+        f"openenv.core modern API unavailable ({_openenv_import_error}); "
+        "falling back to shim. Ensure openenv-core>=0.2.3 and its deps "
+        "(fastapi, fastmcp) are installed.",
+        stacklevel=1,
+    )
     try:
-        from openenv.env import Env as Environment
+        from openenv.env import Env as Environment  # type: ignore[no-redef]
         from pydantic import BaseModel
-        # Shims for missing classes in older/alternative openenv
-        class Action(BaseModel): pass
-        class Observation(BaseModel): pass
-        class State(BaseModel): pass
-        class Rubric:
+        class Action(BaseModel): pass  # type: ignore[no-redef]
+        class Observation(BaseModel): pass  # type: ignore[no-redef]
+        class State(BaseModel): pass  # type: ignore[no-redef]
+        class Rubric:  # type: ignore[no-redef]
             def __init__(self, *a, **k): pass
-            def compute(self, *a, **k): return 0.0
+            def forward(self, *a, **k): return 0.0
         EnvironmentMetadata = None
         USING_MODERN_API = False
-    except ImportError:
-        # Final fallback — must use BaseModel so Pydantic subclasses work
+    except Exception:
         from pydantic import BaseModel
-        class Environment:
-            def __init__(self, rubric=None): self.rubric = rubric
+        class Environment:  # type: ignore[no-redef]
+            def __init__(self, rubric=None, transform=None):
+                self.rubric = rubric
+                self.transform = transform
             def reset(self, *a, **k): pass
             def step(self, *a, **k): pass
-        class Action(BaseModel): pass
-        class Observation(BaseModel): pass
-        class State(BaseModel): pass
-        class Rubric:
+        class Action(BaseModel): pass  # type: ignore[no-redef]
+        class Observation(BaseModel): pass  # type: ignore[no-redef]
+        class State(BaseModel): pass  # type: ignore[no-redef]
+        class Rubric:  # type: ignore[no-redef]
             def __init__(self, *a, **k): pass
-            def compute(self, *a, **k): return 0.0
+            def forward(self, *a, **k): return 0.0
         EnvironmentMetadata = None
         USING_MODERN_API = False
 
