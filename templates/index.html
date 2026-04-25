@@ -1356,44 +1356,45 @@
             document.getElementById('lab-col-a').classList.remove('hidden');
             document.getElementById('lab-col-b').classList.remove('hidden');
 
-            // Try dedicated OCEAN endpoint first
             try {
+                // Try dedicated OCEAN endpoint 
                 const res = await fetch('/api/personality/compare', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ conflict, person_a: personA, person_b: personB })
                 });
                 const data = await res.json();
-                if (!data.error) {
+                
+                if (data && !data.error && data.a && data.b) {
                     ['a', 'b'].forEach(s => {
                         const d = data[s];
                         document.getElementById(`lab-name-${s}`).innerText = d.name;
-                        document.getElementById(`lab-reward-${s}`).innerText = `Score: ${d.action.reward.toFixed(2)}`;
-                        document.getElementById(`lab-action-${s}`).innerText = `PLAN: ${d.action.type.toUpperCase()} → ${d.action.target.toUpperCase()}`;
-                        document.getElementById(`lab-reason-${s}`).innerText = d.action.reasoning;
-                        renderMetrics(`lab-metrics-${s}`, d.metrics);
+                        document.getElementById(`lab-reward-${s}`).innerText = `Score: ${(d.action.reward || 0).toFixed(2)}`;
+                        document.getElementById(`lab-action-${s}`).innerText = `PLAN: ${(d.action.type || 'N/A').toUpperCase()} → ${(d.action.target || 'N/A').toUpperCase()}`;
+                        document.getElementById(`lab-reason-${s}`).innerText = d.action.reasoning || 'No reasoning provided.';
+                        renderMetrics(`lab-metrics-${s}`, d.metrics || {});
                     });
                     renderOceanRadar(data.a, data.b);
-                    btn.disabled = false; btn.innerText = "🔥 Compare Response";
-                    return;
+                } else {
+                    // Fallback: run individual simulations
+                    const runSim = async (person, suffix) => {
+                        const sres = await fetch('/api/simulation/action', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({person, conflict})
+                        });
+                        const sdata = await sres.json();
+                        document.getElementById(`lab-name-${suffix}`).innerText = person.split('(')[0];
+                        document.getElementById(`lab-reward-${suffix}`).innerText = `Score: ${(sdata.action.reward || 0).toFixed(2)}`;
+                        document.getElementById(`lab-action-${suffix}`).innerText = `PLAN: ${(sdata.action.type || 'N/A').toUpperCase()} → ${(sdata.action.target || 'N/A').toUpperCase()}`;
+                        document.getElementById(`lab-reason-${suffix}`).innerText = sdata.action.reasoning || 'No reasoning provided.';
+                        renderMetrics(`lab-metrics-${suffix}`, sdata.metrics || {});
+                    };
+                    await Promise.all([runSim(personA, 'a'), runSim(personB, 'b')]);
                 }
-            } catch(e) { /* fall through to legacy path */ }
-
-            // Fallback: use /api/simulation/action (no OCEAN radar)
-            const runSim = async (person, suffix) => {
-                const res = await fetch('/api/simulation/action', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({person, conflict})
-                });
-                const data = await res.json();
-                document.getElementById(`lab-name-${suffix}`).innerText = person.split('(')[0];
-                document.getElementById(`lab-reward-${suffix}`).innerText = `Score: ${data.action.reward.toFixed(2)}`;
-                document.getElementById(`lab-action-${suffix}`).innerText = `PLAN: ${data.action.type.toUpperCase()} → ${data.action.target.toUpperCase()}`;
-                document.getElementById(`lab-reason-${suffix}`).innerText = data.action.reasoning;
-                renderMetrics(`lab-metrics-${suffix}`, data.metrics);
-            };
-
-            await Promise.all([runSim(personA, 'a'), runSim(personB, 'b')]);
-            btn.disabled = false; btn.innerText = "🔥 Compare Response";
+            } catch(e) {
+                console.error("Personality Lab Error:", e);
+            } finally {
+                btn.disabled = false; btn.innerText = "🔥 Compare Response";
+            }
         }
     </script>
 </body>

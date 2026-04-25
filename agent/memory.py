@@ -208,7 +208,7 @@ class LifeStackMemory:
 
         output = []
         for i, meta in enumerate(results['metadatas'][0]):
-            if meta.get("reward", 0.0) < 0.5: # Filter for high reward at retrieval time
+            if meta.get("reward", 0.0) < 0.05: # Filter out negative/zero reward decisions
                 continue
             if len(output) >= n:
                 break
@@ -255,7 +255,7 @@ class LifeStackMemory:
 
         by_route = defaultdict(int)
         for m in metadatas:
-            route = m.get("route_taken", "unknown")
+            route = m.get("route_taken") or m.get("route_outcome") or "unknown"
             first_action = route.split(' ')[0] if route else "unknown"
             by_route[first_action] += 1
 
