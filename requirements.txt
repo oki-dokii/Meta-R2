@@ -24,13 +24,26 @@ uvicorn>=0.30.0
 # Utilities (stdlib — listed for clarity)
 # json, os, copy, random, math, uuid, shutil, datetime — no install needed
 
-# TRL / PPO Framework Training (Optional on demo server)
-torch>=2.0.0
+# ── Training framework (GPU instance required for full training) ──────────────
+torch>=2.1.0
 transformers>=4.40.0
-trl>=0.8.0
+# TRL >= 1.1 for GRPOTrainer with full feature set
+trl>=1.1.0
 accelerate>=0.29.0
 peft>=0.10.0
-bitsandbytes>=0.46.1
+bitsandbytes>=0.43.0
+datasets>=2.14.0
+
+# Unsloth — fast fine-tuning (hackathon judging requirement)
+# Standard install works for most GPU environments (A100, H100, T4, L4):
+#   pip install unsloth
+# For HF Spaces / Colab with known CUDA version:
+#   pip install "unsloth[cu121-torch240]"   # CUDA 12.1 + PyTorch 2.4.0
+#   pip install "unsloth[cu118-torch220]"   # CUDA 11.8 + PyTorch 2.2.0
+# Fallback (always works, slightly slower first run):
+#   pip install "unsloth @ git+https://github.com/unslothai/unsloth.git"
+unsloth
+
 # Google API (Gmail Intake)
 google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0

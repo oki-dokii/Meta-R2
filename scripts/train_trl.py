@@ -201,6 +201,29 @@ def _patched_get_train_sampler(self, *args, **kwargs):
 GRPOTrainer._get_train_sampler = _patched_get_train_sampler
 
 # ──────────────────────────────────────────────────────────────────────────────
+# TRL version-safe GRPOConfig constructor
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _make_grpo_config(**kwargs) -> GRPOConfig:
+    """
+    Build a GRPOConfig while silently dropping kwargs not supported by the
+    installed TRL version.
+
+    Background: GRPOConfig fields differ across TRL minor versions.
+    For example, `max_prompt_length` was added mid-1.x; older TRL 1.2.0
+    wheels on Python 3.10 (HF Spaces) do not have it, causing TypeError.
+    This wrapper makes the training script compatible with all 1.x builds.
+    """
+    import dataclasses
+    supported = {f.name for f in dataclasses.fields(GRPOConfig)}
+    filtered = {k: v for k, v in kwargs.items() if k in supported}
+    dropped = sorted(set(kwargs) - set(filtered))
+    if dropped:
+        print(f"[trl-compat] GRPOConfig: skipping unsupported fields for this TRL build: {dropped}")
+    return GRPOConfig(**filtered)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # JSON boundary helper — used by reward_compact_fn AND LifeStackGRPOTrainer
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1382,7 +1405,7 @@ def train_curriculum(
         stage_lr = stage_lr_schedule.get(stage, 1e-6)
 
         # ── GRPOConfig with checkpoint cadence ───────────────────────────
-        config = GRPOConfig(
+        config = _make_grpo_config(
             output_dir=stage_dir,
             num_train_epochs=1,
             per_device_train_batch_size=4,
@@ -1538,7 +1561,7 @@ def train_episodic_curriculum(
         else:
             max_completion = int(max_completion_length)
 
-        config = GRPOConfig(
+        config = _make_grpo_config(
             output_dir=stage_dir,
             num_train_epochs=num_train_epochs,
             per_device_train_batch_size=4,
@@ -1800,7 +1823,7 @@ def dry_run(
     else:
         comp = int(max_completion_length)
 
-    config = GRPOConfig(
+    config = _make_grpo_config(
         output_dir=output_dir,
         num_train_epochs=1,
         per_device_train_batch_size=4,
