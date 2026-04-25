@@ -41,18 +41,37 @@ def _install_trl_optional_dependency_shims() -> None:
     # Always install shims before importing TRL.
     # This avoids failures from incompatible optional dependency versions.
     mergekit_mod = types.ModuleType("mergekit")
+    mergekit_mod.__path__ = []  # mark as package
     mergekit_config_mod = types.ModuleType("mergekit.config")
+    mergekit_merge_mod = types.ModuleType("mergekit.merge")
 
     class MergeConfiguration:  # noqa: D401
         """Compatibility placeholder for TRL optional mergekit import."""
-        pass
+
+        @classmethod
+        def model_validate(cls, data):
+            return data
+
+    class MergeOptions:  # noqa: D401
+        """Compatibility placeholder for TRL optional mergekit import."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def run_merge(*args, **kwargs):
+        return None
 
     mergekit_config_mod.MergeConfiguration = MergeConfiguration
+    mergekit_merge_mod.MergeOptions = MergeOptions
+    mergekit_merge_mod.run_merge = run_merge
     mergekit_mod.config = mergekit_config_mod
+    mergekit_mod.merge = mergekit_merge_mod
     mergekit_mod.__spec__ = importlib.machinery.ModuleSpec("mergekit", loader=None)
     mergekit_config_mod.__spec__ = importlib.machinery.ModuleSpec("mergekit.config", loader=None)
+    mergekit_merge_mod.__spec__ = importlib.machinery.ModuleSpec("mergekit.merge", loader=None)
     sys.modules["mergekit"] = mergekit_mod
     sys.modules["mergekit.config"] = mergekit_config_mod
+    sys.modules["mergekit.merge"] = mergekit_merge_mod
 
     llm_blender_mod = types.ModuleType("llm_blender")
 
@@ -71,6 +90,29 @@ def _install_trl_optional_dependency_shims() -> None:
     llm_blender_mod.Blender = Blender
     llm_blender_mod.__spec__ = importlib.machinery.ModuleSpec("llm_blender", loader=None)
     sys.modules["llm_blender"] = llm_blender_mod
+    # vLLM is optional for GRPO; provide import-safe shim for environments
+    # where import checks pass but real import fails due incomplete installs.
+    vllm_mod = types.ModuleType("vllm")
+
+    class SamplingParams:  # noqa: D401
+        """Compatibility placeholder for TRL optional vllm import."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class LLM:  # noqa: D401
+        """Compatibility placeholder for TRL optional vllm import."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def generate(self, *args, **kwargs):
+            return []
+
+    vllm_mod.SamplingParams = SamplingParams
+    vllm_mod.LLM = LLM
+    vllm_mod.__spec__ = importlib.machinery.ModuleSpec("vllm", loader=None)
+    sys.modules["vllm"] = vllm_mod
     print("[warning] using local shims for mergekit/llm_blender compatibility.")
 
 
@@ -158,6 +200,31 @@ def load_model():
         model = get_peft_model(model, lora_cfg)
         model.print_trainable_parameters()
         return model, tokenizer
+
+
+def load_model_for_dry_run():
+    """
+    Tiny CPU-friendly model used only for --dry-run pipeline validation.
+    Keeps dry-run fast and avoids downloading multi-GB checkpoints locally.
+    """
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    model_name = "sshleifer/tiny-gpt2"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        dtype=torch.float32,
+        device_map="auto",
+    )
+    # TRL GRPO expects this field on some model classes; add for tiny GPT2.
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
+    model.eval()
+    print(f"  Using tiny dry-run model: {model_name}")
+    return model, tokenizer
 
 
 # ──────────────────────────────────────────────
@@ -949,7 +1016,7 @@ def dry_run(output_dir: str = "./lifestack_model_dryrun"):
     print("🧪 LIFESTACK DRY-RUN (1 step, CPU, tiny dataset)")
     print("=" * 60)
 
-    model, tokenizer = load_model()
+    model, tokenizer = load_model_for_dry_run()
 
     dataset = generate_dataset(n_prompts=4, difficulty=1)
     print(f"  Dataset size : {len(dataset)} prompts")
