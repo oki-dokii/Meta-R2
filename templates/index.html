@@ -1580,6 +1580,16 @@
             await loadTaskDemo();
         }
 
+        function updateFeedbackLoopCard(count) {
+            const statNodes = Array.from(document.querySelectorAll('#stats-container .text-[9px]'));
+            const feedbackLabel = statNodes.find(node => node.textContent.trim() === 'Feedback Loops');
+            const card = feedbackLabel?.closest('.rounded-2xl');
+            const valueNode = card?.querySelector('.text-3xl');
+            if (valueNode && Number.isFinite(Number(count))) {
+                valueNode.textContent = String(count);
+            }
+        }
+
         async function submitFeedback(e) {
             e.preventDefault();
             const formData = new FormData(e.target);
@@ -1600,6 +1610,7 @@
 
             statusEl.innerText = `✅ ${data.message || 'Outcome feedback stored.'}`;
             e.target.reset();
+            updateFeedbackLoopCard(data.feedback_count);
             await loadStats();
         }
 

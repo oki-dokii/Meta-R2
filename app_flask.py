@@ -1168,7 +1168,11 @@ def submit_feedback():
             resolution_time_hours=float(data.get('time', 1.0))
         )
         MEMORY.store_feedback(feedback)
-        return jsonify({"status": "success", "message": f"Feedback stored for episode {feedback.episode_id}"})
+        return jsonify({
+            "status": "success",
+            "message": f"Feedback stored for episode {feedback.episode_id}",
+            "feedback_count": MEMORY.feedback_collection.count(),
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
