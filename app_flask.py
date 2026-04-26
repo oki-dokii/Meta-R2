@@ -991,7 +991,6 @@ def get_stats():
     from collections import Counter
     stats = MEMORY.get_stats()
     all_records = []
-    feedback_records = []
     try:
         raw = MEMORY.collection.get(include=["metadatas"])
         all_records = raw.get("metadatas", [])
@@ -999,12 +998,9 @@ def get_stats():
         pass
 
     try:
-        raw_feedback = MEMORY.feedback_collection.get(include=["metadatas"])
-        feedback_records = raw_feedback.get("metadatas", [])
+        stats["feedback_count"] = MEMORY.feedback_collection.count()
     except Exception:
-        pass
-
-    stats["feedback_count"] = len(feedback_records)
+        stats["feedback_count"] = 0
 
     # Sort by timestamp so the reward chart is chronological
     timed = [m for m in all_records if "reward" in m and "timestamp" in m]

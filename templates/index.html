@@ -1560,7 +1560,28 @@
             await loadTaskDemo();
         }
 
-        async function submitFeedback(e) { e.preventDefault(); const formData = new FormData(e.target); const res = await fetch('/api/feedback/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(formData.entries())) }); document.getElementById('fb-status').innerText = "✅ Outcome Broadcasted to ChromaDB!"; e.target.reset(); }
+        async function submitFeedback(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const statusEl = document.getElementById('fb-status');
+            statusEl.innerText = "Broadcasting feedback...";
+
+            const res = await fetch('/api/feedback/submit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(Object.fromEntries(formData.entries()))
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                statusEl.innerText = `❌ ${data.message || data.error || 'Feedback submission failed.'}`;
+                return;
+            }
+
+            statusEl.innerText = `✅ ${data.message || 'Outcome feedback stored.'}`;
+            e.target.reset();
+            await loadStats();
+        }
 
         // ── Model Evolution: v1 vs v2 vs v3 vs v4 HF adapters ──
         async function runModelEvolution() {
