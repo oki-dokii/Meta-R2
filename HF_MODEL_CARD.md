@@ -135,14 +135,15 @@ Status: ✅ consistent performance, best model
 
 ### Progression Summary
 
-| Run | Eval Mean Reward | Key Fix |
-|---|---|---|
-| Run 1 | −0.47 | — (broken) |
-| Run 2 | −0.41 | Shorter completions |
-| **Run 3** | **−0.010** | **Greedy regex extraction (+97%)** |
-| Run 4 | −0.100 | 5-stage curriculum, tighter budget |
+| Run | Model | Reward (total) | Episode Return | Key Fix |
+|---|---|---|---|---|
+| Run 1 | v1 | −0.47 | — | — (broken) |
+| Run 2 | v1 | −0.41 | — | Shorter completions |
+| **Run 3** | **v1** | **−0.010** | — | **Greedy regex extraction (+97%)** |
+| Run 4 | v1 | −0.100 | — | 5-stage curriculum, tighter budget |
+| **v3 (episodic)** | **v3** | **−0.77** | **+0.140** | **Multi-step episodes, difficulty 1→2→3** |
 
-> The degradation from −0.010 to −0.100 between runs 3 and 4 is expected: run 4 uses harder tasks, more reward signals (7-day rollout now penalises short-sighted actions), and a tighter token budget. More rigorous evaluation, not worse performance.
+> **v3 note**: Total GRPO reward is dominated by `reward_compact_fn: −0.5` (flat, no variance — model still fills 768-token budget). The meaningful signal is `reward_episode_return_fn: +0.140`, which is the actual environment outcome score. `frac_reward_zero_std = 0%` confirms real gradient flow throughout all 135 steps. The model trained on difficulty 1→2→3 conflict sequences.
 
 ---
 
