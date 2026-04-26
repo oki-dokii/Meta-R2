@@ -619,7 +619,7 @@
             <!-- ── KEY FINDINGS ── -->
             <div class="glass p-6 rounded-2xl">
                 <h3 class="text-sm font-black uppercase tracking-widest text-slate-300 mb-4">Key Findings</h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div class="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
                         <div class="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2">The Fix That Mattered</div>
                         <p class="text-xs text-slate-300 leading-relaxed">Replacing <code class="text-emerald-300">json.loads(full_text)</code> with greedy regex extraction <code class="text-emerald-300">re.search(r'\{.*\}', text, re.DOTALL)</code> caused a <b>97% improvement within training runs</b> and +85.7% over the base model.</p>
@@ -630,7 +630,11 @@
                     </div>
                     <div class="p-4 bg-violet-500/5 border border-violet-500/10 rounded-xl">
                         <div class="text-[9px] font-black text-violet-400 uppercase tracking-widest mb-2">New Capability: Multi-Step</div>
-                        <p class="text-xs text-slate-300 leading-relaxed">v3's +0.140 episode return is <b>not comparable</b> to the single-step baseline — it measures 3-action sequences with γ=0.9 discounting. The base model has zero multi-step planning capability.</p>
+                        <p class="text-xs text-slate-300 leading-relaxed">v3/v4's +0.140 episode return is <b>not comparable</b> to the single-step baseline — it measures 3-action sequences with γ=0.9 discounting. The base model has zero multi-step planning capability.</p>
+                    </div>
+                    <div class="p-4 bg-orange-500/5 border border-orange-500/10 rounded-xl">
+                        <div class="text-[9px] font-black text-orange-400 uppercase tracking-widest mb-2">v4: Best Model Yet</div>
+                        <p class="text-xs text-slate-300 leading-relaxed">v4 hit peak reward <b>0.856</b> and format score <b>0.660</b> — both highest across all runs. First training run to produce <b>natural EOS terminations</b> (model stopping after JSON without hitting the token cap).</p>
                     </div>
                 </div>
             </div>
