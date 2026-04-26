@@ -86,7 +86,7 @@ The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                      LifeStackEnv                          │  │
 │  │  ┌─────────────┐  ┌─────────────────┐  ┌───────────────┐   │  │
-│  │  │ WorldEngine │  │ DependencyGraph  │  │LifeStackVerif-│  │  │
+│  │  │ WorldEngine │  │ DependencyGraph │  │LifeStackVerif-│   │  │
 │  │  │ (ExoEvents) │─►│ 32 edges        │  │ier (anti-hack)│   │  │
 │  │  └─────────────┘  │ 0.6 dampening   │  └───────────────┘   │  │
 │  │                   └───────┬─────────┘                      │  │
