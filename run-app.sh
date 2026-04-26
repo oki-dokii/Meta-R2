@@ -11,4 +11,4 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 cd "${ROOT_DIR}"
-exec "${VENV_PYTHON}" "${ROOT_DIR}/app.py" "$@"
+exec "${VENV_PYTHON}" "${ROOT_DIR}/app_flask.py" "$@"

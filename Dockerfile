@@ -2,8 +2,11 @@
 FROM python:3.11-slim
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+# Tell OpenEnv server which port to use
+ENV OPENENV_PORT=8000
+ENV OPENENV_HOST=0.0.0.0
 
 # Set working directory
 WORKDIR /app
@@ -19,14 +22,18 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
-
+# Copy all project files
 COPY . .
 
-# OpenEnv server port
-EXPOSE 8000
-# Gradio demo port
-EXPOSE 7860
+# Make start script executable
+RUN chmod +x start.sh
 
-# Default command: run the Flask Dashboard
-CMD ["python", "app_flask.py"]
+# Port 7860 — Flask UI (HuggingFace health-check target)
+EXPOSE 7860
+# Port 8000 — OpenEnv HTTP + WebSocket server (EnvClient target)
+EXPOSE 8000
+
+# Run both services via start.sh.
+# Flask (7860) is the foreground process so HF sees the Space as healthy.
+# OpenEnv server (8000) runs in the background alongside it.
+CMD ["bash", "start.sh"]

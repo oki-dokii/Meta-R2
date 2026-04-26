@@ -1,3 +1,13 @@
+---
+title: LifeStack
+emoji: 🪐
+colorFrom: indigo
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: true
+---
+
 # LifeStack
 
 **LifeStack** trains **Qwen2.5-1.5B-Instruct** with **GRPO** (Group Relative Policy Optimization) using **Hugging Face TRL 0.15.1** and **Unsloth** so the model can propose **structured JSON action plans** for everyday crises across **eight domains**.

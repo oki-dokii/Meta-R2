@@ -1428,4 +1428,5 @@ if __name__ == '__main__':
         LONG_DEMO.pre_seed_arjun()
     except Exception as e:
         print(f"⚠️ Pre-seeding failed (likely ChromaDB lock): {e}")
-    app.run(host='0.0.0.0', port=7860, debug=False)
+    port = int(os.environ.get("PORT", 7860))
+    app.run(host='0.0.0.0', port=port, debug=False)

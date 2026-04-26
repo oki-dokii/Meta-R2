@@ -1,3 +1,9 @@
 docs/training_curves.png
 docs/reward_curve.png
 data/*.png
+*.pyc
+__pycache__/
+.git/
+.uv/
+.DS_Store
+*.zip
