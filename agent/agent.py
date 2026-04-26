@@ -200,6 +200,13 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         text = re.sub(r',\s*([}\]])', r'\1', text)          # trailing commas
         text = re.sub(r"(?<![\"\\])'([^']*?)'", r'"\1"', text)  # single → double quotes
 
+        # Stage 4: fix numeric quirks from GRPO model output
+        text = re.sub(r'(?<=:)\s*\+(\d)', r' \1', text)    # +5 → 5 (invalid JSON)
+        text = re.sub(r'\bNaN\b', '0', text)               # NaN → 0
+        text = re.sub(r'\bInfinity\b', '100', text)        # Infinity → 100
+        text = re.sub(r'\bdelta\b', '0', text)             # template placeholder not replaced
+
+        print(f"[json-repair] attempting parse on: {text[:120]}")
         return json.loads(text)
 
     _VALID_ACTION_TYPES = {
