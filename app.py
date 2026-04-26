@@ -1436,11 +1436,6 @@ with gr.Blocks(
                     the stored memory and reasons differently — showing the RAG flywheel in action.
                   </div>
                 </div>
-                <div style='background:#14532d;border:1px solid #22c55e;border-radius:20px;
-                            padding:6px 16px;font-size:13px;font-weight:700;color:#22c55e;
-                            white-space:nowrap'>
-                  +116% EFFICIENCY
-                </div>
               </div>
             </div>
             """)
