@@ -29,16 +29,6 @@ class LifeStackAgent:
         if not self.api_only and not self.local_model_path:
             self.local_model_path = DEFAULT_HF_MODEL_REPO
 
-        from huggingface_hub import InferenceClient
-        self.hf_client = None
-        if self.hf_token:
-            print("🚀 HF_TOKEN found. Using authenticated HF Inference.")
-            self.hf_client = InferenceClient(token=self.hf_token)
-        else:
-            # Public model access — no auth needed for public repos
-            self.hf_client = InferenceClient()
-        self.hf_model = os.getenv("LIFESTACK_HF_MODEL", DEFAULT_HF_MODEL_REPO)
-
         if self.api_key:
             self.client = OpenAI(
                 base_url='https://api.groq.com/openai/v1',
@@ -50,6 +40,12 @@ class LifeStackAgent:
         self._model_load_attempted = False
         self._last_model_name = "unknown"
         self.memory = []
+
+        # Eager background model load — starts loading weights immediately at
+        # init so the first real request doesn't pay the cold-start penalty.
+        if not self.api_only and self.local_model_path:
+            import threading
+            threading.Thread(target=self._try_load_model, daemon=True).start()
 
     def _try_load_model(self):
         self._model_load_attempted = True
@@ -181,9 +177,8 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         Call the best available backend and return raw text.
 
         Priority order:
-          1. Local GRPO adapter (if loaded and not force_api)
-          2. HF InferenceClient → jdsb06/lifestack-grpo-v3  (trained model via HF Serverless)
-          3. Groq 70B (general-purpose fallback — skipped when trained_model_only=True)
+          1. Local GRPO adapter weights (loaded at startup in background thread)
+          2. Groq 70B (general-purpose fallback — skipped when trained_model_only=True)
 
         trained_model_only=True is used for counterfactual generation so that
         the What-If Lab always reflects the trained model's policy, never Groq.
@@ -207,22 +202,9 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                 outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
             ).strip()
 
-        # 2. Trained GRPO model via HF Serverless Inference (jdsb06/lifestack-grpo-v3)
-        elif self.hf_client:
-            self._last_model_name = f"hf:{self.hf_model}"
-            try:
-                content = self.hf_client.text_generation(
-                    prompt, model=self.hf_model, max_new_tokens=512, temperature=temperature
-                )
-                if prompt in content:
-                    content = content.replace(prompt, "").strip()
-            except Exception as hf_err:
-                if trained_model_only:
-                    print(f"⚠️ HF Inference Error: {hf_err}. trained_model_only=True — not falling back to Groq.")
-                else:
-                    print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
-
-        # 3. Groq 70B — general fallback only (never used for counterfactuals)
+        # 2. Groq 70B — general fallback only (never used for counterfactuals)
+        # Note: HF Serverless removed — it doesn't support LoRA adapters;
+        # local model weights (priority 1) are the only trained-model path.
         if content is None and not trained_model_only and hasattr(self, 'client'):
             self._last_model_name = f"groq:{self.model}"
             for attempt in range(2):
