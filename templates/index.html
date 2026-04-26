@@ -253,46 +253,8 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                    <div class="rounded-2xl border border-blue-500/30 bg-slate-950/50 p-5">
-                        <div class="text-blue-300 font-black mb-1">v1 — Single-step Curriculum</div>
-                        <p class="text-xs text-slate-500 mb-4">Format + route-target rewards.</p>
-                        <div class="space-y-2 text-xs">
-                            <div class="flex justify-between"><span class="text-slate-500">Avg reward</span><b class="text-emerald-300">0.734</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Reward std</span><b class="text-amber-300">0.396</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Clipped ratio</span><b class="text-red-300">1.0</b></div>
-                        </div>
-                    </div>
-                    <div class="rounded-2xl border border-emerald-500/30 bg-slate-950/50 p-5">
-                        <div class="text-emerald-300 font-black mb-1">v2 — Episodic GRPO</div>
-                        <p class="text-xs text-slate-500 mb-4">Multi-step episodes + trajectory reward.</p>
-                        <div class="space-y-2 text-xs">
-                            <div class="flex justify-between"><span class="text-slate-500">Avg reward</span><b class="text-emerald-300">0.775</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Reward std</span><b class="text-amber-300">0.498</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Episode return</span><b class="text-emerald-300">0.207</b></div>
-                        </div>
-                    </div>
-                    <div class="rounded-2xl border border-violet-500/30 bg-slate-950/50 p-5">
-                        <div class="text-violet-300 font-black mb-1">v3 — Episodic Multi-step</div>
-                        <p class="text-xs text-slate-500 mb-4">3-action episode sequences · difficulty 1→2→3 curriculum · 135 steps.</p>
-                        <div class="space-y-2 text-xs">
-                            <div class="flex justify-between"><span class="text-slate-500">Episode return</span><b class="text-emerald-300">+0.140</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Format score</span><b class="text-emerald-300">0.629</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Reward std</span><b class="text-amber-300">0.511</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Zero-grad groups</span><b class="text-emerald-300">0%</b></div>
-                        </div>
-                    </div>
-                    <div class="rounded-2xl border border-amber-500/30 bg-slate-950/50 p-5">
-                        <div class="text-amber-300 font-black mb-1">v4 — Episodic Curriculum <span class="text-[9px] rounded bg-amber-500/20 px-2 py-1">NEW</span></div>
-                        <p class="text-xs text-slate-500 mb-4">Difficulty 1→2→3 · horizon=3 · first natural EOS terminations.</p>
-                        <div class="space-y-2 text-xs">
-                            <div class="flex justify-between"><span class="text-slate-500">Peak reward</span><b class="text-emerald-300">0.856</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Format score</span><b class="text-emerald-300">0.660</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Episode return</span><b class="text-amber-300">~0.140</b></div>
-                            <div class="flex justify-between"><span class="text-slate-500">Natural EOS</span><b class="text-emerald-300">First</b></div>
-                        </div>
-                    </div>
-                </div>
+                <div id="evolution-summary-cards" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-3"></div>
+                <p id="evolution-summary-footnote" class="text-xs text-slate-500 mb-8"></p>
 
                 <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 mb-6">
                     <label class="block text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Life Scenario</label>
@@ -917,6 +879,7 @@
 
             // ── Training progression chart ──
             renderProgressionChart(modelData.training_runs);
+            renderEvolutionSummary(modelData.version_comparison);
 
             // ── Per-domain baseline chart ──
             renderDomainChart(modelData.baseline.per_domain);
@@ -964,6 +927,63 @@
                 document.getElementById('performanceChart').style.display = '';
                 initSessionChart(history);
             }
+        }
+
+        function renderEvolutionSummary(comparison) {
+            const container = document.getElementById('evolution-summary-cards');
+            const footnote = document.getElementById('evolution-summary-footnote');
+            if (!container || !comparison?.versions?.length) return;
+
+            const accentMap = {
+                blue: {
+                    border: 'border-blue-500/30',
+                    title: 'text-blue-300',
+                    badge: 'bg-blue-500/20 text-blue-200',
+                },
+                emerald: {
+                    border: 'border-emerald-500/30',
+                    title: 'text-emerald-300',
+                    badge: 'bg-emerald-500/20 text-emerald-200',
+                },
+                violet: {
+                    border: 'border-violet-500/30',
+                    title: 'text-violet-300',
+                    badge: 'bg-violet-500/20 text-violet-200',
+                },
+                amber: {
+                    border: 'border-amber-500/30',
+                    title: 'text-amber-300',
+                    badge: 'bg-amber-500/20 text-amber-200',
+                },
+            };
+
+            const ordered = comparison.ordered_metrics || [];
+            container.innerHTML = comparison.versions.map(version => {
+                const accent = accentMap[version.accent] || accentMap.violet;
+                const rows = ordered.map(metric => {
+                    const value = version[metric.key] ?? '—';
+                    const valueClass = metric.key === 'primary_value' ? 'text-emerald-300' : 'text-slate-200';
+                    return `
+                        <div class="flex justify-between gap-3">
+                            <span class="text-slate-500">${metric.label}</span>
+                            <b class="${valueClass} text-right">${value}</b>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="rounded-2xl border ${accent.border} bg-slate-950/50 p-5">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                            <div class="${accent.title} font-black">${version.title}</div>
+                            ${version.badge ? `<span class="text-[9px] rounded px-2 py-1 ${accent.badge}">${version.badge}</span>` : ''}
+                        </div>
+                        <p class="text-xs text-slate-500 mb-4">${version.summary || ''}</p>
+                        <div class="space-y-2 text-xs">${rows}</div>
+                    </div>
+                `;
+            }).join('');
+
+            footnote.innerText = comparison.footnote || '';
         }
 
         function renderProgressionChart(runs) {
