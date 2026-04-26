@@ -65,11 +65,11 @@ The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on
 ┌──────────────────────────────────────────────────────────────────┐
 │                       HuggingFace Space                          │
 │                                                                  │
-│  ┌─────────────────────────┐  ┌─────────────────────────────┐    │
-│  │   app_flask.py  :7860   │  │      server.py  :8000       │    │
-│  │   Flask demo UI         │◄►│   OpenEnv FastAPI server    │    │
-│  └────────────┬────────────┘  └─────────────────────────────┘    │
-│               │                                                  │
+│  ┌─────────────────────────┐  ┌─────────────────────────────┐   │
+│  │   app_flask.py  :7860   │  │      server.py  :8000       │   │
+│  │   Flask demo UI         │  │   OpenEnv FastAPI server    │   │
+│  └────────────┬────────────┘  └─────────────────────────────┘   │
+│               │  (independent services — no direct call between) │
 │               ▼                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                    LifeStackAgent                          │  │
@@ -78,24 +78,25 @@ The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on
 │  │  │  + LoRA adapter          │  │   ChromaDB             │  │  │
 │  │  │  GRPO fine-tuned (v4)    │  │   decisions            │  │  │
 │  │  └──────────────────────────┘  │   trajectories         │  │  │
-│  │                                │   feedback             │  │  │
+│  │                                │   feedback (preseeded) │  │  │
 │  │                                └────────────────────────┘  │  │
 │  └────────────────┬───────────────────────────────────────────┘  │
 │                   │  LifeStackAction (JSON)                      │
 │                   ▼                                              │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                      LifeStackEnv                          │  │
-│  │  ┌─────────────┐  ┌─────────────────┐  ┌───────────────┐   │  │
-│  │  │ WorldEngine │  │ DependencyGraph │  │LifeStackVerif-│   │  │
-│  │  │ (ExoEvents) │─►│ 32 edges        │  │ier (anti-hack)│   │  │
-│  │  └─────────────┘  │ 0.6 dampening   │  └───────────────┘   │  │
-│  │                   └───────┬─────────┘                      │  │
-│  │                           │                                │  │
+│  │  ┌─────────────┐  ┌─────────────────┐  ┌───────────────┐  │  │
+│  │  │ WorldEngine │  │ DependencyGraph  │  │LifeStackVerif-│  │  │
+│  │  │ (ExoEvents) │─►│ 32 edges        │  │ier            │  │  │
+│  │  └─────────────┘  │ 0.6 dampening   │  │success /      │  │  │
+│  │                   └───────┬─────────┘  │milestone check│  │  │
+│  │                           │            └───────────────┘  │  │
 │  │   LifeMetrics · 23 values across 6 domains                 │  │
 │  │   career · finances · relationships ·                      │  │
 │  │   physical_health · mental_wellbeing · time                │  │
 │  │                           │                                │  │
-│  │   10 reward fns  ·  7-day γ=0.9 discounted rollout         │  │
+│  │   10 reward fns  ·  episodic GRPO · horizon=3              │  │
+│  │   group-relative advantage  ·  env.step() anti-hack guards │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
 
