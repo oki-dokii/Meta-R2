@@ -55,7 +55,7 @@ The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on
 | **Untrained vs GRPO-Trained** | Side-by-side: vanilla Groq 70B vs the v4 GRPO adapter on the same prompt. The trained model picks more targeted, resource-aware actions. |
 | **Model Evolution (v1→v4)** | All 4 model versions loaded simultaneously on the same scenario. Policy shift is visible across training iterations — v2 starts delegating where v1 rests; v4 reasons about resource constraints that v1 ignores. |
 | **Longitudinal Memory** | ChromaDB retrieves past successful trajectories for the same personality type. After enough interactions, the agent references its own history: *"Last time you cancelled plans without warning, it took 4 days to recover."* |
-| **Live Simulation** | Real-time cascade animation across the 40-edge dependency graph, with the agent proposing interventions at each step. |
+| **Live Simulation** | Real-time cascade animation across the 32-edge dependency graph, with the agent proposing interventions at each step. |
 
 ---
 
@@ -76,9 +76,9 @@ The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on
 │  │  ┌──────────────────────────┐  ┌────────────────────────┐  │  │
 │  │  │  Qwen2.5-1.5B-Instruct   │  │   LifeStackMemory      │  │  │
 │  │  │  + LoRA adapter          │  │   ChromaDB             │  │  │
-│  │  │  GRPO fine-tuned (v4)    │  │   decisions            │  │  │
+│  │  │  GRPO fine-tuned (v4)    │  │   decisions (seeded)   │  │  │
 │  │  └──────────────────────────┘  │   trajectories         │  │  │
-│  │                                │   feedback (preseeded) │  │  │
+│  │                                │   feedback             │  │  │
 │  │                                └────────────────────────┘  │  │
 │  └────────────────┬───────────────────────────────────────────┘  │
 │                   │  LifeStackAction (JSON)                      │
