@@ -386,7 +386,7 @@ def _dtype_flags(model=None) -> tuple[bool, bool]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# JSON boundary helper — used by reward_compact_fn AND LifeStackGRPOTrainer
+# JSON boundary helper — used by LifeStackGRPOTrainer
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _find_json_end_text(text: str) -> int | None:
@@ -429,10 +429,9 @@ class LifeStackGRPOTrainer(GRPOTrainer):
       - per_token_loss already computed   — masked tokens contribute 0 to the advantage term
       - effective completion length drops to ~100 tokens → 3–5× sharper gradient signal
 
-    This does NOT change generation behaviour (the model still emits 480 tokens).
-    The model gradually learns to stop because shorter completions receive higher
-    reward (reward_compact_fn) while their gradient is full-strength; longer ones
-    receive lower reward AND have most of their gradient zeroed out.
+    This does NOT change generation behaviour (the model still emits max_completion_length tokens).
+    Gradient is concentrated on the JSON payload (~100 tokens) rather than diluted across
+    trailing explanation text, giving 3–5× sharper policy updates per step.
     """
 
     def _prepare_inputs(self, inputs):
@@ -1791,11 +1790,12 @@ def train_episodic_curriculum(
             report_to="tensorboard" if _tensorboard_available() else "none",
         )
         config.unsloth_num_chunks = -1
-        # Weights for: format | EOS-clean | plausibility | episode-return | compact
-        # reward_compact_fn has [-0.5, +0.4] range vs reward_clean_eos_fn [-0.1, +0.2].
-        # Weight compact at 2.5x and EOS-clean at 2.0x so the combined compactness
-        # signal (~[-1.2, +1.2]) is competitive with format+return (~[-1, +1]).
-        config.reward_weights = [1.0, 2.0, 0.75, 1.0, 2.5]
+        # Weights: format=1.0 | EOS-clean=0.5 | plausibility=0.5 | episode-return=2.0
+        # episode-return is the only signal that was positive (+0.14) in v3 and had real
+        # variance. EOS-clean was near-constant (-0.08, std≈0.04) so downweighted to avoid
+        # it acting as constant noise. reward_compact_fn removed — it was -0.5 std=0
+        # throughout v3 (zero gradient, pure drag on the total reward number).
+        config.reward_weights = [1.0, 0.5, 0.5, 2.0]
 
         trainer = LifeStackGRPOTrainer(
             model=model,
@@ -1807,7 +1807,6 @@ def train_episodic_curriculum(
                 reward_clean_eos_fn,
                 reward_episode_plausibility_fn,
                 reward_episode_return_fn,
-                reward_compact_fn,
             ],
         )
         trainer.train(resume_from_checkpoint=resume_ckpt)
