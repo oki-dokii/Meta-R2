@@ -6,9 +6,35 @@ import chromadb
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+
+def _write_partitioned_export(export_data: dict, output_dir: str) -> list[str]:
+    shards = []
+    decisions = export_data["decisions"]
+    ids = decisions.get("ids") or []
+    midpoint = len(ids) // 2
+    partitions = [
+        ("preseeded_memory_p1.json", slice(0, midpoint)),
+        ("preseeded_memory_p2.json", slice(midpoint, None)),
+    ]
+
+    shared = {"trajectories": export_data["trajectories"]}
+    for filename, shard_slice in partitions:
+        shard_path = os.path.join(output_dir, filename)
+        shard_decisions = {
+            "ids": decisions["ids"][shard_slice],
+            "documents": decisions["documents"][shard_slice],
+            "metadatas": decisions["metadatas"][shard_slice],
+            "embeddings": decisions["embeddings"][shard_slice] if decisions["embeddings"] is not None else None,
+        }
+        with open(shard_path, "w") as f:
+            json.dump({**shared, "decisions": shard_decisions}, f)
+        shards.append(shard_path)
+
+    return shards
+
 def export_memory():
     path = "./lifestack_memory"
-    dest = "./data/preseeded_memory.json"
+    output_dir = "./data"
     
     if not os.path.exists(path):
         print(f"❌ Error: {path} not found.")
@@ -40,11 +66,13 @@ def export_memory():
         }
     }
     
-    os.makedirs("./data", exist_ok=True)
-    with open(dest, "w") as f:
-        json.dump(export_data, f)
-    
-    print(f"✅ Successfully exported {len(all_decisions['ids'])} decisions and {len(all_trajectories['ids'])} trajectories to {dest}")
+    os.makedirs(output_dir, exist_ok=True)
+    shards = _write_partitioned_export(export_data, output_dir)
+
+    print(
+        f"✅ Successfully exported {len(all_decisions['ids'])} decisions and "
+        f"{len(all_trajectories['ids'])} trajectories to {', '.join(shards)}"
+    )
 
 if __name__ == "__main__":
     export_memory()

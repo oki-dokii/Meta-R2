@@ -1,5 +1,6 @@
 docs/training_curves.png
 docs/reward_curve.png
+data/preseeded_memory.json
 data/*.png
 *.pyc
 __pycache__/
