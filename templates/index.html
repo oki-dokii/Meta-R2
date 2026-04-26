@@ -875,15 +875,6 @@
             const stats = await sessionRes.json();
             const modelData = await modelRes.json();
 
-            // ── Hero cards are static HTML — no update needed ──
-
-            // ── Training progression chart ──
-            renderProgressionChart(modelData.training_runs);
-            renderEvolutionSummary(modelData.version_comparison);
-
-            // ── Per-domain baseline chart ──
-            renderDomainChart(modelData.baseline.per_domain);
-
             // ── Live session stats ──
             const topAction = stats.action_distribution && Object.keys(stats.action_distribution).length > 0
                 ? Object.entries(stats.action_distribution).sort((a,b) => b[1]-a[1])[0][0]
@@ -894,9 +885,9 @@
                     <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Memories</div>
                     <div class="text-3xl font-black">${stats.total_memories ?? 0}</div>
                 </div>
-                <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
+                <div id="feedback-loops-card" class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
                     <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Feedback Loops</div>
-                    <div class="text-3xl font-black">${stats.feedback_count ?? 0}</div>
+                    <div id="feedback-loops-count" class="text-3xl font-black">${stats.feedback_count ?? 0}</div>
                 </div>
                 <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
                     <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Session Avg Reward</div>
@@ -926,6 +917,25 @@
                 document.getElementById('chart-empty').classList.add('hidden');
                 document.getElementById('performanceChart').style.display = '';
                 initSessionChart(history);
+            }
+
+            // ── Secondary analytics visuals ──
+            try {
+                renderProgressionChart(modelData.training_runs);
+            } catch (e) {
+                console.warn('Progression chart render failed', e);
+            }
+
+            try {
+                renderEvolutionSummary(modelData.version_comparison);
+            } catch (e) {
+                console.warn('Evolution summary render failed', e);
+            }
+
+            try {
+                renderDomainChart(modelData.baseline.per_domain);
+            } catch (e) {
+                console.warn('Domain chart render failed', e);
             }
         }
 
@@ -1581,10 +1591,7 @@
         }
 
         function updateFeedbackLoopCard(count) {
-            const statNodes = Array.from(document.querySelectorAll('#stats-container .text-[9px]'));
-            const feedbackLabel = statNodes.find(node => node.textContent.trim() === 'Feedback Loops');
-            const card = feedbackLabel?.closest('.rounded-2xl');
-            const valueNode = card?.querySelector('.text-3xl');
+            const valueNode = document.getElementById('feedback-loops-count');
             if (valueNode && Number.isFinite(Number(count))) {
                 valueNode.textContent = String(count);
             }
