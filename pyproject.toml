@@ -30,12 +30,6 @@ dependencies = [
     "gymnasium>=0.29.0",
     # HuggingFace Hub
     "huggingface_hub>=0.23.0",
-    # Calendar
-    "icalendar>=5.0.0",
-    # Google API (Gmail Intake)
-    "google-auth>=2.29.0",
-    "google-auth-oauthlib>=1.2.0",
-    "google-api-python-client>=2.128.0",
 ]
 
 [project.scripts]

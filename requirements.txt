@@ -39,6 +39,9 @@ peft>=0.10.0
 bitsandbytes>=0.43.0
 datasets>=2.14.0
 
+# Optional: real Gmail / Google Calendar OAuth in intake/ (not required for demo mode)
+#   pip install google-auth google-auth-oauthlib google-api-python-client
+#
 # Unsloth — fast fine-tuning (hackathon judging requirement)
 # Standard install works for most GPU environments (A100, H100, T4, L4):
 #   pip install unsloth
@@ -49,13 +52,5 @@ datasets>=2.14.0
 #   pip install "unsloth @ git+https://github.com/unslothai/unsloth.git"
 unsloth
 
-# Google API (Gmail Intake)
-google-auth>=2.29.0
-google-auth-oauthlib>=1.2.0
-google-api-python-client>=2.128.0
-
 # HuggingFace Hub (F3 InferenceClient, F8 push_to_hub)
 huggingface_hub>=0.23.0
-
-# Calendar upload parsing (F10)
-icalendar>=5.0.0

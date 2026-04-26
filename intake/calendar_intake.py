@@ -1,13 +1,10 @@
 """
 calendar_intake.py — Extract life-state signals from Google Calendar.
 
-Real OAuth flow mirrors gmail_intake.py. Falls back to demo_signals.json
-automatically when credentials.json is absent (hackathon demo mode).
+Falls back to data/demo_signals.json when OAuth is unavailable (default install).
 
-SETUP (real mode):
-1. Enable Google Calendar API in console.cloud.google.com
-2. Download credentials.json to the project root
-3. pip install google-auth google-auth-oauthlib google-api-python-client
+For real Google Calendar API: enable API, place credentials.json in project root, then
+pip install google-auth google-auth-oauthlib google-api-python-client
 """
 
 import os

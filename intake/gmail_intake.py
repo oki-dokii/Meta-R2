@@ -1,11 +1,11 @@
 """
 gmail_intake.py — Extract life-state signals from Gmail.
 
-SETUP:
-1. Same Google Cloud project as Calendar (already created)
-2. Enable Gmail API in console.cloud.google.com
-3. Add Gmail scope to existing credentials.json
-4. pip install google-auth google-auth-oauthlib google-api-python-client
+Demo mode (default) uses data/demo_signals.json; no extra packages.
+For real OAuth + Gmail API:
+1. Google Cloud: enable Gmail API; download credentials.json to project root
+2. pip install google-auth google-auth-oauthlib google-api-python-client
+3. Add Gmail scope to credentials (see SCOPES below)
 """
 
 import os
