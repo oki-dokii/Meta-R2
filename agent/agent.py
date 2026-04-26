@@ -256,14 +256,79 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     # ── Public API ────────────────────────────────────────────────────────────
 
     def get_action_for_type(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, forced_type: str, api_only: bool = False) -> "AgentAction":
-        """Generate an action of a specific type using the trained GRPO model only (no Groq fallback)."""
+        """
+        Generate an action of a specific type for What-If Lab counterfactuals.
+
+        v3 was trained on episode format {"actions":[...]} not single-action format,
+        so we ask it in episode format and extract the first action.  If the model
+        output cannot be parsed as an episode (i.e. local/HF model gives generic text),
+        the Groq fallback produces a properly-formatted single action.
+        """
         force_api = self.api_only or api_only
         if not force_api and not self._model_load_attempted:
             self._try_load_model()
+
         base_prompt = self.build_prompt(metrics, budget, conflict, person)
-        forced_prompt = base_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST set 'action_type' to exactly '{forced_type}'."
-        return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type,
-                                            force_api=force_api, trained_model_only=True)
+
+        # Ask v3 in its native episode format: one action, forced type
+        episode_prompt = (
+            base_prompt
+            + f'\n\nEpisode objective: return a compact JSON object with an actions list.\n'
+            + f'Plan exactly 1 action. The action_type MUST be "{forced_type}".\n'
+            + f'Schema: {{"actions":[{{"action_type":"{forced_type}","target_domain":"<domain>",'
+            + '"metric_changes":{"domain.submetric":0},"resource_cost":{"time":0,"money":0,"energy":0},'
+            + '"reasoning":"brief","description":"one sentence"}}]}}'
+        )
+
+        # Try trained model first (HF v3 via InferenceClient or local weights)
+        raw = self._run_inference(episode_prompt, temperature=0.4, force_api=force_api,
+                                  trained_model_only=False)
+
+        # Try to extract first action from episode {"actions":[...]} format
+        if raw:
+            try:
+                import re as _re
+                m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+                if m:
+                    outer = json.loads(m.group())
+                    actions = outer.get("actions") if isinstance(outer.get("actions"), list) else None
+                    if not actions:
+                        # Maybe it returned a single action directly
+                        actions = [outer] if outer.get("action_type") else None
+                    if actions:
+                        a = actions[0]
+                        # Validate and normalise metric_changes
+                        metric_changes = {}
+                        for k, v in a.get("metric_changes", {}).items():
+                            norm_key = normalize_metric_path(k)
+                            if is_valid_metric_path(norm_key):
+                                try:
+                                    metric_changes[norm_key] = float(v)
+                                except (ValueError, TypeError):
+                                    pass
+                        return AgentAction(
+                            primary=PrimaryAction(
+                                action_type=a.get("action_type", forced_type),
+                                target_domain=a.get("target_domain", "mental_wellbeing"),
+                                metric_changes=metric_changes,
+                                resource_cost=a.get("resource_cost", {}),
+                                description=a.get("description", a.get("reasoning", ""))
+                            ),
+                            communication=None,
+                            reasoning=a.get("reasoning", ""),
+                            model_used=self._last_model_name,
+                            raw_completion=raw
+                        )
+            except Exception:
+                pass  # fall through to Groq
+
+        # Groq fallback: single-action format, which Groq handles reliably
+        single_prompt = (
+            base_prompt
+            + f"\n\nCRITICAL REQUIREMENT: You MUST set 'action_type' to exactly '{forced_type}'."
+        )
+        return self._get_action_from_prompt(single_prompt, fallback_type=forced_type,
+                                            force_api=force_api, trained_model_only=False)
 
     def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "", api_only: bool = False, timeout: int = 55) -> "AgentAction":
         force_api = self.api_only or api_only
