@@ -1025,6 +1025,52 @@ def get_stats():
 
     return jsonify(stats)
 
+@app.route('/api/model-stats', methods=['GET'])
+def get_model_stats():
+    import json as _json
+    baseline = {}
+    try:
+        with open('baseline.json', 'r') as f:
+            baseline = _json.load(f)
+    except Exception:
+        pass
+
+    return jsonify({
+        "baseline": {
+            "model": "Qwen/Qwen2.5-1.5B-Instruct (no LoRA)",
+            "mean_reward": baseline.get("mean_reward", -0.07),
+            "n_episodes": baseline.get("n_episodes", 50),
+            "per_domain": baseline.get("per_domain", {
+                "career":            {"n": 7,  "mean": -0.1429},
+                "finances":          {"n": 7,  "mean":  0.0},
+                "relationships":     {"n": 6,  "mean":  0.0},
+                "physical_health":   {"n": 6,  "mean": -0.1667},
+                "mental_wellbeing":  {"n": 6,  "mean": -0.25},
+                "time":              {"n": 6,  "mean":  0.0},
+                "transport_crisis":  {"n": 6,  "mean":  0.0},
+                "code_merge_crisis": {"n": 6,  "mean":  0.0},
+            }),
+        },
+        "training_runs": [
+            {"label": "Base Model",    "reward": -0.07,  "note": "Qwen2.5-1.5B, no LoRA, 50-ep eval"},
+            {"label": "Run 1",         "reward": -0.47,  "note": "JSON parsing broken — no learning signal"},
+            {"label": "Run 2",         "reward": -0.41,  "note": "Shorter completions — root cause remains"},
+            {"label": "Run 3",         "reward": -0.010, "note": "Greedy regex fix — +85.7% vs baseline"},
+            {"label": "Run 4 (v1)",    "reward": -0.100, "note": "5-stage curriculum — consistent but plateau"},
+            {"label": "v3 (ep return)","reward":  0.140, "note": "Episodic multi-step — new capability"},
+        ],
+        "key_metrics": {
+            "baseline_reward":             -0.07,
+            "best_single_step_reward":     -0.010,
+            "single_step_improvement_pct":  85.7,
+            "v3_episode_return":            0.140,
+            "v3_format_score":              0.629,
+            "v3_zero_grad_pct":             0,
+            "v1_non_failing_episodes":     "45/50",
+            "trainable_params_pct":         1.18,
+        },
+    })
+
 @app.route('/api/history/reset', methods=['POST'])
 def reset_history():
     """Wipe all memories and feedback from ChromaDB."""

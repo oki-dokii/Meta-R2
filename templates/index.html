@@ -558,23 +558,88 @@
         </div>
 
         <!-- ── TAB 5: ANALYTICS ── -->
-        <div id="content-performance" class="hidden grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div id="performance-chart-container" class="glass p-6 rounded-2xl flex flex-col min-h-[400px]">
-                <div class="flex justify-between items-center w-full mb-6">
-                    <h3 class="text-lg font-bold">Reward History (chronological)</h3>
-                    <button onclick="resetHistory()" class="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded text-[10px] font-bold text-red-400 transition uppercase">Reset History</button>
+        <div id="content-performance" class="hidden space-y-6">
+
+            <!-- ── HERO STAT CARDS ── -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass p-5 rounded-2xl text-center border border-emerald-500/20 bg-emerald-500/5">
+                    <div class="text-[9px] uppercase font-black text-emerald-400 mb-1 tracking-widest">Best Single-Step Gain</div>
+                    <div class="text-4xl font-black text-emerald-300">+85.7%</div>
+                    <div class="text-[9px] text-slate-500 mt-1">Run 3 vs Base Model</div>
                 </div>
-                <div class="relative flex-1" style="min-height:300px">
-                    <canvas id="performanceChart" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
-                    <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-sm font-bold">No reward data yet — run the simulation to populate.</div>
+                <div class="glass p-5 rounded-2xl text-center border border-violet-500/20 bg-violet-500/5">
+                    <div class="text-[9px] uppercase font-black text-violet-400 mb-1 tracking-widest">v3 Episode Return</div>
+                    <div class="text-4xl font-black text-violet-300">+0.140</div>
+                    <div class="text-[9px] text-slate-500 mt-1">Multi-step · γ=0.9 discounted</div>
+                </div>
+                <div class="glass p-5 rounded-2xl text-center border border-indigo-500/20 bg-indigo-500/5">
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1 tracking-widest">v3 Format Score</div>
+                    <div class="text-4xl font-black text-indigo-300">0.629</div>
+                    <div class="text-[9px] text-slate-500 mt-1">JSON validity + schema</div>
+                </div>
+                <div class="glass p-5 rounded-2xl text-center border border-amber-500/20 bg-amber-500/5">
+                    <div class="text-[9px] uppercase font-black text-amber-400 mb-1 tracking-widest">Zero-Grad Groups</div>
+                    <div class="text-4xl font-black text-amber-300">0%</div>
+                    <div class="text-[9px] text-slate-500 mt-1">Real gradient throughout v3</div>
                 </div>
             </div>
+
+            <!-- ── TRAINING PROGRESSION + PER-DOMAIN ── -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="glass p-6 rounded-2xl flex flex-col" style="min-height:360px">
+                    <h3 class="text-sm font-black uppercase tracking-widest text-slate-300 mb-1">Training Progression</h3>
+                    <p class="text-[9px] text-slate-500 mb-4">Eval reward per run vs untrained base model (dashed line)</p>
+                    <div class="relative flex-1" style="min-height:280px">
+                        <canvas id="progressionChart" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+                    </div>
+                </div>
+                <div class="glass p-6 rounded-2xl flex flex-col" style="min-height:360px">
+                    <h3 class="text-sm font-black uppercase tracking-widest text-slate-300 mb-1">Base Model — Per-Domain Reward</h3>
+                    <p class="text-[9px] text-slate-500 mb-4">Where the untrained Qwen2.5-1.5B fails (50-episode eval)</p>
+                    <div class="relative flex-1" style="min-height:280px">
+                        <canvas id="domainChart" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── KEY FINDINGS ── -->
             <div class="glass p-6 rounded-2xl">
-                <h3 class="text-lg font-bold mb-6">Memory &amp; Agent Stats</h3>
-                <div id="stats-container" class="grid grid-cols-2 gap-3"></div>
-                <div id="insight-box" class="hidden mt-6 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl">
-                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-2">Last High-Reward Reasoning</p>
-                    <p id="insight-text" class="text-xs font-semibold italic text-indigo-300 whitespace-pre-wrap"></p>
+                <h3 class="text-sm font-black uppercase tracking-widest text-slate-300 mb-4">Key Findings</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
+                        <div class="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-2">The Fix That Mattered</div>
+                        <p class="text-xs text-slate-300 leading-relaxed">Replacing <code class="text-emerald-300">json.loads(full_text)</code> with greedy regex extraction <code class="text-emerald-300">re.search(r'\{.*\}', text, re.DOTALL)</code> caused a <b>97% improvement within training runs</b> and +85.7% over the base model.</p>
+                    </div>
+                    <div class="p-4 bg-amber-500/5 border border-amber-500/10 rounded-xl">
+                        <div class="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-2">Honest Limitation</div>
+                        <p class="text-xs text-slate-300 leading-relaxed">Run 4 (v1 final) scored −0.100 — slightly worse than the base model's −0.070 on the same eval. The curriculum plateaued at difficulty 1; the model gained <b>consistency</b> (45/50 non-failing) but not peak reward.</p>
+                    </div>
+                    <div class="p-4 bg-violet-500/5 border border-violet-500/10 rounded-xl">
+                        <div class="text-[9px] font-black text-violet-400 uppercase tracking-widest mb-2">New Capability: Multi-Step</div>
+                        <p class="text-xs text-slate-300 leading-relaxed">v3's +0.140 episode return is <b>not comparable</b> to the single-step baseline — it measures 3-action sequences with γ=0.9 discounting. The base model has zero multi-step planning capability.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── LIVE SESSION STATS ── -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="glass p-6 rounded-2xl">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-black uppercase tracking-widest text-slate-300">Live Session Reward</h3>
+                        <button onclick="resetHistory()" class="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded text-[9px] font-bold text-red-400 transition uppercase">Reset</button>
+                    </div>
+                    <div class="relative" style="min-height:200px">
+                        <canvas id="performanceChart" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+                        <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-xs font-bold">No session data yet — run the simulation.</div>
+                    </div>
+                </div>
+                <div class="glass p-6 rounded-2xl">
+                    <h3 class="text-sm font-black uppercase tracking-widest text-slate-300 mb-4">Memory &amp; Agent Stats</h3>
+                    <div id="stats-container" class="grid grid-cols-2 gap-3"></div>
+                    <div id="insight-box" class="hidden mt-4 p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-xl">
+                        <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-2">Last High-Reward Reasoning</p>
+                        <p id="insight-text" class="text-xs font-semibold italic text-indigo-300 whitespace-pre-wrap"></p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -823,9 +888,22 @@
         }
 
         async function loadStats() {
-            const res = await fetch('/api/stats');
-            const stats = await res.json();
+            const [sessionRes, modelRes] = await Promise.all([
+                fetch('/api/stats'),
+                fetch('/api/model-stats'),
+            ]);
+            const stats = await sessionRes.json();
+            const modelData = await modelRes.json();
 
+            // ── Hero cards are static HTML — no update needed ──
+
+            // ── Training progression chart ──
+            renderProgressionChart(modelData.training_runs);
+
+            // ── Per-domain baseline chart ──
+            renderDomainChart(modelData.baseline.per_domain);
+
+            // ── Live session stats ──
             const topAction = stats.action_distribution && Object.keys(stats.action_distribution).length > 0
                 ? Object.entries(stats.action_distribution).sort((a,b) => b[1]-a[1])[0][0]
                 : '—';
@@ -840,7 +918,7 @@
                     <div class="text-3xl font-black">${stats.feedback_count ?? 0}</div>
                 </div>
                 <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
-                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Avg Reward</div>
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1">Session Avg Reward</div>
                     <div class="text-3xl font-black">${stats.average_reward != null ? stats.average_reward.toFixed(3) : '—'}</div>
                 </div>
                 <div class="bg-indigo-500/10 p-4 rounded-2xl text-center border border-indigo-500/10 select-none">
@@ -854,7 +932,6 @@
                 </div>` : ''}
             `;
 
-            // Insight box — only show if there's a real insight from memory
             if (stats.last_insight) {
                 document.getElementById('insight-box').classList.remove('hidden');
                 document.getElementById('insight-text').innerText = `"${stats.last_insight}"`;
@@ -867,20 +944,111 @@
             } else {
                 document.getElementById('chart-empty').classList.add('hidden');
                 document.getElementById('performanceChart').style.display = '';
-                initChart(history);
+                initSessionChart(history);
             }
         }
 
-        function initChart(history) {
+        function renderProgressionChart(runs) {
+            const ctx = document.getElementById('progressionChart').getContext('2d');
+            if (window.progressionChartInstance instanceof Chart) window.progressionChartInstance.destroy();
+
+            const COLORS = {
+                'Base Model':     '#64748b',
+                'Run 1':          '#ef4444',
+                'Run 2':          '#f97316',
+                'Run 3':          '#22c55e',
+                'Run 4 (v1)':     '#818cf8',
+                'v3 (ep return)': '#a78bfa',
+            };
+            const baseReward = runs.find(r => r.label === 'Base Model')?.reward ?? -0.07;
+
+            window.progressionChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: runs.map(r => r.label),
+                    datasets: [{
+                        label: 'Eval Reward',
+                        data: runs.map(r => r.reward),
+                        backgroundColor: runs.map(r => (COLORS[r.label] || '#818cf8') + 'cc'),
+                        borderColor:     runs.map(r => COLORS[r.label] || '#818cf8'),
+                        borderWidth: 2,
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: (ctx) => runs[ctx.dataIndex]?.note || '',
+                            }
+                        },
+                        annotation: {
+                            annotations: {
+                                baseline: {
+                                    type: 'line',
+                                    yMin: baseReward, yMax: baseReward,
+                                    borderColor: '#64748b',
+                                    borderWidth: 1,
+                                    borderDash: [6, 3],
+                                    label: { content: 'Base model', enabled: true, position: 'end', color: '#64748b', font: { size: 9 } }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 9 } } }
+                    }
+                }
+            });
+        }
+
+        function renderDomainChart(perDomain) {
+            const ctx = document.getElementById('domainChart').getContext('2d');
+            if (window.domainChartInstance instanceof Chart) window.domainChartInstance.destroy();
+
+            const domains = Object.keys(perDomain);
+            const means   = domains.map(d => perDomain[d].mean);
+            const colors  = means.map(v => v < -0.1 ? '#ef4444cc' : v < 0 ? '#f97316cc' : '#22c55ecc');
+            const borders = means.map(v => v < -0.1 ? '#ef4444' : v < 0 ? '#f97316' : '#22c55e');
+
+            window.domainChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: domains.map(d => d.replace(/_/g, ' ')),
+                    datasets: [{
+                        label: 'Mean Reward (base model)',
+                        data: means,
+                        backgroundColor: colors,
+                        borderColor: borders,
+                        borderWidth: 2,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' }, min: -0.3, max: 0.1 },
+                        y: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function initSessionChart(history) {
             const ctx = document.getElementById('performanceChart').getContext('2d');
             if (window.perfChartInstance instanceof Chart) window.perfChartInstance.destroy();
             window.perfChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: history.map((_, i) => `Ep ${i+1}`),
-                    datasets: [{ label: 'Reward', data: history, borderColor: '#818cf8', tension: 0.4, fill: true, backgroundColor: 'rgba(129, 140, 248, 0.05)' }]
+                    datasets: [{ label: 'Reward', data: history, borderColor: '#818cf8', tension: 0.4, fill: true, backgroundColor: 'rgba(129,140,248,0.05)' }]
                 },
-                options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { grid: { display: false } } } }
+                options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { color: '#94a3b8' } } } }
             });
         }
 
