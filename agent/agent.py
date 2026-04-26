@@ -18,10 +18,9 @@ class LifeStackAgent:
         self.api_key = os.getenv('GROQ_API_KEY')
         self.hf_token = os.getenv('HF_TOKEN')
 
-        # On HF Spaces the container lacks enough VRAM headroom to load the full
-        # base model alongside Flask + ChromaDB. Force API-only to prevent OOM kills.
-        on_hf_spaces = bool(os.getenv('SPACE_ID') or os.getenv('SPACE_AUTHOR_NAME'))
-        self.api_only = api_only or on_hf_spaces
+        # v3 base is Qwen2.5-1.5B (~3GB VRAM) — fits on T4 alongside Flask+ChromaDB.
+        # api_only is now only forced when explicitly requested, not by on_hf_spaces.
+        self.api_only = api_only
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')
 
         if not self.api_only and not self.local_model_path and os.path.exists("./lifestack_model"):
@@ -33,8 +32,11 @@ class LifeStackAgent:
         from huggingface_hub import InferenceClient
         self.hf_client = None
         if self.hf_token:
-            print("🚀 HF_TOKEN found. Prioritizing Direct Hugging Face Inference.")
+            print("🚀 HF_TOKEN found. Using authenticated HF Inference.")
             self.hf_client = InferenceClient(token=self.hf_token)
+        else:
+            # Public model access — no auth needed for public repos
+            self.hf_client = InferenceClient()
         self.hf_model = os.getenv("LIFESTACK_HF_MODEL", DEFAULT_HF_MODEL_REPO)
 
         if self.api_key:

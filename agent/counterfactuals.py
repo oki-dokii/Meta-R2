@@ -61,6 +61,19 @@ def generate_counterfactuals(agent, metrics, budget, conflict, person, chosen_ac
 
             state_after = copy.deepcopy(metrics)
             total_abs_delta = 0.0
+
+            # Apply resource costs to financial metrics so SPEND is evaluated
+            # on the same terms as the agent's env.step() path — both pay the
+            # financial cascade from spending money.
+            money_spent = alt_action.primary.resource_cost.get('money', 0.0)
+            if money_spent > 20:
+                # Normalise: budget.money_dollars defines 100% spend capacity.
+                # Convert dollar cost to a 0-100 scale impact on liquidity.
+                budget_cap = getattr(budget, 'money_dollars', 500.0) or 500.0
+                liquidity_delta = -(money_spent / budget_cap) * 30.0  # max -30 at budget cap
+                state_after = graph.cascade(state_after, {'finances.liquidity': liquidity_delta})
+                total_abs_delta += abs(liquidity_delta)
+
             for path, delta in alt_action.primary.metric_changes.items():
                 if "." not in path:
                     continue

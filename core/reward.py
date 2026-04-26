@@ -84,30 +84,31 @@ def compute_reward(
     cascade_containment_score = 1.0 - (worsened_count / total_metrics)
     
     # 3. RESOURCE EFFICIENCY SCORE
-    # Available: time 20, money 500, energy 100
+    # Money is normalised at 0.5x — domain-appropriate spending is justified.
+    # Time and energy remain full weight since they're finite personal resources.
     m_time = resources_used.get('time', 0.0) / 20.0
-    m_money = resources_used.get('money', 0.0) / 500.0
+    m_money = (resources_used.get('money', 0.0) / 500.0) * 0.5   # halved penalty
     m_energy = resources_used.get('energy', 0.0) / 100.0
-    
-    # Normalize by total slots (3 resources)
+
     resource_efficiency_score = 1.0 - ((m_time + m_money + m_energy) / 3.0)
     resource_efficiency_score = max(0.0, min(1.0, resource_efficiency_score))
-    
+
     # 4. RELATIONSHIP PRESERVATION SCORE (Sigmoid applied to average delta)
     rel_keys = [k for k in before_flat.keys() if k.startswith('relationships.')]
     avg_rel_before = sum(before_flat[k] for k in rel_keys) / len(rel_keys)
     avg_rel_after = sum(after_flat[k] for k in rel_keys) / len(rel_keys)
     delta_rel = avg_rel_after - avg_rel_before
-    
-    # score = 1 / (1 + exp(-delta/10))
+
     relationship_preservation_score = 1.0 / (1.0 + math.exp(-delta_rel / 10.0))
-    
+
     # FINAL REWARD FORMULA
+    # Outcome weighted highest — what actually changed matters most.
+    # Efficiency reduced — punishing contextually justified spending is wrong.
     base_reward = (
-        (0.40 * outcome_score) + 
-        (0.25 * cascade_containment_score) + 
-        (0.20 * resource_efficiency_score) + 
-        (0.15 * relationship_preservation_score)
+        (0.50 * outcome_score) +
+        (0.25 * cascade_containment_score) +
+        (0.15 * resource_efficiency_score) +
+        (0.10 * relationship_preservation_score)
     )
     
     # PENALTIES
