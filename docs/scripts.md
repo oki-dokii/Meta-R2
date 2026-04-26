@@ -1,33 +1,29 @@
-# scripts.md — Other Scripts Reference
+# `scripts/` — auxiliary scripts
 
-Reference for scripts not covered by dedicated doc files.
+Scripts **not** fully covered by [eval.md](eval.md) or [train_trl.md](train_trl.md).
 
 ---
 
 ## `scripts/run_episode.py`
 
-Runs a single full episode with the LLM agent (requires API key).
+Runs one episode with the **LLM agent** (requires API credentials configured for your stack).
 
 ```bash
 python scripts/run_episode.py
 python scripts/run_episode.py --difficulty 3 --verbose
 ```
 
-Returns a result dict with `total_reward`, `steps`, `domain`.
-
 ---
 
 ## `scripts/train.py`
 
-Legacy training loop (pre-TRL). Uses a simple policy gradient loop without curriculum.
-Prefer `train_trl.py` for new training runs.
+**Legacy** policy-gradient loop (pre-TRL). Prefer **`scripts/train_trl.py`** for GRPO + curriculum + Hub push.
 
 ---
 
 ## `scripts/smoke_test.py`
 
-Quick sanity check — imports all core modules, resets the env once, takes one step.
-No agent required. Exits with code 0 on success.
+Import check + single `reset` / `step`. No GPU.
 
 ```bash
 python scripts/smoke_test.py
@@ -37,49 +33,32 @@ python scripts/smoke_test.py
 
 ## `scripts/test_lifestack.py`
 
-Full edge-case test suite (11 tests). Does not use pytest runner by default —
-run directly or via `pytest scripts/test_lifestack.py`.
+Edge-case tests (can run as a script or with pytest). Tests that need `OPENAI_API_KEY` skip when unset.
 
 ```bash
 python scripts/test_lifestack.py
 pytest scripts/test_lifestack.py -v
 ```
 
-Tests requiring `OPENAI_API_KEY` are automatically skipped when the key is absent.
+---
 
-### Tests
+## `scripts/longitudinal_demo.py` (if present)
 
-| # | Name | What it checks |
-|---|---|---|
-| 1 | Cascade floor | Metrics never go below 0 |
-| 2 | Cascade ceiling | Metrics never exceed 100 |
-| 3 | Resource exhaustion | `deduct()` returns False without going negative |
-| 4 | Inaction penalty | `INACTION_PENALTY` fires when `actions_taken=0` |
-| 5 | Critical floor penalty | `CRITICAL_FLOOR_VIOLATION` fires below threshold |
-| 6 | Cascade dampening | Second-order deltas < first-order delta |
-| 7 | SimPerson uptake bounds | All uptake values in [0.1, 1.0] |
-| 8 | Memory threshold | Only reward >= 2.0 stored |
-| 9 | Episode termination | `done=True` after horizon steps |
-| 10 | Task-driven smoke | Inspect + Route execute without crash |
-| 11 | Full episode smoke | `run_episode()` returns float reward *(skipped without API key)* |
+Longer rollout demos — see file docstring.
 
 ---
 
-## `scripts/longitudinal_demo.py`
+## Primary training entry
 
-Seeds Arjun's multi-week journey into ChromaDB and renders a comparison view.
-Used by Tab 4 (Arjun's Journey) in `app.py`.
+**GRPO / TRL / episodic training:** [train_trl.md](train_trl.md)
 
----
-
-## `scripts/validate_simperson.py`
-
-Validates all `SimPerson` personality trait combinations produce valid uptake values.
+```bash
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py --episode-train --dry-run
+```
 
 ---
 
-## Change Log
+## See also
 
-| Date | Change |
-|---|---|
-| 2026-04-23 | `test_lifestack.py` — `steps<=5` assertion fixed to `steps<=30`; `import pytest` added; `@pytest.mark.skipif` added to test 11 |
+- [training_guide.md](training_guide.md)  
+- [README.md](README.md)  

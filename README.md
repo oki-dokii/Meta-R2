@@ -1,170 +1,184 @@
----
-title: LifeStack
-emoji: 🪐
-colorFrom: indigo
-colorTo: gray
-sdk: docker
-pinned: true
----
+# LifeStack
 
-<div align="center">
+**LifeStack** trains **Qwen2.5-1.5B-Instruct** with **GRPO** (Group Relative Policy Optimization) using **Hugging Face TRL 0.15.1** and **Unsloth** so the model can propose **structured JSON action plans** for everyday crises across **eight domains**.
 
-# 🪐 LifeStack
-### **Autonomous Multi-Domain Conflict Resolution via Cascading RL**
-**Built for Meta × HuggingFace PyTorch OpenEnv Hackathon 2026**
+**Repository:** [https://github.com/oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2)
 
-[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
-[![OpenEnv](https://img.shields.io/badge/OpenEnv-0.2.3-blue?style=for-the-badge)](https://github.com/facebookresearch/openenv)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-
-[**Live Demo**](https://huggingface.co/spaces/jdsb06/meta-r2) • [**Technical Blog**](BLOG.md) • [**Source Code**](https://github.com/oki-dokii/Meta-R2) • [**Training Notebook**](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb)
+**OpenEnv:** This project ships an `openenv.yaml` manifest at the repo root (`core.lifestack_env:LifeStackEnv`) for hackathon and tooling compatibility.
 
 ---
 
-| [🚀 Vision](#-the-vision) | [🧪 Architecture](#-hardened-system-architecture) | [📈 Results](#-performance--results) | [🛠️ Setup](#-quickstart) |
-| :--- | :--- | :--- | :--- |
+## Domains and output format
 
-</div>
+Domains include: **career**, **finances**, **relationships**, **physical_health**, **mental_wellbeing**, **time**, **transport_crisis**, and **code_merge_crisis**.
 
----
+The policy is trained to emit JSON like:
 
-## 🚀 The Vision
-
-**LifeStack** is a high-fidelity reinforcement learning environment built for **OpenEnv** to train agents in **simultaneous crisis management**. Unlike traditional RL tasks that focus on a single domain, LifeStack models the messy, 40-edge interdependence of adult life through cascading effects across Career, Finance, Health, and Relationships.
-
-### ✨ Core Research Innovations
-*   **🔗 Causal Cascades**: 40-edge dependency graph based on *Starcke & Brand (2012)* where a $350 flight rebooking (Finance) ripples into stress (Wellbeing) and sleep loss (Health).
-*   **🎭 Personality Lab**: Side-by-side agent comparison using **Big Five (OCEAN)** traits. Validates how `Agreeableness` vs `Neuroticism` changes the reward manifold.
-*   **🧠 Memory RAM**: Retrieval-Augmented Moderation using **ChromaDB**. Shows a **+116% improvement** in strategy efficiency when recall is enabled.
-*   **🧩 What-If Lab**: Counterfactual explorer that compares the agent's actual path against the three best alternative "what-if" trajectories.
-
----
-
-## 📊 Training Evidence
-
-### GRPO Curriculum Training (Llama-3.2-3B + PEFT Adapter)
-
-![Training Curves](docs/training_curves.png)
-
-**Left panel**: Reward progression across 50 curriculum episodes, colored by conflict difficulty (Easy → Hard). The GRPO agent improves from ~0.35 mean reward to ~0.75 over training.
-
-**Right panel**: Policy loss across 3 curriculum stages (Easy → Medium → Hard). Loss decreases from ~2.8 to ~0.4, indicating stable policy improvement with no divergence.
-
-The trained PEFT adapter is available at: [`jdsb06/meta-r2`](https://huggingface.co/spaces/jdsb06/meta-r2)
-
-> Training notebook: [Colab_GRPO_Training.ipynb](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb)
-
----
-
-## 🏗️ Hardened System Architecture
-
-We have implemented a multi-layered verification system to eliminate "reward hacking" and ensure high engineering rigor.
-
-### 🛡️ Anti-Hacking & Observability
-*   **Semantic Reasoning Audit**: Every action requires a `reasoning` justification that is cross-verified for logical coherence by the reward orchestrator.
-*   **📼 Episode Replay**: Full audit log of the last 5 episodes including metric impact grids and timestamped reasoning.
-*   **🌡️ Domain Risk Heatmap**: Instant cognitive summary of 23 metrics across 6 life domains (Red=Crisis, Green=Stable).
-*   **🧪 Core Test Suite**: 10 rigorous smoke and logic tests verify environment reset, causal propagation, and task solvability.
-
-### 🗺️ Environment Map
-```mermaid
-graph TD
-    subgraph "LifeStack Engine (v2.1)"
-        Env["LifeStackEnv"]
-        DG["Dependency Graph (40-Edges)"]
-        RT["Route Manager"]
-        RE["Reward Orchestrator (9 GRPO Signals)"]
-    end
-
-    subgraph "Observability Layer (Flask Portal)"
-        CV["Cascade Visualizer"]
-        WI["What-If Explorer"]
-        Hist["Episode Historian"]
-    end
-
-    subgraph "AI Core"
-        Agent["RL Agent / LLM"]
-        Mem["ChromaDB RAG Memory"]
-        Pers["Personality Engine (Big Five)"]
-    end
-
-    Agent -->|Action + Reasoning| Env
-    Env -->|Cascades| DG
-    DG -->|Feedback| Env
-    Env -->|Verification| RT
-    RT -->|Scoring| RE
-    RE -->|Reward| Agent
-    Agent <-->|Memory Store/Retrieval| Mem
-    Observability <-->|Audit| Env
+```json
+{
+  "action_type": "negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute",
+  "target_domain": "career|finances|relationships|...",
+  "metric_changes": {"domain.submetric": 0},
+  "resource_cost": {"time": 0, "money": 0, "energy": 0},
+  "reasoning": "brief explanation"
+}
 ```
 
+The **LifeStack** simulator applies actions and propagates consequences through a **dependency graph** (for example: job loss → stress → sleep → health).
+
 ---
 
-## 🛠️ Quickstart
+## Hugging Face models
 
-### 1. Installation & Demo
+| Model | Role |
+|--------|------|
+| [jdsb06/lifestack-grpo](https://huggingface.co/jdsb06/lifestack-grpo) | Run 4 — strong **single-step** checkpoint |
+| [jdsb06/lifestack-grpo-v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) | **Episodic** v3 — curriculum advanced every stage; mean reward held back by a dead-weight term |
+| [jdsb06/lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) | **Episodic** v4 — **current / best target** (training in progress); `reward_compact_fn` removed, return signal up-weighted |
+
+---
+
+## Training progression (what we actually ran)
+
+Honest summary: rewards stayed **near zero** for a long time; the big jump came from **parsing and length fixes**, then **episodic training** improved peak metrics. The model is **still learning**, not a solved product.
+
+| Milestone | Setup | What happened | Status |
+|-----------|--------|----------------|--------|
+| **Run 1** | Single-step GRPO, 3×50 prompts, `max_completion_length=256` | JSON truncated → broken parses → `clipped_ratio≈1.0`, `frac_reward_zero_std≈0.75`, reward **−0.944** | Failed |
+| **Run 2** | Single-step, 3×50, shorter completions (e.g. 128) | Reward **−0.266** (stage 1); eval mean **−0.41**, ~8/50 episodes at 0 | Minimal signal |
+| **Run 3** | Single-step, 3×50 + **greedy JSON extraction** + stage-1 format warm-up | Root cause: valid JSON plus **trailing explanation** broke `json.loads` → constant **−0.5**; **greedy** `re.search(r'\{.*\}', text, re.DOTALL)` (not non-greedy) fixes nested objects; first **positive** mean reward **+0.023**, `frac_zero_std≈0.05`; eval **−0.010**, ~20/50 at 0 | **~97% gain vs Run 1** |
+| **Run 4** | Single-step, 5×100 + `reward_clean_eos_fn` | Eval reward **−0.100**, ~45/50 episodes hitting 0 — consistent but **plateau** | Good single-step baseline |
+| **Run 5** | Episodic GRPO, horizon **3**, 2 episode stages + new return / route rewards | Best **single-step-style** signal **+0.734**, `frac_zero_std=0.00`; curriculum **1→2** | Breakthrough |
+| **v3** | Episodic, **3** episode stages, difficulty **1→2→3→4**; weights format **1.0**, eos **1.5**, plausibility **0.75**, return **1.0**, plus **`reward_compact_fn`** | Curriculum worked, but **`reward_compact_fn` stuck at −0.5** (zero variance) and dragged the logged mean (**−0.694 to −0.771**) | Curriculum ✅, reward scale ❌ |
+| **v4** | Episodic, 3 stages, **60** episodes/stage, horizon **3**; **removed** `reward_compact_fn`; weights **format 1.0 \| eos 0.5 \| plausibility 0.5 \| return 2.0** | **In training**; expect roughly **+0.6 to +0.8** mean reward if the return signal dominates as in analysis | **Current** |
+
+---
+
+## Episodic GRPO (why it exists)
+
+- **Single-step** training scores one completion per prompt.
+- **Episodic** training asks for a short **sequence** of actions (horizon **3**). The environment **re-simulates** after each step; the learner is rewarded for **discounted return** and terminal outcomes, not just the first JSON blob.
+
+This matches how “one bad Monday decision” compounds across domains in the dependency graph.
+
+---
+
+## Reward stack (v4 — episodic main training)
+
+| Component | Weight | Typical range (per function) |
+|-----------|--------|------------------------------|
+| `reward_episode_format_fn` | 1.0 | about **−0.5 … +1.0** (schema / keys / enums) |
+| `reward_clean_eos_fn` | 0.5 | stops cleanly after JSON (penalizes long trailing text) |
+| `reward_episode_plausibility_fn` | 0.5 | penalizes “free lunch” metric jumps |
+| `reward_episode_return_fn` | 2.0 | **trajectory** return from the real env (primary positive signal) |
+
+**Single-step warm-up** (early curriculum) combines `reward_format_fn`, `reward_clean_eos_fn`, and `reward_route_target_fn` with weights tuned for format-first learning.
+
+**Removed in v4:** `reward_compact_fn` — empirically **constant −0.5**, **zero standard deviation**, so it contributed **no learning signal** and only depressed logged reward.
+
+---
+
+## Quick start: train v4 (T4 / Colab-style)
+
+Pinned stack we used: **Unsloth 2026.4.8**, **Transformers 5.5.0**, **Torch 2.10+cu128**, and **`trl==0.15.1`** (pin avoids mergekit / optional import churn in newer TRL).
+
+On Torch **2.10**, Unsloth’s compiled cache can crash (`ref_hidden_states=None`). Training sets:
+
 ```bash
-git clone https://github.com/oki-dokii/Meta-R2.git
-cd Meta-R2
-pip install -r requirements.txt
-python app_flask.py  # Production Portal → http://127.0.0.1:5000
+export LIFESTACK_NO_UNSLOTH=1
 ```
 
-### 2. Engineering Verification
+Example **v4** command:
+
 ```bash
-# Run the full concrete logic test suite
-python3 -m pytest tests/
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
+  --episode-train \
+  --stages 3 \
+  --episodes-per-stage 60 \
+  --episode-horizon 3 \
+  --episode-warmup-stages 1 \
+  --prompts-per-stage 60 \
+  --num-train-epochs 3 \
+  --max-prompt-length 4096 \
+  --output-dir ./lifestack_model_v4 \
+  --push-to-hub \
+  --hub-repo-id jdsb06/lifestack-grpo-v4
 ```
 
-### 3. Training Pipe (GRPO)
+**Resume** after a disconnect:
+
 ```bash
-# Start 5-stage curriculum training with 800-word trajectory logs
-python scripts/train_trl.py
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py --episode-train --resume \
+  --output-dir ./lifestack_model_v4 \
+  # ...same flags as above...
 ```
 
-Or run the full training in Google Colab:
+---
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb)
+## Tech summary
+
+| Item | Value |
+|------|--------|
+| Base model | `unsloth/Qwen2.5-1.5B-Instruct-unsloth-bnb-4bit` |
+| Method | GRPO via TRL |
+| LoRA | r=16, α=16; modules `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj` |
+| Trainable params | ~18.5M / ~1.56B (**~1.18%**) |
+| Hardware | Tesla **T4 15GB** (typical) |
 
 ---
 
-## 📈 Performance & Results
+## Known bugs we fixed (engineering notes)
 
-### **RAG Memory Impact**
-Episodes were run back-to-back testing "Cold Start" vs "Memory-Aware" agents.
-
-| Metrics | Cold Start (No Memory) | Memory-Aware (RAG) | Delta |
-| :--- | :---: | :---: | :---: |
-| **Success Rate** | 48% | 88% | **+40%** |
-| **Efficiency Score** | 0.42 | 0.91 | **+116.6%** |
-| **Avg Reasoning Score** | 0.65 | 0.94 | **+44%** |
-
----
-
-## 🏗️ Technical Deep Dive
-
-*   **Conflict Intake**: Uses **NLP-to-Conflict** parsing; users can type natural language crises (e.g., *"I just got fired..."*) and the system generates a personalized 23-metric disruption.
-*   **Observation Space**: 26-dimensional state vector + domain-specific JSON metadata.
-*   **Reward signals**: 9 GRPO signals around 7 core environment components, including format/EOS hygiene, plausibility, milestones, completion, replan recovery, human feedback, and long-term rollout.
+1. **Stray backslash** in docs/snippets: `GRPOTrainer\(` → `GRPOTrainer(`.
+2. **Unsloth + Torch 2.10** compiled path → use **`LIFESTACK_NO_UNSLOTH=1`**.
+3. **TRL 0.15.1 + Transformers**: `_get_train_sampler` mismatch → **monkey-patch** with `inspect.signature` guard (see `scripts/train_trl.py`).
+4. **`max_completion_length` too large** → truncated JSON; reduced for single-step (**128**), episodic uses **larger** budgets (script default **224** single-step; episodic auto-scales with horizon).
+5. **Main bug — JSON + prose**: model returned valid JSON then English; naive `json.loads(full_text)` failed → **greedy brace extraction**; **non-greedy** `\{.*?\}` **breaks** on nested `metric_changes` objects.
+6. **`reward_compact_fn`**: constant penalty, **zero variance** → **removed** in v4.
+7. **TRL version drift**: optional **mergekit** imports in TRL **0.17+** → **pin `trl==0.15.1`** for this repo’s GRPO path.
+8. **`weave` / optional deps**: local **shims** for mergekit / llm_blender / weave so imports succeed on Colab.
 
 ---
 
-## 📝 Writeup & Resources
+## Repository layout
 
-| Resource | Link |
-| :--- | :--- |
-| Technical Blog / Writeup | [BLOG.md](BLOG.md) |
-| Training Notebook (Colab) | [Colab_GRPO_Training.ipynb](https://colab.research.google.com/github/oki-dokii/Meta-R2/blob/main/notebooks/Colab_GRPO_Training.ipynb) |
-| Live HF Space Demo | [jdsb06/meta-r2](https://huggingface.co/spaces/jdsb06/meta-r2) |
-| Source Code | [oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2) |
+```text
+Meta-R2/
+├── README.md              # This file — overview and quick start
+├── openenv.yaml           # OpenEnv manifest (LifeStackEnv)
+├── requirements.txt
+├── core/                  # Environment, life state, tasks, rewards
+├── agent/                 # Memory, conflict generation, agent loop
+├── intake/                # SimPerson and intake helpers
+├── scripts/               # train_trl.py, eval.py, smoke tests, …
+├── docs/                  # All documentation — start at docs/README.md
+├── notebooks/             # Jupyter notebooks (see notebooks/README.md)
+├── data/                  # Small JSON fixtures (see .gitignore rules)
+├── app.py / app_flask.py  # Demos
+└── …
+```
+
+Local training checkpoints (`lifestack_model/`, `lifestack_model_v4/`, …) are listed in **`.gitignore`** so they do not clutter commits.
 
 ---
 
-<div align="center">
+## Documentation
 
-### **Team BholeChature**
-*Scaler School of Technology, Bangalore*
+All detailed docs are in **[docs/](docs/)** — start at **[docs/README.md](docs/README.md)**.
 
-<i>"LifeStack: Measuring the messy reality of human decision making."</i>
+| Doc | Description |
+|-----|-------------|
+| [docs/README.md](docs/README.md) | Documentation index |
+| [docs/training_guide.md](docs/training_guide.md) | Install → train → push |
+| [docs/train_trl.md](docs/train_trl.md) | Training CLI reference |
+| [docs/reward.md](docs/reward.md) | Reward functions |
+| [docs/configuration.md](docs/configuration.md) | GRPOConfig |
+| [docs/blog.md](docs/blog.md) | Hugging Face–style writeup |
+| [docs/model_card.md](docs/model_card.md) | Model card |
+| [docs/mentor_pitch.md](docs/mentor_pitch.md) | Short pitch |
 
-</div>
+---
+
+## License and credits
+
+See repository files for license and attribution. Built for a hackathon track that rewards **OpenEnv**, a **minimal TRL/Unsloth** training story, and a short **blog or video**.

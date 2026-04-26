@@ -28,6 +28,11 @@ data/*
 !data/demo_signals.json
 !data/holdout_tasks.json
 
+# Training artifacts (large; keep repo root clean)
+lifestack_model/
+lifestack_model_dryrun/
+lifestack_model_v*/
+
 # Secrets
 credentials.json
 token.json

@@ -1,75 +1,53 @@
-# conflict_generator.md — Conflict Generator Reference
+# `agent/conflict_generator.py` — conflicts and tasks
 
-`agent/conflict_generator.py` — ConflictEvent templates and TaskGenerator.
-
----
-
-## Overview
-
-Two parallel systems for generating crises:
-
-| System | Purpose |
-|---|---|
-| `ConflictEvent` + `TEMPLATES` | 15 handcrafted conflicts at difficulty 1–5 |
-| `TaskGenerator` | Generates long-horizon `Task` objects (two domains) |
+Generates **crisis scenarios** and long-horizon **`Task`** objects for **LifeStackEnv**.
 
 ---
 
-## `ConflictEvent` (Legacy)
+## Two layers
+
+| Layer | Purpose |
+|-------|---------|
+| **`ConflictEvent` + `TEMPLATES`** | Hand-crafted narrative conflicts with difficulty **1–5**, disruption dicts, and resource hints |
+| **`TaskGenerator`** | Builds structured **`Task`** graphs (routes, milestones, events) — used heavily in **GRPO** prompt generation |
+
+Domains align with the environment: **career, finances, relationships, physical_health, mental_wellbeing, time, transport_crisis / flight_crisis, code_merge_crisis** (see `openenv.yaml` and `core/reward.py:VALID_DOMAINS`).
+
+---
+
+## Conflict helpers
 
 ```python
-@dataclass
-class ConflictEvent:
-    id: str
-    title: str
-    story: str
-    primary_disruption: dict   # Metric deltas applied on env reset
-    decisions_required: list[str]
-    resource_budget: dict      # {"time", "money", "energy"}
-    difficulty: int            # 1–5
-```
-
-### Helper functions
-
-```python
-conflict = generate_conflict()              # random from all 15
-conflict = generate_conflict(difficulty=3)  # difficulty-3 pool
-escalated = escalate_conflict(conflict)     # 1.4× disruption, 0.7× budget
-new, reason = adaptive_escalate(conflict, agent_history)  # auto-tune
+conflict = generate_conflict()
+conflict = generate_conflict(difficulty=3)
+escalated = escalate_conflict(conflict)
+new, reason = adaptive_escalate(conflict, agent_history)
 ```
 
 ---
 
-## `TaskGenerator`
+## Task generation
 
 ```python
-generator = TaskGenerator()
-task = generator.generate()
-task = generator.generate(domain="flight_crisis", difficulty=4)
-task = generator.generate(domain="code_merge_crisis")
+from agent.conflict_generator import TaskGenerator
+
+gen = TaskGenerator()
+task = gen.generate(domain="flight_crisis", difficulty=2)
 ```
 
-### Supported Domains
-
-| Domain | Goal |
-|---|---|
-| `flight_crisis` | Survive Airport Cancellation |
-| `code_merge_crisis` | Resolve Production Outage |
-
-Unknown domains fall back to `flight_crisis`.
+Training scripts embed **metadata** (seed, disruption, route ids) into prompts so reward functions can reconstruct the same world state.
 
 ---
 
-## Adding a New Domain
+## Training connection
 
-1. Add `generate_<domain>(self, difficulty) -> Task` to `TaskGenerator`.
-2. Add to the `if/elif` in `generate()`.
-3. Update this file and `docs/INDEX.md` and `README.md`.
+- **Single-step** GRPO: one action JSON per prompt.  
+- **Episodic** GRPO: prompts request **`{"actions": [...]}`** with **horizon** steps; `TaskGenerator` / episode dataset builders set difficulty for **curriculum** stages.
 
 ---
 
-## Change Log
+## See also
 
-| Date | Change |
-|---|---|
-| 2026-04-23 | Initial doc created |
+- [task.md](task.md)  
+- [lifestack_env.md](lifestack_env.md)  
+- [train_trl.md](train_trl.md)  

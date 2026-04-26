@@ -1,30 +1,55 @@
-# lifestack_env.py — Environment Reference
+# `lifestack_env.py` — LifeStackEnv reference
 
-`core/lifestack_env.py` — The main OpenEnv-compatible RL environment for LifeStack.
+`core/lifestack_env.py` — OpenEnv-compatible environment for **LifeStack**: multi-domain metrics, **dependency graph** cascades, tasks, events, and rewards.
+
+**Manifest:** `openenv.yaml` → `core.lifestack_env:LifeStackEnv`
 
 ---
 
-## Overview
+## Architecture overview
 
-`LifeStackEnv` wraps the full simulation: metric cascades, world events, partial
-observability, route execution, milestone tracking, and reward calculation.
+| Piece | Role |
+|-------|------|
+| **Eight domains** | `career`, `finances`, `relationships`, `physical_health`, `mental_wellbeing`, `time`, `transport_crisis`, `code_merge_crisis` (see also legacy `flight_crisis` in some tasks) |
+| **Sub-metrics** | Nested paths such as `career.job_security` — flattened for rewards and observations |
+| **DependencyGraph** | Directed influences between metrics — e.g. job loss → stress → sleep → health |
+| **TaskGenerator** | Domain-specific long-horizon `Task` objects (`core/task.py`, `agent/conflict_generator.py`) |
+| **SimPerson** | Big-Five profiles (`intake/simperson.py`) — training prompts use personas such as **Alex, Chloe, Sam, Jordan, Maya**; packaged demo data may list variants (e.g. **Leo** in `data/simperson_profiles.json`) |
+| **ResourceBudget** | `time_hours`, `money_dollars`, `energy_units` (exposed as time / money / energy in actions) |
+| **WorldEngine / events** | ExoEvents can fire mid-episode and block routes or shift metrics |
+| **`rollout(n_steps=7, gamma=0.9)`** | Long-horizon discounted trajectory used in some reward/analysis paths |
 
-Key classes in this file:
+---
+
+## Episodic training (GRPO)
+
+Training does not only score **one** JSON action. In **episodic** mode (`scripts/train_trl.py --episode-train`):
+
+- **Horizon** (default **3**): the model proposes a short **sequence** of actions.
+- After each **step**, the environment updates metrics, fires cascades, and returns **`obs.reward`**.
+- **Episode return** in rewards is a **discounted sum** of step rewards plus terminal shaping (see `get_episode_evaluation` in `train_trl.py`).
+- **Curriculum difficulty** advances when stage mean reward ≥ **0** (see `curriculum_state.json`).
+
+This matches the design: crises **compound** across domains over several decisions.
+
+---
+
+## Key classes
 
 | Class | Role |
-|---|---|
-| `LifeStackAction` | Pydantic action schema (metric_changes, resource_cost, action_type, …) |
-| `LifeStackObservation` | Pydantic observation schema (metrics, resources, step, done, reward, metadata) |
-| `LifeStackState` | Internal state (current_metrics, budget, task, world_state, hidden_state, …) |
-| `PartialObsFilter` | Converts full world state into the agent's partial observation |
-| `WorldEngine` | Fires deterministic/probabilistic ExoEvents each step |
-| `LifeStackEnv` | The environment itself — inherits from OpenEnv `Environment` |
+|-------|------|
+| `LifeStackAction` | Pydantic action — `action_type`, `target`, `metric_changes`, `resource_cost`, … |
+| `LifeStackObservation` | Metrics, resources, step, `done`, `reward`, `metadata` |
+| `LifeStackState` | Internal metrics, budget, task, world / hidden state |
+| `PartialObsFilter` | Hides `hidden_state` until `inspect` |
+| `WorldEngine` | Schedules / samples **ExoEvents** |
+| `LifeStackEnv` | `reset`, `step`, `render`; subclasses OpenEnv **`Environment`** |
 
 ---
 
-## API
+## API sketch
 
-### `LifeStackEnv.__init__(seed, task, max_steps=30)`
+### `LifeStackEnv.__init__(seed=None, task=None, max_steps=30)`
 
 ```python
 env = LifeStackEnv()
@@ -34,15 +59,10 @@ env = LifeStackEnv(seed=42, max_steps=50)
 ### `LifeStackEnv.reset(...) -> LifeStackObservation`
 
 ```python
-obs = env.reset(task=my_task, episode_id="ep_001")
+obs = env.reset(task=my_task, episode_id="ep_001", conflict=disruption_dict)
 ```
 
-Parameters:
-- `task` — a `Task` object (from `core/task.py`). Defaults to `FlightCrisisTask()`.
-- `seed` — optional int for reproducibility.
-- `conflict` — legacy `ConflictEvent` for metric disruption on reset.
-- `budget` — dict with `time`, `money`, `energy` overrides.
-- `person` — optional `SimPerson` for personality-driven drift.
+Common kwargs: `task`, `seed`, `conflict` (disruption dict), `budget`, `person` (`SimPerson`).
 
 ### `LifeStackEnv.step(action) -> LifeStackObservation`
 
@@ -50,82 +70,54 @@ Parameters:
 obs = env.step(LifeStackAction(action_type="execute", target="rebook_premium"))
 ```
 
-Supported `action_type` values:
-
-| Type | Effect |
-|---|---|
-| `inspect` | Reveals a hidden-state key into the observation |
-| `execute` | Attempts to activate a Route by `target` (route id) |
-| `wait` | Passes the step; triggers stress penalty after 4 consecutive waits |
-| `rollback` | Reverts metrics/budget to the previous step (one-time per episode) |
-| `plan` / `communicate` / `spend` / `delegate` | Apply `metric_changes` and `resource_cost` |
-
-### `LifeStackEnv.render()`
-
-Prints a colour-coded terminal summary of the current state and task progress.
+Supported `action_type` values include: `inspect`, `execute`, `wait`, `rollback`, and declarative types such as `plan`, `communicate`, `spend`, `delegate` that apply `metric_changes` / `resource_cost` (see source for the full dispatch table).
 
 ---
 
-## PartialObsFilter
-
-```python
-PartialObsFilter.filter(task, revealed_keys) -> dict
-```
-
-- Base: `task.visible_world` (always visible).
-- Keys in `revealed_keys` that exist in `task.mutable_world` → added as-is.
-- Keys in `revealed_keys` that exist in `task.hidden_state` → wrapped as  
-  `{"value": <val>, "source": "inspect"}` to signal the agent they came from inspect.
-
----
-
-## Observation `metadata` fields
+## Observation `metadata` (representative)
 
 ```python
 obs.metadata = {
-    "world_state":     dict,   # partial view after filter
-    "goal":            str,
-    "active_route":    str | None,
-    "milestones":      list[str],
-    "events":          list[str],
-    "success":         bool,
-    "failure":         bool,
-    "failure_reason":  str,
+    "world_state": dict,
+    "goal": str,
+    "active_route": str | None,
+    "milestones": list,
+    "events": list,
+    "success": bool,
+    "failure": bool,
+    "failure_reason": str,
     "routes_remaining": int,
-    "breakdown":       dict,   # reward component breakdown
-    "info":            list[str],  # step-level diagnostic messages
+    "breakdown": dict,
+    "info": list[str],
 }
 ```
 
-Key `info` message prefixes:
-
-| Prefix | Meaning |
-|---|---|
-| `INSPECT_REVEALED:` | Key added to inspected list |
-| `INSPECT_REVEALED_HIDDEN:` | Key was in `hidden_state` — value included |
-| `INSPECT_REDUNDANT:` | Key already revealed, no-op |
-| `ROUTE_SUCCESS:` | Route executed and consequences applied |
-| `ROUTE_BLOCKED:` | Route was closed by a prior ExoEvent |
-| `PRECONDITIONS_FAILED:` | Route preconditions not met |
-| `MILESTONE_UNLOCKED:` | A milestone condition was met |
-| `EVENT_FIRED:` | An ExoEvent triggered this step |
-| `WAIT_CAP_EXCEEDED:` | 4+ consecutive waits — stress penalty applied |
+`info` prefixes include `ROUTE_SUCCESS:`, `EVENT_FIRED:`, `MILESTONE_UNLOCKED:`, `WAIT_CAP_EXCEEDED:`, etc.
 
 ---
 
-## End Conditions
+## End conditions
 
-| Condition | `done` | `success` | `failure` |
-|---|---|---|---|
-| `step_count >= max_steps` | ✅ | depends | — |
-| All `success_conditions` met | ✅ | ✅ | — |
-| `failure_condition` met | ✅ | — | ✅ |
-| Any metric hits 0 | ✅ | — | ✅ |
+| Condition | `done` | `success` / `failure` |
+|-----------|--------|------------------------|
+| Step limit | ✅ | context-dependent |
+| All success conditions | ✅ | `success` |
+| Failure condition | ✅ | `failure` |
+| Metric floor (implementation) | ✅ | `failure` may set |
 
 ---
 
-## Change Log
+## Change log
 
 | Date | Change |
-|---|---|
-| 2026-04-23 | `PartialObsFilter.filter()` now reads `mutable_world` + `hidden_state` directly from `Task`; removed `world` param; hidden keys wrapped with `source: inspect`; `INSPECT_REVEALED_HIDDEN` info message added |
+|------|--------|
+| 2026-04-26 | Doc refresh: eight domains, episodic GRPO, personas, dependency graph |
+| 2026-04-23 | `PartialObsFilter` reads `mutable_world` + `hidden_state` from `Task` |
+
+---
+
+## See also
+
+- [task.md](task.md) — `Task` / `Route` schema  
+- [reward.md](reward.md) — how `obs.reward` feeds GRPO  
+- [train_trl.md](train_trl.md) — episodic flags  

@@ -5,92 +5,98 @@ This document defines the **documentation rule** for the project.
 
 ---
 
-## The Rule: Doc-First Development
+## The rule: doc-first development
 
 Every change that adds, removes, or significantly modifies a feature must include
 **all three** of the following before the commit is made:
 
 | # | Action | Where |
-|---|---|---|
+|---|--------|--------|
 | 1 | **Create or update a doc file** | `docs/<topic>.md` |
-| 2 | **Update README.md** | File Structure table + relevant section |
-| 3 | **Update `docs/INDEX.md`** | Add a one-line entry for the new doc |
+| 2 | **Update [README.md](../README.md)** | File structure table + relevant section |
+| 3 | **Update [docs/README.md](README.md)** | Add a one-line entry in the right table |
 
 > [!IMPORTANT]
-> A pull request / commit that adds a new script, module, or feature **without**
-> updating `docs/INDEX.md` and `README.md` is considered incomplete and should
+> A pull request or commit that adds a new script, module, or feature **without**
+> updating **docs/README.md** and the root **README.md** is considered incomplete and should
 > not be merged.
 
 ---
 
-## What Counts as "a Feature"
+## What counts as a feature
 
 | Change type | Doc required? |
-|---|---|
-| New Python module (`core/`, `agent/`, `intake/`) | ✅ Yes — `docs/<module>.md` |
-| New script (`scripts/*.py`) | ✅ Yes — entry in `docs/scripts.md` |
-| New Gradio tab in `app.py` | ✅ Yes — entry in `docs/app.md` |
-| New CLI argument to an existing script | ✅ Yes — update relevant doc |
-| Bug fix with no API surface change | ❌ No (but update changelog if breaking) |
-| Refactor with no API surface change | ❌ No |
-| New environment variable / secret | ✅ Yes — update `docs/configuration.md` |
-| New dependency in `requirements.txt` | ✅ Yes — note in relevant doc + README |
+|-------------|---------------|
+| New Python module (`core/`, `agent/`, `intake/`) | Yes — `docs/<module>.md` |
+| New script (`scripts/*.py`) | Yes — entry in `docs/scripts.md` |
+| New Gradio tab in `app.py` | Yes — entry in `docs/app.md` |
+| New CLI argument to an existing script | Yes — update the relevant doc |
+| Bug fix with no API surface change | No (note in changelog if breaking) |
+| Refactor with no API surface change | No |
+| New environment variable / secret | Yes — `docs/configuration.md` |
+| New dependency in `requirements.txt` | Yes — note in relevant doc + README |
 
 ---
 
-## Doc File Conventions
+## Doc file conventions
 
-- All docs live in `docs/`. No `.md` files at repo root except `README.md` and this file.
-- File names are lowercase with underscores: `docs/lifestack_env.md`, `docs/eval.md`.
-- Each doc starts with a `# Title` h1 and a one-line summary.
-- Use `## Overview`, `## Usage`, `## API / Parameters`, `## Examples` sections.
+- All documentation lives in **`docs/`**. The **only** markdown file at the repository root is **`README.md`** (GitHub project landing page).
+- Prefer **lowercase with underscores**: `docs/lifestack_env.md`, `docs/kaggle_train.md`.
+- Promotional or Hugging Face collateral also lives under `docs/` (e.g. `blog.md`, `model_card.md`).
+- Each doc starts with a `# Title` heading and a one-line summary.
 - Code blocks must have a language tag (` ```python `, ` ```bash `).
 
 ---
 
-## Checklist (copy into every PR / commit message)
+## Checklist (copy into PR or commit message)
 
 ```
 Docs checklist:
 [ ] docs/<topic>.md created or updated
-[ ] docs/INDEX.md updated with new entry
-[ ] README.md File Structure table updated
-[ ] README.md Quickstart / relevant section updated (if CLI changed)
+[ ] docs/README.md updated with new entry
+[ ] README.md file structure / quickstart updated (if needed)
 ```
 
 ---
 
-## Docs Folder Structure
+## Docs folder layout (representative)
 
 ```
 docs/
-├── INDEX.md              ← Master index of all docs (ALWAYS update this)
-├── CONTRIBUTING.md       ← This file — the rule
-├── lifestack_env.md      ← core/lifestack_env.py reference
-├── reward.md             ← core/reward.py reference
-├── task.md               ← core/task.py schema reference
-├── memory.md             ← agent/memory.py reference
-├── conflict_generator.md ← agent/conflict_generator.py reference
-├── app.md                ← app.py Gradio interface reference
-├── eval.md               ← scripts/eval.py reference
-├── train_trl.md          ← scripts/train_trl.md reference
-├── scripts.md            ← All other scripts reference
-└── configuration.md      ← Env vars, secrets, openenv.yaml
+├── README.md              ← Master index (always update for new docs)
+├── CONTRIBUTING.md        ← This file
+├── training_guide.md
+├── train_trl.md
+├── configuration.md
+├── reward.md
+├── lifestack_env.md
+├── task.md
+├── memory.md
+├── conflict_generator.md
+├── eval.md
+├── scripts.md
+├── app.md
+├── DEPLOYMENT.md
+├── blog.md
+├── model_card.md
+├── mentor_pitch.md
+├── implementation_summary.md
+└── kaggle_train.md
 ```
 
 ---
 
-## Commit Message Format
+## Commit message format
 
 ```
 <type>: <short description>
 
 - <file changed>: <what changed>
 - docs/<doc>.md: <created|updated>
-- docs/INDEX.md: <added entry for X>
+- docs/README.md: <added entry for X>
 - README.md: <updated section Y>
 
-Docs checklist: ✅ all three updated
+Docs checklist: all items updated
 ```
 
 Types: `feat` | `fix` | `refactor` | `docs` | `test` | `chore`

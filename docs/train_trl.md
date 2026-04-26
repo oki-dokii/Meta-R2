@@ -1,143 +1,143 @@
-# train_trl.py — GRPO Training Reference
+# `scripts/train_trl.py` — GRPO training (TRL + Unsloth)
 
-`scripts/train_trl.py` — Curriculum GRPO training via HuggingFace TRL + Unsloth.
+Trains **Qwen2.5-1.5B-Instruct** for **LifeStack** using **`GRPOTrainer`** from **TRL 0.15.1** (pinned for reproducibility and to avoid optional-import breakage in TRL **≥0.17**).
 
----
-
-## Overview
-
-Trains a small LLM (default: `Qwen2.5-1.5B-Instruct`) to resolve LifeStack life conflicts
-using **Group Relative Policy Optimization (GRPO)**. Implements a success-based curriculum
-that automatically increases difficulty when the agent's average reward exceeds 0.6.
-
-Requires: `unsloth`, `trl`, `datasets`, `transformers`, `accelerate` (Colab / GPU).
+**Source:** `scripts/train_trl.py`  
+**Hub examples:** `jdsb06/lifestack-grpo`, `jdsb06/lifestack-grpo-v3`, `jdsb06/lifestack-grpo-v4`
 
 ---
 
-## Usage
+## Environment variable: `LIFESTACK_NO_UNSLOTH`
+
+When set to `1`, `true`, or `yes`, training **skips** `import unsloth` so **`trl.GRPOTrainer`** stays the stock HF trainer. Use this on **Torch 2.10** if Unsloth’s compiled path crashes (e.g. `ref_hidden_states=None`).
 
 ```bash
-# Full curriculum training (5 stages × 100 prompts)
-python scripts/train_trl.py
-
-# CPU smoke test for the single-step path
-python scripts/train_trl.py --dry-run
-
-# CPU smoke test for the episode-level reward path
-python scripts/train_trl.py --episode-train --dry-run
-
-# Episodic v2 fine-tune after a short single-step warm-up
-python scripts/train_trl.py --episode-train --stages 2 --episodes-per-stage 40 --episode-horizon 3
-
-# Push a validated adapter
-python scripts/train_trl.py --episode-train --push-to-hub --hub-repo-id jdsb06/lifestack-grpo-v2
+export LIFESTACK_NO_UNSLOTH=1
 ```
-
-Key CLI args: `--stages`, `--prompts-per-stage`, `--output-dir`, `--resume`,
-`--start-stage`, `--full-episode`, `--episode-train`, `--episode-horizon`,
-`--episodes-per-stage`, `--episode-warmup-stages`, `--push-to-hub`, and
-`--hub-repo-id`.
 
 ---
 
-## Architecture
+## CLI reference
 
-### Reward Functions (single-step GRPO)
+### Core
 
-| Function | Signal |
-|---|---|
-| `reward_format_fn` | JSON format compliance |
-| `reward_clean_eos_fn` | Stops cleanly after the first JSON object |
-| `reward_route_target_fn` | Rewards using listed route ids so milestones/completion can fire |
-| `reward_plausibility_fn` | Penalises zero-cost metric changes |
-| `reward_task_success_fn` | Core env-step outcome reward |
-| `reward_milestone_fn` | Milestone progress bonus |
-| `reward_replan_fn` | Recovery after exogenous events |
-| `reward_reasoning_fn` | Planning coherence score |
-| `reward_human_feedback_fn` | Alignment with past real-world outcome feedback |
-| `reward_longterm_fn` | 7-step discounted rollout after the chosen action |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | off | One training step on a tiny batch (smoke test; CPU OK). |
+| `--stages` | `5` | Number of curriculum **stages** (single-step **or** episodic, depending on mode). |
+| `--prompts-per-stage` | `100` | Prompts per stage in **single-step** `train_curriculum`. Also used for **episode warm-up** stages when `--episode-train` is set. |
+| `--output-dir` | `./lifestack_model` | Root directory for checkpoints and `curriculum_state.json`. |
+| `--resume` | off | Resume from `curriculum_state.json` and latest `checkpoint-*` in the current stage directory. |
+| `--start-stage` | none | Force 1-based stage index; ignores saved curriculum position unless combined with `--resume` behavior as implemented. |
 
-### Reward Functions (episodic v2)
+### Episode / multi-step
 
-| Function | Signal |
-|---|---|
-| `reward_episode_format_fn` | Validates every action in `{"actions": [...]}` |
-| `reward_clean_eos_fn` | Penalises trailing text after the episode JSON |
-| `reward_episode_plausibility_fn` | Averages anti-hacking plausibility over the sequence |
-| `reward_episode_return_fn` | Executes the action sequence in `LifeStackEnv` and scores discounted trajectory return + terminal success |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--episode-train` | off | Run **`train_episodic_curriculum`** instead of single-step curriculum. |
+| `--episode-horizon` | `3` | Max actions per episode completion. |
+| `--episodes-per-stage` | `40` | Episodes (prompts) per episodic stage. |
+| `--episode-warmup-stages` | `1` | Number of **single-step** warm-up stages before episodic training (skipped when `--resume`). |
 
-### `get_lifestack_evaluation(completion, prompt) -> dict`
+### Lengths and optimization
 
-The central reward computation function. Parses the LLM's JSON completion, reconstructs
-the Task from the prompt's `<SYSTEM_METADATA>` block, steps the env, and returns:
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-prompt-length` | `2048` | Left-truncated prompt token budget for GRPO. |
+| `--max-completion-length` | `224` | Max **new** tokens per completion in **single-step** training. |
+| `--episodic-max-completion` | `0` | Override episodic completion budget; **`0` = auto** (`min(1024, max(512, 256 * horizon))`). |
+| `--num-train-epochs` | `1` | Epochs **per stage** in episodic training (and used where wired in curriculum). Increase (e.g. **3**) for longer runs without more prompts. |
 
-```python
-{
-    "reward": float,
-    "breakdown": dict,   # from obs.metadata["breakdown"]
-    "action": LifeStackAction
-}
-```
+### Hugging Face Hub
 
-Returns `{"reward": -0.5, "breakdown": {"error": ...}}` on any parse or env failure.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--push-to-hub` | off | Push `model` + `tokenizer` after training (or after `--full-episode` when applicable). |
+| `--hub-repo-id` | `lifestack-grpo` | Target repo id (`username/name`). |
 
-#### Task Construction Hardening (2026-04-23)
+### Post-training
 
-The `Task(...)` call inside `get_lifestack_evaluation` is wrapped in its own
-`try/except`. On exception, logs `[reward] Task construction failed: <error>` and
-returns the `-0.5` fallback immediately. A field-presence check on
-`(id, goal, constraints, mutable_world, visible_world)` follows construction.
-
-### Curriculum (`train_curriculum`)
-
-```
-Stage 1: difficulty=1 → train → eval → if avg_reward > 0.6: difficulty++
-Stage 2: difficulty=2 → ...
-...
-Stage 5: difficulty=5 → final save
-```
-
-### Episodic Curriculum (`train_episodic_curriculum`)
-
-The v2 path trains on prompts that ask for compact action sequences:
-
-```json
-{"actions":[{"action_type":"execute","target_domain":"<route_id>","metric_changes":{},"resource_cost":{"time":0.5,"money":0,"energy":2},"reasoning":"brief"}]}
-```
-
-`reward_episode_return_fn` parses the sequence, steps the real environment up to
-`--episode-horizon`, and returns a clipped trajectory reward. The post-training
-`--full-episode` runner still performs closed-loop evaluation where the model
-generates one action, observes the new state, then generates the next action.
-
-### Dataset (`generate_dataset`)
-
-Generates `N` prompts by:
-1. Sampling a `TaskGenerator` task across the 8 supported domains
-2. Merging a legacy `ConflictEvent` disruption for variety
-3. Cascading the disruption through the `DependencyGraph`
-4. Embedding task metadata in a `<SYSTEM_METADATA>` block for reward reconstruction
-
-`generate_episodic_dataset` follows the same reconstruction pattern but adds
-route ids and horizon metadata so route-completion rewards can be assigned
-without confusing route ids with life-domain names.
+| Flag | Description |
+|------|-------------|
+| `--full-episode` | Roll out multi-step episodes with a saved model (evaluation path). |
 
 ---
 
-## Outputs
+## Modes
 
-| Path | Contents |
-|---|---|
-| `./lifestack_model/` | Final saved model + tokenizer |
-| `./lifestack_model/stage_N/` | Per-stage checkpoints |
-| `training_logs/generations.jsonl` | Sampled generations (every 20 reward calls) |
-| `grpo_reward_curve.png` | 50-episode eval reward curve |
+### 1) Single-step curriculum (default)
+
+```bash
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
+  --stages 5 \
+  --prompts-per-stage 100 \
+  --output-dir ./lifestack_model
+```
+
+Stage 1 uses **format + clean EOS + route target** rewards; later stages add simulation-heavy heads (task success, milestones, long-term rollout, etc.).
+
+### 2) Episodic curriculum
+
+Runs **`--episode-warmup-stages`** single-step stages (unless `--resume`), then episodic stages with weights:
+
+**`[reward_episode_format_fn, reward_clean_eos_fn, reward_episode_plausibility_fn, reward_episode_return_fn]`**  
+Weights: **`[1.0, 0.5, 0.5, 2.0]`** (v4; `reward_compact_fn` removed).
+
+```bash
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
+  --episode-train \
+  --stages 3 \
+  --episodes-per-stage 60 \
+  --episode-horizon 3 \
+  --episode-warmup-stages 1 \
+  --prompts-per-stage 60 \
+  --num-train-epochs 3 \
+  --max-prompt-length 4096 \
+  --output-dir ./lifestack_model_v4 \
+  --push-to-hub \
+  --hub-repo-id jdsb06/lifestack-grpo-v4
+```
 
 ---
 
-## Change Log
+## Resume behavior
 
-| Date | Change |
-|---|---|
-| 2026-04-23 | `Task()` construction wrapped in try/except + field validation; returns -0.5 fallback on failure |
-| 2026-04-26 | Added explicit route-id format credit, neutral missing human feedback, `--episode-train`, episodic dry-run, and action-sequence trajectory reward |
+1. **`curriculum_state.json`** in `--output-dir` stores `completed_stage` and `next_difficulty`.
+2. On `--resume`, training reads the file and continues at **`completed_stage + 1`** with saved difficulty.
+3. Within a stage, **`find_latest_checkpoint(stage_dir)`** picks the newest `checkpoint-*` and passes `resume_from_checkpoint=` to `trainer.train`.
+
+**Single-step stage dirs:** `{output_dir}/stage_{n}`  
+**Episodic stage dirs:** `{output_dir}/episode_stage_{n}`
+
+If you change `--stages` or output layout manually, verify paths before resuming.
+
+---
+
+## Implementation notes
+
+- **Optional dependency shims:** before importing TRL, the script registers stub modules for **`mergekit`**, **`llm_blender`**, and **`weave`** so Colab/Kaggle installs do not fail on unused imports.
+- **Custom trainer:** episodic training uses **`LifeStackGRPOTrainer`** for JSON-aware masking / alignment with reward boundaries (see source).
+- **JSON parsing:** rewards prefer **`_load_first_json_object`** (`JSONDecoder.raw_decode`) in `core/reward.py`; UI code may use greedy `re.search(r'\{.*\}', text, re.DOTALL)` — **non-greedy** patterns break nested objects.
+
+---
+
+## Bugs fixed (reference)
+
+| Issue | Mitigation |
+|--------|------------|
+| Docs typo `GRPOTrainer\(` | Use correct constructor name. |
+| Unsloth compiled cache / Torch 2.10 | `LIFESTACK_NO_UNSLOTH=1` |
+| TRL `_get_train_sampler` signature drift | Monkey-patch in `train_trl.py` |
+| `max_completion_length` too large | Truncated JSON; use **128–224** single-step; episodic auto/override |
+| Valid JSON + trailing prose → `json.loads` fail | Greedy brace extract or `raw_decode` |
+| `reward_compact_fn` constant −0.5, std=0 | Removed from v4 stack |
+| TRL 0.17+ mergekit import | Pin **`trl==0.15.1`** for this project path |
+| `weave` / W&B tracing import | Stub `weave` and submodules |
+
+---
+
+## See also
+
+- [reward.md](reward.md) — reward math and heads  
+- [training_guide.md](training_guide.md) — end-to-end setup  
+- [configuration.md](configuration.md) — `GRPOConfig` fields  
