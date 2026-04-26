@@ -1,123 +1,206 @@
-# `lifestack_env.py` — LifeStackEnv reference
+# LifeStack Environment
 
-`core/lifestack_env.py` — OpenEnv-compatible environment for **LifeStack**: multi-domain metrics, **dependency graph** cascades, tasks, events, and rewards.
-
-**Manifest:** `openenv.yaml` → `core.lifestack_env:LifeStackEnv`
+**Source file:** `core/lifestack_env.py`
 
 ---
 
-## Architecture overview
+## Overview
 
-| Piece | Role |
-|-------|------|
-| **Eight domains** | `career`, `finances`, `relationships`, `physical_health`, `mental_wellbeing`, `time`, `transport_crisis`, `code_merge_crisis` (see also legacy `flight_crisis` in some tasks) |
-| **Sub-metrics** | Nested paths such as `career.job_security` — flattened for rewards and observations |
-| **DependencyGraph** | Directed influences between metrics — e.g. job loss → stress → sleep → health |
-| **TaskGenerator** | Domain-specific long-horizon `Task` objects (`core/task.py`, `agent/conflict_generator.py`) |
-| **SimPerson** | Big-Five profiles (`intake/simperson.py`) — training prompts use personas such as **Alex, Chloe, Sam, Jordan, Maya**; packaged demo data may list variants (e.g. **Leo** in `data/simperson_profiles.json`) |
-| **ResourceBudget** | `time_hours`, `money_dollars`, `energy_units` (exposed as time / money / energy in actions) |
-| **WorldEngine / events** | ExoEvents can fire mid-episode and block routes or shift metrics |
-| **`rollout(n_steps=7, gamma=0.9)`** | Long-horizon discounted trajectory used in some reward/analysis paths |
+`LifeStackEnv` is the central environment class. It inherits from `openenv.core.Environment` when the modern API is available, and falls back through two shim layers when it isn't. The `USING_MODERN_API` flag at module level controls which base class is used — the environment is fully functional in both modes.
 
 ---
 
-## Episodic training (GRPO)
+## API compatibility shim
 
-Training does not only score **one** JSON action. In **episodic** mode (`scripts/train_trl.py --episode-train`):
+`lifestack_env.py` tries three import paths in order:
 
-- **Horizon** (default **3**): the model proposes a short **sequence** of actions.
-- After each **step**, the environment updates metrics, fires cascades, and returns **`obs.reward`**.
-- **Episode return** in rewards is a **discounted sum** of step rewards plus terminal shaping (see `get_episode_evaluation` in `train_trl.py`).
-- **Curriculum difficulty** advances when stage mean reward ≥ **0** (see `curriculum_state.json`).
+1. `from openenv.core import Environment, Action, Observation, State` — modern API (preferred)
+2. `from openenv.env import Env as Environment` — legacy openenv path
+3. A minimal inline shim with no-op `reset()` and `step()` — for import-only contexts (docs, CI)
 
-This matches the design: crises **compound** across domains over several decisions.
-
----
-
-## Key classes
-
-| Class | Role |
-|-------|------|
-| `LifeStackAction` | Pydantic action — `action_type`, `target`, `metric_changes`, `resource_cost`, … |
-| `LifeStackObservation` | Metrics, resources, step, `done`, `reward`, `metadata` |
-| `LifeStackState` | Internal metrics, budget, task, world / hidden state |
-| `PartialObsFilter` | Hides `hidden_state` until `inspect` |
-| `WorldEngine` | Schedules / samples **ExoEvents** |
-| `LifeStackEnv` | `reset`, `step`, `render`; subclasses OpenEnv **`Environment`** |
+The `USING_MODERN_API` flag is set `True` only when path 1 succeeds. `server.py` checks this flag before starting `uvicorn` and exits gracefully if it's `False`.
 
 ---
 
-## API sketch
+## Core classes
 
-### `LifeStackEnv.__init__(seed=None, task=None, max_steps=30)`
+### `LifeStackAction`
 
+The agent's output. Inherits from `openenv.core.Action`.
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `action_type` | `str \| None` | One of the 10 valid types, or `"inspect"`, `"rollback"`, `"wait"` |
+| `target` | `str \| None` | Target domain or route ID |
+| `metric_changes` | `dict[str, float]` | Requested delta per metric path |
+| `resource_cost` | `dict[str, float]` | `{"time": h, "money": $, "energy": pts}` |
+| `reasoning` | `str \| None` | Plain text reasoning for reward scoring |
+| `completion` | `str \| None` | The raw model completion (full JSON string) |
+| `is_rollback` | `bool` | Set `True` to trigger the rollback action |
+| `inspect_target` | `str \| None` | Hidden-state key to reveal |
+| `actions_taken` | `int` | Count of atomic actions (used in reward) |
+
+### `LifeStackObservation`
+
+What the environment returns after each step.
+
+| Field | Description |
+|-------|-------------|
+| `metrics` | Flattened 23-value dict: `"career.satisfaction": 72.5`, etc. |
+| `resources` | `{"time": h, "money": $, "energy": pts}` remaining |
+| `step` | Current step count |
+| `done` | Whether the episode has ended |
+| `reward` | Scalar reward for this step |
+| `metadata` | Dict with `world_state`, `goal`, `active_route`, `milestones`, `events`, `success`, `failure`, `failure_reason`, `routes_remaining`, `conflict_title`, `person` |
+
+After `step()`, `metadata` also contains `breakdown` (full reward component dict) and `info` (list of string log messages like `"WAIT_CAP_EXCEEDED"`, `"ROUTE_SUCCESS: ..."`, etc.)
+
+### `LifeStackState`
+
+Internal mutable state. Not returned to the agent directly; accessible via `env.state`.
+
+| Field | Description |
+|-------|-------------|
+| `current_metrics` | `LifeMetrics` instance |
+| `budget` | `ResourceBudget` instance |
+| `step_count` | Current episode step |
+| `consecutive_waits` | Counter for WAIT_CAP_EXCEEDED trigger |
+| `used_rollback` | Whether rollback has been used this episode |
+| `rollback_penalty_charged` | Prevents double-charging the rollback penalty |
+| `previous_metrics` | Snapshot for rollback (overwritten each non-rollback step) |
+| `previous_budget` | Snapshot for rollback |
+| `current_task` | Active `Task` object |
+| `world_state` | Mutable world dict (deep copy of `task.mutable_world`) |
+| `hidden_state` | Hidden truth dict (agent can only read via inspect) |
+| `inspected_keys` | List of keys the agent has revealed via inspect |
+| `milestones_achieved` | List of milestone IDs hit this episode |
+| `fired_event_ids` | List of ExoEvent IDs that have fired |
+| `exo_events_seen` | Count of events fired (for replan bonus) |
+| `milestones_after_event` | Milestones hit after at least one event fired |
+| `closed_route_ids` | Set of route IDs closed by events or previous routes |
+| `cumulative_rel_delta` | Running sum of relationship metric delta (for erosion penalty) |
+
+---
+
+## Methods
+
+### `reset(seed, episode_id, task, conflict, budget, person, agent_history)`
+
+Signature:
 ```python
-env = LifeStackEnv()
-env = LifeStackEnv(seed=42, max_steps=50)
+def reset(self, seed=None, episode_id=None, task=None, conflict=None,
+          budget=None, person=None, agent_history=None, **kwargs) -> LifeStackObservation
 ```
 
-### `LifeStackEnv.reset(...) -> LifeStackObservation`
-
-```python
-obs = env.reset(task=my_task, episode_id="ep_001", conflict=disruption_dict)
-```
-
-Common kwargs: `task`, `seed`, `conflict` (disruption dict), `budget`, `person` (`SimPerson`).
-
-### `LifeStackEnv.step(action) -> LifeStackObservation`
-
-```python
-obs = env.step(LifeStackAction(action_type="execute", target="rebook_premium"))
-```
-
-Supported `action_type` values include: `inspect`, `execute`, `wait`, `rollback`, and declarative types such as `plan`, `communicate`, `spend`, `delegate` that apply `metric_changes` / `resource_cost` (see source for the full dispatch table).
+1. Seeds `random` if `seed` is provided (for reproducibility)
+2. Sets `current_task` to the provided `task`, or falls back to `FlightCrisisTask()`
+3. Sets `max_steps = task.horizon`
+4. Resets all `LifeStackState` fields to zero/empty
+5. Deep-copies `task.mutable_world` → `world_state`, `task.hidden_state` → `hidden_state`
+6. Scales `ResourceBudget` from task constraints: `base_budget × max(1.0, max_steps/5.0)`
+7. If `conflict` is provided (legacy support), runs `DependencyGraph.cascade()` on the disruption dict to seed metric state
+8. Constructs a new `WorldEngine(task)`
+9. Returns `_get_obs()`
 
 ---
 
-## Observation `metadata` (representative)
+### `step(action, timeout_s=None)`
+
+Executes one environment step. Order of operations inside `step()`:
+
+1. **Personality drift & legacy escalation** — if `state.person` is set, calls `person.drift(step_count)` for personality-driven metric nudges. At step 2, calls `adaptive_escalate()` to potentially increase conflict difficulty.
+2. **ExoEvent injection** — `WorldEngine.inject_events()` fires any events scheduled for this step (or probabilistic events), mutating `world_state` and `hidden_state`.
+3. **Tool dispatch** — determines `tool_type` from `action.action_type`, `action.is_rollback`, or `action.inspect_target`.
+4. **Rollback handling** — if `tool_type == "rollback"`: checks `used_rollback` flag, restores previous metrics/budget if available, charges `-0.1` reward.
+5. **Pre-action snapshot** — saves `current_metrics` and `budget` to `previous_*` for future rollback.
+6. **Inspect handling** — adds `action.target` to `inspected_keys`, logs revealed value if it's in `hidden_state`.
+7. **Wait cap** — increments `consecutive_waits`; at 4+, forces `+15.0` to `mental_wellbeing.stress_level`.
+8. **Route execution** — if `action.target` matches a `viable_routes` entry and preconditions are met, applies route consequences to `world_state`.
+9. **Resource deduction** — calls `budget.deduct()`. If the budget is insufficient, discards all `metric_changes` (the action is blocked but the step still counts).
+10. **Metric updates and cascade** — changes `≤ 5.0` in absolute value are applied directly via `_update_metric()`. Changes `> 5.0` are passed through `DependencyGraph.cascade()` with the full propagation logic.
+11. **Task progression** — `LifeStackVerifier` checks success, failure, and new milestones.
+12. **Reward calculation** — calls `compute_task_reward()` (or `compute_reward()` if no task).
+13. **Termination check** — episode terminates on: any success condition met (truncated), `step_count >= max_steps` (truncated), any metric `<= 10` (terminated), task failure conditions (terminated), or all routes exhausted (failure).
+
+Returns `LifeStackObservation`.
+
+---
+
+### `rollout(n_steps=7, gamma=0.9)`
 
 ```python
-obs.metadata = {
-    "world_state": dict,
-    "goal": str,
-    "active_route": str | None,
-    "milestones": list,
-    "events": list,
-    "success": bool,
-    "failure": bool,
-    "failure_reason": str,
-    "routes_remaining": int,
-    "breakdown": dict,
-    "info": list[str],
+def rollout(self, n_steps=7, gamma=0.9) -> dict
+```
+
+Runs `n_steps` null rest actions from the current state and returns the discounted cumulative reward plus a step-by-step trajectory. Fully side-effect-free — deep-copies `_internal_state` before starting and restores it after.
+
+Return value:
+```python
+{
+    "discounted_reward": float,     # γ-discounted cumulative reward
+    "trajectory": [                 # one entry per simulated step
+        {
+            "step": int,
+            "reward": float,
+            "metrics": dict,        # flattened LifeMetrics snapshot
+            "discounted_contribution": float,
+        }
+    ],
+    "n_steps_completed": int
 }
 ```
 
-`info` prefixes include `ROUTE_SUCCESS:`, `EVENT_FIRED:`, `MILESTONE_UNLOCKED:`, `WAIT_CAP_EXCEEDED:`, etc.
+This is the signal used by `reward_longterm_fn` in `scripts/train_trl.py`.
 
 ---
 
-## End conditions
+## WorldEngine
 
-| Condition | `done` | `success` / `failure` |
-|-----------|--------|------------------------|
-| Step limit | ✅ | context-dependent |
-| All success conditions | ✅ | `success` |
-| Failure condition | ✅ | `failure` |
-| Metric floor (implementation) | ✅ | `failure` may set |
+`WorldEngine` manages `ExoEvent` injection and route closure tracking.
 
----
+```python
+class WorldEngine:
+    def __init__(self, task: Task)
+    def inject_events(self, step, world, hidden) -> list[ExoEvent]
+    def get_closed_routes(self) -> set[str]
+```
 
-## Change log
-
-| Date | Change |
-|------|--------|
-| 2026-04-26 | Doc refresh: eight domains, episodic GRPO, personas, dependency graph |
-| 2026-04-23 | `PartialObsFilter` reads `mutable_world` + `hidden_state` from `Task` |
+`inject_events()` fires events when `event.step == current_step` (deterministic) or when `random.random() < event.probability` and `event.step == -1` (probabilistic). Fired events mutate `world` and `hidden` in place and add their `closes_routes` to the closed set.
 
 ---
 
-## See also
+## PartialObsFilter
 
-- [task.md](task.md) — `Task` / `Route` schema  
-- [reward.md](reward.md) — how `obs.reward` feeds GRPO  
-- [train_trl.md](train_trl.md) — episodic flags  
+Controls what the agent sees as `world_state` in the observation:
+
+```python
+class PartialObsFilter:
+    @staticmethod
+    def filter(task: Task, revealed_keys: list) -> dict
+```
+
+Starts with a deep copy of `task.visible_world` (the always-visible subset). For each key in `revealed_keys` (keys the agent has `inspect`ed), overlays the corresponding value from `mutable_world` if found, or from `hidden_state` wrapped as `{"value": ..., "source": "inspect"}` if it's a hidden field.
+
+This is the mechanism that makes `hidden_state` meaningful — the agent genuinely cannot see `card_available: True` until it spends an inspect action.
+
+---
+
+## Rollback mechanic
+
+`action_type="rollback"` is available once per episode. The `LifeStackState.used_rollback` flag prevents using it more than once. When triggered:
+
+1. If `used_rollback == True`: returns `reward=-0.1` immediately (denied)
+2. If `previous_metrics` is `None`: returns `reward=0.0` (nothing to restore)
+3. Otherwise: restores `current_metrics` and `budget` from `previous_*` snapshots, sets `used_rollback = True`, returns `reward=-0.1`
+
+The `-0.1` penalty fires on the rollback action itself. The `ROLLBACK_USED` penalty in `compute_task_reward()` applies separately for the episode-level record.
+
+---
+
+## Related files
+
+- `core/life_state.py` — `LifeMetrics`, `DependencyGraph`, `ResourceBudget`
+- `core/task.py` — `Task`, `ExoEvent`, `Route`, `Milestone`, `FlightCrisisTask`
+- `core/reward.py` — `compute_task_reward()`, `compute_reward()`
+- `core/verifier.py` — `LifeStackVerifier`
+- `server.py` — starts `create_app(env=LifeStackEnv)` on port 8000

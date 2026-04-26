@@ -1,86 +1,72 @@
-# LifeStack — implementation summary (final)
+# LifeStack — implementation summary
 
-This document replaces the older sprint checklist with a **concise record** of what **LifeStack** is today: **environment**, **training**, **rewards**, **known bugs**, and **where the code lives**.
-
-**Repo:** [https://github.com/oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2)
-
----
-
-## Product definition
-
-- **Policy:** Qwen2.5-1.5B-Instruct (4-bit Unsloth bundle) + **LoRA** GRPO fine-tuning.
-- **Output:** structured JSON actions (`action_type`, `target_domain`, `metric_changes`, `resource_cost`, `reasoning`) or episodic **`{"actions": [...]}`** completions.
-- **World:** **LifeStackEnv** — eight domains, metrics, resources, tasks, **DependencyGraph** cascades (e.g. job loss → stress → sleep → health).
+**Repo:** [https://github.com/oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2)  
+**HF Space:** [https://huggingface.co/spaces/jdsb06/meta-r2](https://huggingface.co/spaces/jdsb06/meta-r2)
 
 ---
 
-## Training timeline (engineering)
+## What LifeStack is
 
-| Phase | Outcome |
-|-------|---------|
-| Run 1 | Truncated JSON (`max_completion_length` too large) → parse failures → **−0.944** |
-| Run 2 | Shorter completions → **−0.266** (minimal learning) |
-| Run 3 | **JSON + trailing prose** fix (greedy `\{.*\}` / `raw_decode`) → first **positive** mean ~**+0.023** (~**97%** vs Run 1) |
-| Run 4 | Longer single-step run → **plateau** (~**−0.1** eval) |
-| Run 5 | **Episodic** GRPO, horizon 3 → best ~**+0.734**, curriculum **1→2** |
-| v3 | Episodic curriculum **1→4**; **`reward_compact_fn`** constant → bad logged mean |
-| v4 | **Removed** compact head; weights **1 / 0.5 / 0.5 / 2** on format, EOS, plausibility, return — **in training** |
+A multi-domain life-management RL environment built on OpenEnv 0.2.3. It models a human life as 23 interdependent metrics across 6 domains with a 32-edge directed dependency graph. Actions are structured JSON — the trained model allocates time, money, and energy across competing priorities without collapsing any metric to zero.
 
-**Hub:** `jdsb06/lifestack-grpo`, `jdsb06/lifestack-grpo-v3`, `jdsb06/lifestack-grpo-v4`.
+**Policy:** `Qwen2.5-1.5B-Instruct` (QLoRA / bf16) + LoRA adapters via GRPO fine-tuning.
+
+**Output:** `{"action_type": ..., "target_domain": ..., "metric_changes": {...}, "resource_cost": {...}, "reasoning": "..."}` or episodic `{"actions": [...]}`.
+
+---
+
+## Training timeline
+
+| Run | Key change | Outcome |
+|-----|-----------|---------|
+| v1 Run 1 | Initial — `max_completion_length` too large | Parse failures → mean **−0.944** |
+| v1 Run 2 | Shorter completions | Minimal learning → **−0.266** |
+| v1 Run 3 | JSON extraction fix (`raw_decode` + greedy regex) | First positive mean ≈ **+0.023** |
+| v1 Run 4 | Longer single-step run | Plateau ≈ **−0.1** eval |
+| v1 Run 5 | Episodic GRPO, horizon=3 | Best ≈ **+0.734**, curriculum 1→2 |
+| v3 | Episodic curriculum 1→4 with `reward_compact_fn` | `reward_compact_fn` constant → bad logged mean |
+| v4 | Removed compact head; weights `[1, 0.5, 0.5, 2]` on format/EOS/plausibility/return | Peak reward ≈ **+0.856** |
+
+**HF Hub:** `jdsb06/lifestack-grpo` (v1), `jdsb06/lifestack-grpo-v3`, `jdsb06/lifestack-grpo-v4`.
 
 ---
 
 ## Code map
 
-| Area | Path |
-|------|------|
-| Environment | `core/lifestack_env.py`, `openenv.yaml` |
-| Metrics / state | `core/life_state.py`, `core/metric_schema.py` |
-| Tasks / routes | `core/task.py`, `agent/conflict_generator.py` |
-| Rewards (shared) | `core/reward.py` |
-| GRPO trainer + heads | `scripts/train_trl.py` (`LifeStackGRPOTrainer`, curriculum loops) |
-| Eval / plotting | `scripts/train_trl.py` (`evaluate_and_plot`), `scripts/eval.py` |
-| Memory (optional) | `agent/memory.py`, `core/feedback.py` |
-| Demos | `app.py`, `app_flask.py` |
+| File | What it does |
+|------|-------------|
+| `core/lifestack_env.py` | `LifeStackEnv` — reset, step, rollout, WorldEngine |
+| `core/life_state.py` | `LifeMetrics` (23 values), `DependencyGraph` (32 edges), `ResourceBudget` |
+| `core/reward.py` | `compute_task_reward`, `compute_reward`, 4 standalone scoring functions |
+| `core/task.py` | `Task`, `Route`, `Milestone`, `ExoEvent`, `FlightCrisisTask`, `CodeMergeCrisisTask` |
+| `core/verifier.py` | `LifeStackVerifier` — success/failure/milestone checks |
+| `core/cascade_utils.py` | `animate_cascade()` — frame-by-frame visualization of propagation |
+| `core/action_space.py` | `AgentAction`, `PrimaryAction`, `apply_action` |
+| `agent/agent.py` | `LifeStackAgent` — GRPO model + Groq fallback, prompt building |
+| `agent/memory.py` | `LifeStackMemory` — ChromaDB episodic memory, similarity retrieval |
+| `agent/conflict_generator.py` | `TaskGenerator` (8 domains), `ConflictEvent` templates |
+| `agent/conflict_predictor.py` | `ConflictPredictor` — pattern matching on episode history |
+| `agent/counterfactuals.py` | What-if reasoning over metric snapshots |
+| `intake/simperson.py` | `SimPerson` — Big Five personality, action uptake scaling |
+| `scripts/train_trl.py` | Full GRPO training — `LifeStackGRPOTrainer`, 5-stage curriculum |
+| `scripts/eval.py` | Random-policy baseline for reward floor measurement |
+| `app_flask.py` | Flask demo UI — port 7860, 10 tabs, Chart.js, vis-network |
+| `server.py` | Crash-safe OpenEnv server entry point — port 8000 |
+| `start.sh` | Docker CMD — starts both services |
 
 ---
 
-## Technical stack (reference)
+## Known limitations
 
-- **TRL 0.15.1** (pinned; avoids mergekit import issues in newer TRL)
-- **Unsloth** optional via **`LIFESTACK_NO_UNSLOTH=1`** when Torch/kernels break
-- **Shims** in `train_trl.py` for `mergekit`, `llm_blender`, `weave` imports
+`reward_timeout_check()` in `core/reward.py` has a known bug: it only fires when `step_count >= max_steps AND done == False`. Since `done` is `True` by the time the check runs, this function returns 0.0 in normal operation. The timeout penalty in `compute_task_reward()` is applied directly rather than through this function.
 
----
-
-## Bugs fixed (condensed)
-
-1. Documentation typo `GRPOTrainer\(`.
-2. Unsloth compiled cache / **Torch 2.10** → `LIFESTACK_NO_UNSLOTH=1`.
-3. TRL / Transformers **sampler** mismatch → runtime patch.
-4. **Completion length** vs truncated JSON.
-5. **Naive JSON parse** on completions with trailing natural language.
-6. **Non-greedy regex** breaking nested JSON.
-7. **`reward_compact_fn`** zero-variance penalty → removed v4.
-8. Optional dependency **import** failures → shims + TRL pin.
+The holdout evaluation reuses the same `TaskGenerator` as training. This limits how confidently we can claim generalization to novel conflict types.
 
 ---
 
-## Documentation
+## Related docs
 
-- [README.md](../README.md) — repository overview and quick start  
-- [blog.md](blog.md) — narrative post  
-- [model_card.md](model_card.md) — Hugging Face model card  
-- [README.md](README.md) (this folder) — full documentation index  
-
----
-
-## Hackathon alignment
-
-- **OpenEnv** manifest present (`openenv.yaml`).
-- **Minimal training path:** `scripts/train_trl.py` with TRL/Unsloth.
-- **Story + models:** blog draft + three Hub repos.
-
----
-
-*Last updated: 2026-04-26.*
+- [lifestack_env.md](lifestack_env.md) — environment reference
+- [reward.md](reward.md) — all reward functions
+- [train_trl.md](train_trl.md) — training reference
+- [DEPLOYMENT.md](DEPLOYMENT.md) — deployment guide

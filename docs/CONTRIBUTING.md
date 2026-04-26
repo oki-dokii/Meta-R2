@@ -29,7 +29,7 @@ Every change that adds, removes, or significantly modifies a feature must includ
 |-------------|---------------|
 | New Python module (`core/`, `agent/`, `intake/`) | Yes — `docs/<module>.md` |
 | New script (`scripts/*.py`) | Yes — entry in `docs/scripts.md` |
-| New Gradio tab in `app.py` | Yes — entry in `docs/app.md` |
+| New tab or API route in `app_flask.py` | Yes — entry in `docs/app.md` |
 | New CLI argument to an existing script | Yes — update the relevant doc |
 | Bug fix with no API surface change | No (note in changelog if breaking) |
 | Refactor with no API surface change | No |

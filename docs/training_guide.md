@@ -1,31 +1,27 @@
-# LifeStack — training guide (from zero to Hub)
+# Training Guide — from zero to Hub
 
-This guide walks from **install** → **clone** → **GRPO train** → **push** for **LifeStack** ([repo](https://github.com/oki-dokii/Meta-R2)).
-
-**Stack reference:** Qwen2.5-1.5B-Instruct (Unsloth 4-bit), **TRL 0.15.1**, **Unsloth**, optional **`LIFESTACK_NO_UNSLOTH=1`** on Torch **2.10**.
+**Stack:** `Qwen2.5-1.5B-Instruct`, TRL 0.15.1, Unsloth 2026.4.8 (optional), PyTorch 2.10+
 
 ---
 
-## 1. Prerequisites
+## Prerequisites
 
-- **Python 3.10+** (3.12 OK if wheels exist for your stack).
-- **NVIDIA GPU** with enough VRAM for 1.5B + LoRA (**T4 15GB** works).
-- **Hugging Face account** if using `--push-to-hub`.
+- Python 3.10+ (3.12 OK with compatible wheel builds)
+- NVIDIA GPU with at least 15 GB VRAM (T4 works; A100 80GB recommended for bf16 HF+PEFT path)
+- HuggingFace account if using `--push-to-hub`
 
-**Pin for reproducibility (recommended):**
+Pinned stack for reproducibility:
 
 ```text
 trl==0.15.1
-transformers==5.5.0   # or the pair you validated
-torch 2.10+cu128      # example
-unsloth               # or skip via env var below
+transformers==5.5.0
+torch==2.10+cu128
+unsloth            # optional; skip with LIFESTACK_NO_UNSLOTH=1
 ```
-
-The repo `requirements.txt` may allow wider ranges; for **GRPO** as developed here, **`trl==0.15.1`** avoids optional **`mergekit`** imports in newer TRL.
 
 ---
 
-## 2. Clone and environment
+## Setup
 
 ```bash
 git clone https://github.com/oki-dokii/Meta-R2.git
@@ -34,160 +30,124 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
-# If training, ensure GPU torch matches your CUDA build.
 ```
 
-Log in for Hub pushes:
+For GPU PyTorch, install the CUDA build matching your driver before `pip install -r requirements.txt`:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+```
+
+Log in to HuggingFace:
 
 ```bash
 huggingface-cli login
-# or export HF_TOKEN=...
 ```
 
 ---
 
-## 3. Colab / Kaggle setup
+## Running training
 
-1. Upload the repo or `git clone` in a notebook cell.
-2. Install PyTorch for the runtime’s CUDA, then `pip install trl==0.15.1 unsloth peft accelerate bitsandbytes transformers`.
-3. **If Unsloth import or compiled kernels crash**, export:
+```bash
+# Full 5-stage single-step curriculum (recommended on A100, ~2h)
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py
+
+# With Unsloth 4-bit (T4 GPU, lower VRAM)
+python scripts/train_trl.py
+
+# Episodic training only (uses LifeStackGRPOTrainer, horizon=3)
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py --episode-train
+
+# Dry run (CPU, validates pipeline, ~60s, no checkpoint)
+python scripts/train_trl.py --dry-run
+
+# Resume from checkpoint
+python scripts/train_trl.py --resume
+
+# Start from specific stage
+python scripts/train_trl.py --start-stage 3
+
+# Push final model to Hub
+python scripts/train_trl.py --push-to-hub --hub-model-id jdsb06/lifestack-grpo
+```
+
+---
+
+## Unsloth vs HF+PEFT
+
+`LIFESTACK_NO_UNSLOTH=1` skips Unsloth entirely and uses plain `AutoModelForCausalLM` + `get_peft_model()`. This is recommended on A100 80GB because:
+
+- Unsloth's 4-bit checkpoint bakes in `bnb_4bit_compute_dtype=float16`, which clashes with LoRA gradient precision in hard-to-diagnose ways
+- The HF+PEFT path is bf16 end-to-end — no AMP surprises, no GradScaler
+- 1.5B × 2 bytes ≈ 3 GB, comfortably fits alongside the optimizer state on 80 GB
+
+On T4 (15 GB), the Unsloth path is the only practical option due to VRAM.
+
+---
+
+## Checkpoint layout
+
+```
+./lifestack_model/
+├── curriculum_state.json     # {"completed_stage": 3, "next_difficulty": 2}
+├── stage_1/
+│   ├── checkpoint-5/         # mid-stage checkpoint
+│   └── ...                   # final stage model
+├── stage_2/
+│   └── ...
+└── stage_5/
+    └── ...                   # final model here after train_curriculum()
+```
+
+`--resume` reads `curriculum_state.json` to find where to restart, then finds the latest `checkpoint-N` folder in that stage directory for the mid-stage resume.
+
+---
+
+## Loading a trained checkpoint
 
 ```python
-import os
-os.environ["LIFESTACK_NO_UNSLOTH"] = "1"
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+base = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    torch_dtype="auto",
+    device_map="auto"
+)
+tokenizer = AutoTokenizer.from_pretrained("./lifestack_model")
+model = PeftModel.from_pretrained(base, "./lifestack_model")
+model.eval()
 ```
 
-before importing or running `scripts/train_trl.py`.
+For inference via Unsloth (faster generation):
 
-4. Prefer **long sessions** (e.g. Kaggle limits) or plan for **`--resume`**.
-
----
-
-## 4. Server / local GPU setup
-
-Same as above. For **Torch 2.10** + Unsloth cache issues:
-
-```bash
-export LIFESTACK_NO_UNSLOTH=1
-```
-
-Run training from repo root so `core.*` imports resolve.
-
----
-
-## 5. Smoke test (no full GPU burn)
-
-```bash
-python scripts/train_trl.py --dry-run
-python scripts/train_trl.py --episode-train --dry-run
+```python
+from unsloth import FastLanguageModel
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name="./lifestack_model",
+    max_seq_length=2048,
+    load_in_4bit=True,
+)
+FastLanguageModel.for_inference(model)
 ```
 
 ---
 
-## 6. Full training commands
+## Common errors
 
-### Single-step curriculum (baseline style)
+**`GradScaler` crash with Unsloth:** Set `LIFESTACK_NO_UNSLOTH=1`. This happens when Unsloth's float16 4-bit kernel collides with gradient precision settings.
 
-```bash
-LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
-  --stages 5 \
-  --prompts-per-stage 100 \
-  --max-prompt-length 2048 \
-  --max-completion-length 224 \
-  --output-dir ./lifestack_model \
-  --push-to-hub \
-  --hub-repo-id YOUR_USER/lifestack-grpo
-```
+**`_get_train_sampler` TypeError:** Already patched in `train_trl.py` via `_patched_get_train_sampler`. Appears with TRL 0.15.1 + Transformers 4.56.2 — the patch makes the method signature flexible.
 
-### Episodic v4-style (current best path)
+**`mergekit`/`llm_blender`/`weave` ImportError:** Shims are installed by `_install_trl_optional_dependency_shims()` before TRL imports. If you see these errors, ensure you're running from the repo root and the shim installation ran.
 
-```bash
-LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
-  --episode-train \
-  --stages 3 \
-  --episodes-per-stage 60 \
-  --episode-horizon 3 \
-  --episode-warmup-stages 1 \
-  --prompts-per-stage 60 \
-  --num-train-epochs 3 \
-  --max-prompt-length 4096 \
-  --output-dir ./lifestack_model_v4 \
-  --push-to-hub \
-  --hub-repo-id jdsb06/lifestack-grpo-v4
-```
-
-See [train_trl.md](train_trl.md) for every flag.
+**Out of VRAM on T4:** Reduce `max_prompt_length` to 1024 and `max_completion_length` to 128. The episodic setting uses `min(1024, max(512, 256 * horizon))` by default; pass `--episodic-max-completion 256` to reduce.
 
 ---
 
-## 7. Resume training
+## Related files
 
-If a run stops mid-stage:
-
-```bash
-LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py --episode-train --resume \
-  --output-dir ./lifestack_model_v4 \
-  --stages 3 \
-  --episodes-per-stage 60 \
-  --episode-horizon 3 \
-  --episode-warmup-stages 1 \
-  --prompts-per-stage 60 \
-  --num-train-epochs 3 \
-  --max-prompt-length 4096
-```
-
-**Mechanics:**
-
-- `curriculum_state.json` stores completed stage + next difficulty.
-- Latest `checkpoint-*` under `episode_stage_N/` (episodic) or `stage_N/` (single-step) is passed to `trainer.train(resume_from_checkpoint=...)`.
-
----
-
-## 8. Interpreting logs
-
-| Field | Meaning |
-|-------|--------|
-| **`reward` / `train/reward`** | Weighted sum of reward heads for GRPO (sign is **not** “human happiness” — it’s training objective). |
-| **`reward_std` / group stats** | Spread of total reward within each prompt group — **too small** → weak learning signal. |
-| **`frac_reward_zero_std`** | Fraction of reward components with **zero** std across the group — **high** → heads not discriminating samples. |
-| **`clipped_ratio`** | How often policy updates hit the clip limit. **Sustained ~1.0** often correlates with **noisy long completions** or **tiny advantages**. |
-
-**Honest calibration:** many eval curves stay **near zero** even when the policy improves structurally — the simulation penalizes several failure modes.
-
----
-
-## 9. Common errors and fixes
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| Unsloth crash / `ref_hidden_states` | Compiled path vs Torch | `export LIFESTACK_NO_UNSLOTH=1` |
-| `mergekit` / `weave` ImportError | TRL optional deps | Use **`trl==0.15.1`**; script installs **shims** for many cases |
-| JSON reward always **−0.5** | Trailing prose after JSON | Greedy `\{.*\}` or `JSONDecoder.raw_decode` path — see [reward.md](reward.md) |
-| Truncated JSON | `max_completion_length` too low/high | Single-step: **128–224**; episodic: use default auto or `--episodic-max-completion` |
-| TypeError on `GRPOTrainer` / sampler | TRL / Transformers mismatch | Use pinned TRL; script patches `_get_train_sampler` when needed |
-| OOM | Batch × length | Lower `--max-prompt-length` or completion cap; use T4-friendly defaults |
-
----
-
-## 10. After training
-
-- **Evaluate:** `python scripts/train_trl.py --full-episode --output-dir ./lifestack_model_v4`
-- **Plot (single-step path):** training may emit `grpo_reward_curve.png` via `evaluate_and_plot`.
-- **Artifacts:** `curriculum_state.json`, per-stage checkpoints, final `adapter_config.json` / weights in `--output-dir`.
-
----
-
-## 11. Hackathon checklist
-
-- **OpenEnv:** `openenv.yaml` points to `core.lifestack_env:LifeStackEnv`.
-- **Minimal training:** `scripts/train_trl.py` + TRL/Unsloth.
-- **Story:** see [blog.md](blog.md) and [model_card.md](model_card.md).
-
----
-
-## See also
-
-- [train_trl.md](train_trl.md) — CLI reference  
-- [reward.md](reward.md) — reward heads  
-- [configuration.md](configuration.md) — `GRPOConfig`  
-- [README.md](README.md) — full documentation index  
+- `scripts/train_trl.py` — full training code
+- `docs/train_trl.md` — detailed CLI reference
+- `docs/configuration.md` — `GRPOConfig` parameters
+- `notebooks/Colab_GRPO_Training.ipynb` — Colab notebook version

@@ -14,7 +14,7 @@ Chat models give plausible paragraphs. They do not reliably emit **structured ac
 
 ## What we built
 
-- **LifeStackEnv** (OpenEnv: `openenv.yaml`) — **eight domains**, sub-metrics, resource budgets, scripted disruptions, **dependency graph** propagation.
+- **LifeStackEnv** (OpenEnv: `openenv.yaml`) — **eight task domains**, 23 sub-metrics across 6 `LifeMetrics` domains, resource budgets, scripted disruptions, **32-edge dependency graph** propagation.
 - **GRPO via TRL 0.15.1 + Unsloth** — group-relative updates without a critic; **LoRA** ~**1.18%** trainable params.
 - **Episodic GRPO (key differentiator)** — horizon **3**: the model proposes a **short action sequence**; the env **steps** between actions; reward includes **discounted return**, not just the first JSON blob.
 

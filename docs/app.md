@@ -1,78 +1,64 @@
-# app.md — Gradio Interface Reference
+# Flask Demo Interface
 
-`app.py` — Gradio multi-tab interactive interface for LifeStack.
+**Source files:** `app_flask.py`, `templates/index.html`
 
 ---
 
 ## Overview
 
-`app.py` is the entry point for the demo. It wires together all LifeStack modules into
-a single Gradio `Blocks` application served on `http://127.0.0.1:7860`.
+`app_flask.py` is the demo application. It runs a Flask server on port 7860 and serves a single-page application with 10 tabs. The frontend uses Chart.js for reward/metric plots and vis-network for the cascade dependency graph visualization. There is no Gradio in the stack — `app.py` is a legacy file; `app_flask.py` is the production demo.
 
 ---
 
-## Module-level Singletons
+## Architecture
 
-These are instantiated once at import time:
+Flask handles all HTTP routes. The frontend is a full HTML/JS application in `templates/index.html`. Tabs communicate with the backend via `/api/*` endpoints that return JSON. The vis-network cascade animation calls `core/cascade_utils.py:animate_cascade()` to get frame-by-frame cascade data.
+
+---
+
+## Module-level singletons
+
+These are instantiated at startup:
 
 | Variable | Type | Purpose |
-|---|---|---|
-| `MEMORY` | `LifeStackMemory` | ChromaDB trajectory + feedback store |
-| `AGENT` | `LifeStackAgent` | LLM-backed decision agent |
-| `INTAKE` | `LifeIntake` | NL → structured conflict parser |
-| `DEMO_CONFLICT` | `ConflictEvent` | Fixed "Friday 6PM" conflict for tab 1 |
-| `DEMO_PREDICTOR` | `TrajectoryPredictor` | 7-day risk score tracker |
-| `LONG_DEMO` | `LongitudinalDemo` | Arjun's multi-week journey |
-| `GMAIL` | `GmailSignalExtractor` | Optional Gmail stress signal extractor |
+|----------|------|---------|
+| `agent` | `LifeStackAgent` | GRPO model + Groq fallback |
+| `memory` | `LifeStackMemory` | ChromaDB trajectory + feedback store |
+| `MODEL_REGISTRY` | dict | Maps model label → HF repo ID for v1–v4 |
+| `_load_grpo_model` | function | Lazy-loads a specific LoRA adapter |
+
+`MODEL_REGISTRY` allows the demo to switch between v1, v3, and v4 adapters on the fly via a dropdown in the UI.
 
 ---
 
-## Tabs
+## Key API routes
 
-| Tab | Label | Key Function |
-|---|---|---|
-| 1 | 🎯 Live Demo | `run_demo(person_label, conflict_label)` |
-| 2 | 💭 Try Your Situation | `run_custom(situation, sliders..., gmail_signals)` |
-| 3 | 📊 Training Results | `load_training_tab()` |
-| 4 | 🗓️ Arjun's Journey | `LONG_DEMO.show_longitudinal_comparison()` |
-| 5 | 🗺️ Task Explorer | `load_demo_task()` |
-| 6 | 📬 Follow-up | `submit_outcome_feedback(...)` |
-
----
-
-## Key Functions
-
-### `submit_outcome_feedback(ep_id, score, domains_up, domains_down, notes, time_spent)`
-
-Stores real-world outcome data into ChromaDB via `MEMORY.store_feedback(feedback)`.
-
-> **Note:** Uses `MEMORY` (the module-level `LifeStackMemory` instance). The previously
-> undefined `AGENT_MEMORY` reference was corrected to `MEMORY` on 2026-04-23.
-
-### `run_demo(person_label, conflict_label)`
-
-Generator — yields `(pred_html, before_html, narrative, decision_html)` tuples for each
-animation frame. Runs cascade animation then agent intervention.
-
-### `run_custom(situation, ...)`
-
-Calls `INTAKE.full_intake()` to parse NL input, then `AGENT.get_action()`, steps the env,
-returns `(life_html, after_html, plan_html)`.
+| Route | Purpose |
+|-------|---------|
+| `GET /` | Serves `templates/index.html` |
+| `POST /api/run_demo` | Runs the agent on a preset conflict, returns step-by-step cascade frames and action JSON |
+| `POST /api/custom_run` | Runs the agent on a user-typed situation |
+| `POST /api/submit_feedback` | Stores `OutcomeFeedback` in ChromaDB memory |
+| `GET /api/cascade_animate` | Returns frame list from `animate_cascade()` for the vis-network graph |
+| `GET /api/memory_stats` | Returns `LifeStackMemory.get_stats()` |
+| `GET /api/health` | Basic health check |
 
 ---
 
 ## Running
 
 ```bash
-python app.py
+python app_flask.py      # serves on http://localhost:7860
 ```
 
-Starts on port `7860` with `share=False`. Edit `__main__` block to change port/theme.
+In Docker, `start.sh` runs this as the foreground process. HuggingFace Spaces health-checks port 7860 — Flask must stay alive for the Space to remain healthy.
 
 ---
 
-## Change Log
+## Related files
 
-| Date | Change |
-|---|---|
-| 2026-04-23 | `AGENT_MEMORY` undefined crash fixed — replaced with `MEMORY` in `submit_outcome_feedback` |
+- `templates/index.html` — full frontend (Chart.js, vis-network)
+- `core/cascade_utils.py` — `animate_cascade()` drives the dependency graph visualization
+- `agent/agent.py` — `LifeStackAgent` with GRPO model
+- `agent/memory.py` — `LifeStackMemory`
+- `start.sh` — starts this as foreground service on port 7860

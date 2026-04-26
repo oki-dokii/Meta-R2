@@ -6,16 +6,16 @@ colorTo: gray
 sdk: docker
 app_port: 7860
 pinned: true
+tags:
+  - openenv
+  - reinforcement-learning
+  - grpo
+  - life-management
+  - curriculum-learning
 ---
 
-# LifeStack — Training AI to Handle Life's Cascading Crises
-
-**Meta × HuggingFace PyTorch OpenEnv Hackathon 2026**
-**Team BholeChature — Scaler School of Technology, Bangalore**
-
-[![GitHub](https://img.shields.io/badge/GitHub-Source_Code-black?style=flat-square&logo=github)](https://github.com/oki-dokii/Meta-R2)
 [![HF Space](https://img.shields.io/badge/HF_Space-Live_Demo-yellow?style=flat-square)](https://huggingface.co/spaces/jdsb06/meta-r2)
-[![v1 Model](https://img.shields.io/badge/Model-lifestack--grpo--v1-blue?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo)
+[![v1 Model](https://img.shields.io/badge/Model-lifestack--grpo-blue?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo)
 [![v3 Model](https://img.shields.io/badge/Model-lifestack--grpo--v3-violet?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v3)
 [![v4 Model](https://img.shields.io/badge/Model-lifestack--grpo--v4-green?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v4)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-0.2.3-orange?style=flat-square)](https://github.com/meta-pytorch/OpenEnv)
@@ -27,424 +27,293 @@ pinned: true
 | What | Link |
 |------|------|
 | 🚀 **Live Demo (HF Space)** | https://huggingface.co/spaces/jdsb06/meta-r2 |
-| 📝 **Mini-Blog / Model Card (HF)** | https://huggingface.co/jdsb06/lifestack-grpo-v4 |
+| 📝 **Mini-Blog / Model Card** | https://huggingface.co/jdsb06/lifestack-grpo-v4 |
 | 🎓 **Re-runnable Colab Training Notebook** | [notebooks/Colab_GRPO_Training.ipynb](notebooks/Colab_GRPO_Training.ipynb) |
 | 📊 **Training Evidence (plots)** | [plots/](plots/) — reward curve, loss curve, components, summary |
 | 🏋️ **v4 Training Log (raw)** | [train_run_v4.log on HF](https://huggingface.co/jdsb06/lifestack-grpo-v4/blob/main/train_run_v4.log) |
 | 🏋️ **v1 Training Log (raw)** | [train_run_v1.log](train_run_v1.log) |
-| 🤖 **Best model (v4)** | [jdsb06/lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) |
 | 🤖 **All models** | [v1](https://huggingface.co/jdsb06/lifestack-grpo) · [v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) · [v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) |
 | 🌐 **GitHub Source** | https://github.com/oki-dokii/Meta-R2 |
 
 ---
 
-## What is LifeStack?
-
-LifeStack is an **OpenEnv-compatible reinforcement learning environment** that models human life as a **40-edge directed dependency graph** across 8 domains. A fine-tuned language model acts as an agent inside this environment, proposing structured JSON action plans for multi-domain crises.
-
-**The core idea:** real life crises don't happen in isolation. A cancelled flight cascades into a missed deadline, which cascades into financial stress, which cascades into relationship strain. LifeStack simulates these cascades and trains a model to navigate them.
-
-Given a crisis like *"flight cancelled, card declined, boss moved your deadline to Sunday"*, the model outputs:
-
-```json
-{
-  "action_type": "negotiate",
-  "target_domain": "career",
-  "metric_changes": {"career.workload": -10.0, "mental_wellbeing.stress_level": -5.0},
-  "resource_cost": {"time": 0.5, "money": 0.0, "energy": 5.0},
-  "reasoning": "Request a deadline extension before the financial situation worsens"
-}
-```
-
-Valid `action_type` values: `negotiate | communicate | delegate | spend | reschedule | rest | deprioritize | execute`
+LifeStack is a multi-domain life-management reinforcement learning environment built on OpenEnv 0.2.3. It models a human life as a system of 23 interdependent metrics across 6 life domains, where every action you take cascades through a 32-edge directed dependency graph with consequences you often cannot predict. We trained `Qwen2.5-1.5B-Instruct` on this environment using GRPO (Group Relative Policy Optimization) via a 5-stage single-step curriculum followed by episodic fine-tuning, producing a model that allocates time, money, and energy across competing life priorities without collapsing any domain below crisis threshold.
 
 ---
 
-## The Environment
+## How it works
 
-LifeStack wraps a simulation of life as a graph:
+The RL loop is concrete and sequential:
 
-```
-LifeStackEnv (OpenEnv-compatible)
-├── 8 task domains
-│   career, finances, relationships, physical_health,
-│   mental_wellbeing, time, transport_crisis, code_merge_crisis
-├── 23 sub-metrics with cascade dampening (0.6/hop — Starcke & Brand 2012)
-├── SimPerson: 5 personality profiles (Big Five / OCEAN)
-├── ResourceBudget: time_hours, money_dollars, energy_units
-├── Event system: probabilistic mid-episode disruptions
-├── Route system: multiple viable action paths with preconditions
-└── rollout(n_steps=7, gamma=0.9): long-horizon reward signal
-```
-
-Every action the model takes is simulated through `DependencyGraph.cascade()`, which propagates changes through connected metrics with 0.6× dampening per hop. A model that spends money to solve a financial crisis correctly sees `finances.liquidity` drop, which then propagates through `mental_wellbeing.stress_level`, which propagates into `physical_health.energy`.
+1. `reset()` picks a life conflict scenario — a `Task` object containing a `visible_world`, `hidden_state`, `event_schedule`, `viable_routes`, and `milestones`. The `LifeMetrics` state (23 values across 6 domains) is seeded via `DependencyGraph.cascade()` on the task's initial disruption.
+2. The agent receives a `LifeStackObservation` — flattened 23-metric values, remaining budget (`time_hours`, `money_dollars`, `energy_units`), current step count, visible world state, active milestones, and fired event IDs.
+3. The agent submits a `LifeStackAction` — structured JSON with `action_type`, `target_domain`, `metric_changes`, `resource_cost`, and `reasoning`. Ten valid action types exist: `negotiate`, `communicate`, `delegate`, `spend`, `reschedule`, `rest`, `deprioritize`, `execute`, `prepare`, `self_care`.
+4. `WorldEngine` injects any scheduled or probabilistic `ExoEvent` objects for this step, mutating world state and potentially closing routes the agent was planning to use.
+5. The `DependencyGraph` propagates metric changes through 32 directed edges with a 0.6 dampening factor per hop — touching `career.workload` automatically reduces `time.free_hours_per_week` and raises `mental_wellbeing.stress_level`, which then degrades `physical_health.sleep_quality`, and so on.
+6. `LifeStackVerifier` checks success conditions, failure conditions, and newly unlocked milestones. Ten reward functions score the step.
+7. `env.rollout(n_steps=7, gamma=0.9)` runs seven null actions from the post-step state, computing the discounted long-horizon consequence signal without mutating the environment.
+8. The episode ends when `step_count >= task.horizon`, any metric drops to `<= 10`, explicit failure conditions trigger, or all viable routes are exhausted.
 
 ---
 
-## The Model
+## The core mental model
 
-**Base:** `Qwen/Qwen2.5-1.5B-Instruct`
-**Method:** GRPO (Group Relative Policy Optimization) via TRL 0.15.1 + Unsloth
-**Adapter:** LoRA (r=16, α=16) on all projection layers
-**Trainable params:** 18.5M / 1.56B (1.18%)
-**Hardware:** Tesla T4 (15 GB VRAM)
+### Visible state (LifeStackObservation)
 
----
+The agent sees `metrics` (all 23 flattened values), `resources` (time/money/energy remaining), `step` count, `metadata.world_state` (partial view of `mutable_world` plus any keys the agent has explicitly `inspect`ed), `metadata.goal`, `metadata.active_route`, `metadata.milestones`, and `metadata.events`.
 
-## The Full Training Story
+### Hidden consequences
 
-This model was not trained in one clean run. Here is the honest story of every run, what broke, what we fixed, and what we learned.
+The agent cannot directly observe: cascade effects downstream from its action (`DependencyGraph` propagates silently), future `ExoEvent` triggers (some are probabilistic with `step=-1`), `hidden_state` fields (revealed only by an `inspect` action), and long-horizon stress accumulation that makes later steps harder.
 
-### Establishing a Baseline First
+### The 6 life domains and 23 metrics
 
-Before any fine-tuning, we evaluated the raw `Qwen/Qwen2.5-1.5B-Instruct` base model (no LoRA) on the same 50-episode deterministic eval loop across all 8 domains:
+These are the exact `LifeMetrics` fields in `core/life_state.py`. The 8 task domains add `transport_crisis` and `code_merge_crisis` as scenario types but they do not have their own metric subfields — they affect the same 23 values.
 
-| Metric | Base Model (no LoRA) |
-|---|---|
-| Mean reward | **−0.07** |
-| Episodes | 50 (deterministic seeds) |
+| Domain | Metrics | Notes |
+|--------|---------|-------|
+| `career` | `satisfaction`, `workload`, `stability`, `growth_trajectory` | `workload` is inverted (higher = worse) |
+| `finances` | `liquidity`, `debt_pressure`, `monthly_runway`, `long_term_health` | `debt_pressure` is inverted |
+| `relationships` | `romantic`, `family`, `social`, `professional_network` | All positive-direction |
+| `physical_health` | `energy`, `fitness`, `sleep_quality`, `nutrition` | All positive-direction |
+| `mental_wellbeing` | `stress_level`, `clarity`, `motivation`, `emotional_stability` | `stress_level` is inverted |
+| `time` | `free_hours_per_week`, `commute_burden`, `admin_overhead` | `commute_burden` and `admin_overhead` are inverted |
 
-**Per-domain breakdown:**
-
-| Domain | n | Mean Reward |
-|---|---|---|
-| career | 7 | −0.143 |
-| physical_health | 6 | −0.167 |
-| mental_wellbeing | 6 | **−0.250** |
-| finances | 7 | 0.000 |
-| relationships | 6 | 0.000 |
-| time | 6 | 0.000 |
-| transport_crisis | 6 | 0.000 |
-| code_merge_crisis | 6 | 0.000 |
-
-The 0.000 domains are not "good" — they mean the base model produced low-impact or neutral actions that changed nothing. The three negative domains (mental_wellbeing, physical_health, career) are where the base model actively recommended wrong actions that made metrics worse.
+All metrics are clamped to `[0, 100]`. Cascade propagation has a floor of `10.0` for downstream nodes (`is_cascade=True`). Any metric reaching `<= 10` terminates the episode as a failure.
 
 ---
 
-### Run 1 — Broken Baseline
+## Main building blocks
 
-```
-Setup:        Single-step GRPO, max_completion_length=256
-clipped_ratio: 1.0   (every completion hit the token limit)
-frac_zero_std: 0.75  (no gradient — 75% of groups tied on reward)
-Reward Stage 1 final: −0.944
-Eval mean reward:     −0.47
-Status: FAILED — model not learning
-```
+**`core/lifestack_env.py`** — `LifeStackEnv` is the central class. It inherits from OpenEnv's `Environment` base (with a multi-level import shim that falls back gracefully if `openenv-core` is absent, controlled by the `USING_MODERN_API` flag). `reset()` initializes a `LifeStackState` — which holds the current `LifeMetrics`, `ResourceBudget`, inspected keys, consecutive wait count, rollback flag, and task state — then constructs a `WorldEngine` for the task. `step()` handles rollback, inspect, wait, route execution, resource deduction, metric updates with cascade, task progression checks, and reward computation. `rollout()` snapshots `_internal_state`, runs `n_steps` null rest actions, accumulates discounted rewards, then restores the snapshot — no side effects. `PartialObsFilter` controls what the agent sees: `visible_world` plus any keys the agent has previously `inspect`ed (hidden-state reveals are tagged `{"source": "inspect"}`).
 
-**Root cause:** Qwen2.5-1.5B outputs valid JSON *followed by explanation text*. `json.loads(full_completion)` fails on trailing text, so reward was always −0.5. Every completion in a group got the same score → zero gradient → no learning.
+**`core/reward.py`** — Contains `compute_reward()` (the base step reward: 4 components with weights 0.50/0.25/0.15/0.10) and `compute_task_reward()` (the task-aware orchestrator: 6 components with weights 0.35/0.25/0.15/0.10/0.05 + penalties). Four standalone scoring functions are also here: `reward_format_compliance()`, `reward_plausibility_check()`, `reward_timeout_check()`, and `reward_reasoning_coherence()`. These are called both from within the environment and directly as GRPO reward functions in `scripts/train_trl.py`.
 
-At −0.47, the trained model was **571% worse** than the untrained baseline (−0.07).
+**`core/life_state.py`** — Defines `LifeMetrics` (6 domain dataclasses, 23 total fields), `ResourceBudget` (with `deduct()` that refuses overdrafts), and `DependencyGraph` (32 directed weighted edges with 0.6 dampening per hop). The cascade algorithm uses a BFS queue with a `per_step_cascade_cap=3` to prevent runaway propagation from a single large action.
 
----
+**`core/cascade_utils.py`** — `animate_cascade()` replays the same `DependencyGraph` propagation frame-by-frame (primary → first-order → second-order) and returns a list of snapshots. The Flask demo's vis-network cascade visualization is driven by this function.
 
-### Run 2 — Shorter Completions
+**`core/verifier.py`** — `LifeStackVerifier` is a stateless utility class with three methods: `check_success()` (evaluates task success conditions against world/hidden state), `check_failure()` (evaluates failure conditions plus metric-death check at `<= 10`), and `check_new_milestones()` (scans task milestones for newly satisfied conditions). `get_route_status()` counts reachable routes given the current closed-route set and precondition state.
 
-```
-Setup:        max_completion_length=128
-Reward Stage 1: −0.266
-Eval mean reward: −0.41
-Status: MINIMAL IMPROVEMENT — root cause still present
-```
+**`core/task.py`** — Defines the `Task` dataclass (with `domain`, `goal`, `constraints`, `hidden_state`, `mutable_world`, `visible_world`, `success_conditions`, `failure_conditions`, `event_schedule`, `viable_routes`, `milestones`, `horizon`, `difficulty`). Two concrete task factories: `FlightCrisisTask()` (horizon=30, two competing routes, two timed ExoEvents) and `CodeMergeCrisisTask()` (horizon=10, two competing routes). `TaskGenerator` holds both and calls `get_random_task()`. The richer `TaskGenerator` in `agent/conflict_generator.py` covers all 8 task domains with template-based generation.
 
-Reducing completion length helped marginally but the fundamental parsing problem remained. Still **486% worse** than baseline.
+**`agent/agent.py`** — `LifeStackAgent` handles prompt construction, model inference, and action parsing. On initialization it starts a background thread to load the GRPO adapter from `DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v4"` (via `PeftConfig` + `PeftModel`). If the local model fails, it falls back to Groq API (`llama-3.3-70b-versatile`). `build_prompt()` injects memory context from `LifeStackMemory.build_few_shot_prompt()` when available. The in-memory `self.memory` list stores per-episode decision history for context.
+
+**`agent/memory.py`** — `LifeStackMemory` wraps three ChromaDB collections: `decisions`, `trajectories`, and `feedback`. It uses `SentenceTransformer('all-MiniLM-L6-v2')` for embeddings, falling back to a hash-based 384-dim vector when the model is unavailable. `retrieve_similar()` queries the `decisions` collection by embedding the conflict title plus the three most-stressed metric values, then filters results to reward ≥ 0.05. `build_few_shot_prompt()` formats retrieved memories as a few-shot context block injected into the agent's prompt. On first init, if the collection is empty, it auto-hydrates from `data/preseeded_memory*.json`.
+
+**`scripts/train_trl.py`** — The main GRPO training script. `train_curriculum()` runs 5 stages of single-step training using plain `GRPOTrainer` (stage 1 uses 3 reward functions for JSON warm-up, stages 2-5 use 10). `train_episodic_curriculum()` runs 2+ stages of multi-step trajectory training using `LifeStackGRPOTrainer` — a subclass that overrides `_prepare_inputs()` to zero-out `completion_mask` tokens after the first complete JSON object. Both support `--resume` via `curriculum_state.json`. The `load_model()` function tries Unsloth's 4-bit path first, then falls back to plain HF+PEFT (`Qwen/Qwen2.5-1.5B-Instruct` in bf16 on A100+, fp16 otherwise).
 
 ---
 
-### Run 3 — The Fix That Mattered (+85.7% over baseline)
+## Reward design
+
+### Per-step reward (base step, no task)
+
+`compute_reward()` computes four components and combines them:
 
 ```
-Fix:          Greedy regex extraction before JSON parsing
-Eval mean reward: −0.010
-frac_zero_std: 0.05
-reward_format_fn: +0.569
-Status: FIRST REAL LEARNING SIGNAL
+base_reward = (0.50 × outcome_score) +
+              (0.25 × cascade_containment_score) +
+              (0.15 × resource_efficiency_score) +
+              (0.10 × relationship_preservation_score)
 ```
 
-The single change that caused a **97% improvement within training runs** (−0.944 → +0.023 GRPO reward):
+Then applies penalties before clamping to `[-1.0, 1.0]`.
 
-```python
-# Before — always failed on trailing text:
-data = json.loads(completion)
+### Per-step reward (task-aware)
 
-# After — extract first complete JSON object:
-import re, json
-match = re.search(r'\{.*\}', completion, re.DOTALL)  # greedy ← critical
-data = json.loads(match.group())
+`compute_task_reward()` replaces the base formula with a task-oriented weighting:
+
+```
+base_reward = (0.35 × milestone_score) +
+              (0.25 × completion_score) +
+              (0.15 × outcome_score_local) +
+              (0.10 × replan_score) +
+              (0.10 × efficiency_score) +
+              (0.05 × preservation_score)
 ```
 
-**Why greedy and not non-greedy (`\{.*?\}`)?** Non-greedy stops at the *first* `}` — breaking on any nested object like `"resource_cost": {"time": 1}`. Greedy takes the outermost `{...}`.
+### The 10 GRPO reward functions (stages 2–5 of single-step curriculum)
 
-**Comparison to baseline:**
-- Baseline: −0.07
-- Run 3: −0.010
-- **Improvement: +85.7% over the untrained base model**
+| Function | What it measures | Range |
+|----------|-----------------|-------|
+| `reward_format_fn` | Valid JSON, all 5 required keys, valid `action_type` and `target_domain` | `[-1.0, +1.0]` |
+| `reward_clean_eos_fn` | Model stops within 8 chars of closing JSON brace | `[-0.10, +0.20]` |
+| `reward_route_target_fn` | `target_domain` matches a listed route ID with `action_type="execute"` | `[0.0, +0.30]` |
+| `reward_plausibility_fn` | Ratio of `total_metric_delta / normalized_cost`; penalizes free lunch | `[-0.30, 0.0]` |
+| `reward_task_success_fn` | Task completion score from full environment simulation | `[0.0, +1.0]` |
+| `reward_milestone_fn` | Milestone achievement score (partial credit per milestone hit) | `[0.0, +1.0]` |
+| `reward_replan_fn` | Ability to hit milestones *after* an ExoEvent fires | `[0.0, +0.5]` |
+| `reward_reasoning_fn` | Reasoning length + logical-connector check + action-keyword alignment | `[-0.30, +0.30]` |
+| `reward_human_feedback_fn` | ChromaDB similarity to past episodes with stored human outcome feedback | `[0.0, +1.0]` |
+| `reward_longterm_fn` | 7-day γ=0.9 discounted rollout from current post-action state | `[-1.0, +1.0]` |
+
+Stage 1 (JSON warm-up) uses only `reward_format_fn`, `reward_clean_eos_fn`, `reward_route_target_fn` with weights `[1.0, 1.5, 1.0]`.
+
+Episodic training (v4) uses `reward_episode_format_fn`, `reward_clean_eos_fn`, `reward_episode_plausibility_fn`, `reward_episode_return_fn` with weights `[1.0, 0.5, 0.5, 2.0]`.
+
+### Anti-hacking specifics
+
+The `reward_plausibility_check()` gate fires for any non-trivial metric claim (`total_delta > 3.0`) with zero resource cost, returning `-0.30`. For non-zero cost, the claim-to-cost ratio threshold is 150 (severe: `-0.30`) and 80 (suspicious: `-0.10`). `reward_reasoning_coherence()` requires both structural logic connectors ("because", "therefore", etc.) AND semantic alignment between reasoning text and `action_type` — misaligned reasoning gets `-0.20`.
 
 ---
 
-### Run 4 — Curriculum Training (v1 final checkpoint)
+## Training stack
 
-```
-Setup:        5-stage curriculum, 100 prompts/stage, max_completion_length=96
-              Stage 1: format + clean_eos only (warm-up)
-              Stages 2–5: full 9-signal reward stack
-              Learning rate: 8e-6 → 5e-6 → 3e-6 → 2e-6 → 1e-6
-Stage 5 metrics:
-  reward: −0.396
-  reward_format_fn: +0.195
-  reward_task_success: −0.100
-Eval (50 episodes, 8 domains):
-  ~45/50 episodes at reward = 0.000 (consistent, non-failing)
-  Mean: −0.100
-Status: CONSISTENT but PLATEAU
-```
+The base model is `Qwen/Qwen2.5-1.5B-Instruct` (1.5B parameters). `load_model()` in `scripts/train_trl.py` first tries the Unsloth path (`unsloth/Qwen2.5-1.5B-Instruct` in 4-bit), then falls back to plain HF+PEFT with `LoraConfig(r=16, lora_alpha=16)` targeting all 7 projection layers. On A100 80GB the HF+PEFT path is recommended — set `LIFESTACK_NO_UNSLOTH=1` to skip Unsloth and avoid dtype collisions with the 4-bit kernel.
 
-**Comparison to baseline:**
-- Baseline: −0.07
-- Run 4: −0.100
-- **Result: −42.9% regression** vs the untrained base model
+`LifeStackGRPOTrainer` (used in episodic training) overrides `_prepare_inputs()` to locate the JSON-object boundary in each completion and zero out `completion_mask` tokens beyond it. The token IDs stay intact — no distribution shift — but the KL and advantage terms see only the ~100 JSON tokens instead of 480 trailing explanation tokens. This gives roughly 3–5× sharper gradient signal per step.
 
-The 5-stage curriculum plateaued. The difficulty advance threshold (`reward > 0.6`) was never met, so training stayed at difficulty 1 for all stages. The resulting model was *more consistent* (45/50 non-failing vs ~25/50 for Run 3) but scored slightly lower on average due to curriculum overfitting to format signals.
+### 5-stage single-step curriculum (`train_curriculum`)
 
-**Run 4 is saved as `jdsb06/lifestack-grpo` (v1).** It is the best single-step checkpoint for consistency, not peak reward.
+| Stage | LR | Reward functions | Dataset |
+|-------|----|-----------------|---------|
+| 1 | 8e-6 | `format`, `clean_eos`, `route_target` | 100 prompts, difficulty 1 |
+| 2 | 5e-6 | All 10 | 100 prompts, difficulty ≥ 1 |
+| 3 | 3e-6 | All 10 | 100 prompts, difficulty ≥ 2 |
+| 4 | 2e-6 | All 10 | 100 prompts, difficulty ≥ 3 |
+| 5 | 1e-6 | All 10 | 100 prompts, difficulty ≥ 4 |
 
----
+Difficulty advances when stage-end reward ≥ 0.0. Curriculum state is persisted to `curriculum_state.json` — resume with `--resume`.
 
-### v3 — Episodic Multi-Step Training (New Capability)
+### Episodic curriculum (`train_episodic_curriculum`, v3/v4)
 
-```
-Setup:        Episodic GRPO, horizon=3, 3-stage curriculum difficulty 1→2→3
-              135 total optimizer steps
-              Reward weights: format 1.0 | eos 1.5 | plausibility 0.75 | return 1.0 | compact −0.5
+Uses `LifeStackGRPOTrainer` + 4 episodic reward functions. Each prompt asks the model to return an `{"actions": [...]}` sequence executed by the real environment for 3 steps (default `episode_horizon=3`). `reward_episode_return_fn` is the dominant signal (weight 2.0) — it computes the discounted trajectory reward plus a `+0.25` terminal bonus on success.
 
-GRPO training metrics:
-  Total reward (logged): −0.77
-  reward_compact_fn:     −0.50  (std=0 — zero gradient, dead weight)
-  reward_episode_return: +0.140 (the real signal)
-  reward_format_fn:      +0.629
-  frac_zero_std:         0.00   (100% of groups have reward variance — real gradient)
-  Reward std:            0.511
-Status: CURRICULUM WORKS, reward_compact_fn is dead weight
-```
+### Key environment variables
 
-**Why the total reward of −0.77 is misleading:**
-
-`reward_compact_fn` was −0.50 with standard deviation = 0 across all 135 steps. When every completion in a GRPO group gets the same score, that signal contributes **zero gradient**. It is pure dead weight that drags the logged mean without affecting the model at all. The meaningful signal is `reward_episode_return_fn: +0.140`.
-
-`frac_zero_std = 0%` confirms that across all training steps, every group had real reward variance → real gradient flow. The model was learning throughout.
-
-**What v3 learned that the base model cannot do:**
-
-v3 was trained on 3-action episode sequences. The model observes the result of action 1 before choosing action 2, and the result of action 2 before choosing action 3. This is sequential decision-making under cascading consequences — a fundamentally harder task than single-action scoring.
-
-| | Base Model | v1 Run 4 | v3 |
-|---|---|---|---|
-| Single-step reward | −0.07 | −0.10 | not eval'd single-step |
-| Episode return (3-step) | no capability | no capability | **+0.140** |
-| Format score | unknown | +0.195 | **+0.629** |
-| Zero-grad groups | — | — | **0%** |
-
-**The multi-step comparison is not apples-to-apples with the baseline.** The base model was evaluated on single-step actions. v3's episode return measures a 3-step discounted trajectory (γ=0.9). These are different tasks. The correct framing is:
-
-> The base model has zero multi-step planning capability. v3 demonstrates +0.140 discounted episode return across 3-step sequences — a new capability that did not exist before GRPO training.
-
-**v4 is saved as `jdsb06/lifestack-grpo-v4`.** It is the active production model in the HF Space.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENENV_HOST` | `0.0.0.0` | OpenEnv server bind address |
+| `OPENENV_PORT` | `8000` | OpenEnv server port |
+| `OPENENV_MAX_SESSIONS` | `4` | Max concurrent environment instances |
+| `PORT` | `7860` | Flask UI port (set by HF Spaces) |
+| `LIFESTACK_NO_UNSLOTH` | unset | Set to `1` to skip Unsloth and use HF+PEFT |
+| `GROQ_API_KEY` | unset | Enables Groq API fallback in the agent |
+| `HF_TOKEN` | unset | Required for loading private model checkpoints |
 
 ---
 
-## Metric Progression Summary
+## Anti-reward-hacking
 
-| Run | vs Baseline | Eval Reward | Key Fix |
-|---|---|---|---|
-| Base model | — | −0.07 | Untrained Qwen2.5-1.5B-Instruct |
-| Run 1 (broken) | −571% | −0.47 | — (JSON parsing broken) |
-| Run 2 | −486% | −0.41 | Shorter completions |
-| **Run 3** | **+85.7%** | **−0.010** | **Greedy regex extraction** |
-| Run 4 (v1) | −42.9% | −0.100 | 5-stage curriculum (consistency ↑, plateau) |
-| **v3 episodic** | **new capability** | **+0.140 ep. return** | **Multi-step episodes, 0% zero-grad groups** |
+Every mechanism described here exists in the actual code:
 
-**The clean claims for this project:**
-1. Greedy regex extraction unlocked learning: **+85.7% improvement** over the untrained base model (Run 3)
-2. Episodic GRPO gave the model multi-step planning capability: **+0.140 discounted episode return** across 3-step sequences — a capability the base model does not have
-3. `frac_zero_std = 0%` throughout v3 training confirms the gradient was real at every step
+`reward_plausibility_check()` in `core/reward.py` fires a `-0.30` penalty whenever an action claims non-trivial metric improvements (`total_delta > 3.0`) with zero resource cost. This closes the "free metrics" exploit where the model would request large improvements and specify `resource_cost: {}`.
 
----
+`REST_NOT_JUSTIFIED` fires in `compute_reward()` with `-0.25` whenever `action_type == "rest"` and the average energy metric is above 30. Without this, the model learned that rest has near-zero cost and positive energy recovery, making it the optimal action regardless of context.
 
-## The 9-Signal Reward Stack
+`WAIT_CAP_EXCEEDED` in `step()` applies `+15.0` to `mental_wellbeing.stress_level` after 4 consecutive `wait` actions. Without this cap the model could stall indefinitely.
 
-| # | Signal | What it measures |
-|---|---|---|
-| 1 | `reward_format_fn` | JSON validity + required keys + valid action_type (+1.0 / +0.5 / −0.5) |
-| 2 | `reward_clean_eos_fn` | Penalises trailing text after `}` (+0.20 clean / −0.10 trailing) |
-| 3 | `reward_plausibility_fn` | Blocks zero-cost massive metric claims (−0.30) |
-| 4 | `reward_task_success_fn` | Environment simulation: did the action resolve the conflict? |
-| 5 | `reward_milestone_fn` | Did the action unlock a task milestone? |
-| 6 | `reward_replan_fn` | Did the agent adapt after a mid-episode exogenous event? |
-| 7 | `reward_reasoning_fn` | Does the reasoning logically justify the action type? |
-| 8 | `reward_human_feedback_fn` | ChromaDB memory: alignment with past successful trajectories |
-| 9 | `reward_longterm_fn` | 7-day γ=0.9 discounted rollout — penalises cascade collapse by day 4 |
+`CASCADE_SPREAD_WIDER` in `compute_reward()` fires with `-0.30` when the number of metrics that worsened after the step exceeds the number of metrics the agent directly changed. This penalizes actions that cause broader damage than their stated scope.
 
-**Removed in v3/v4:** `reward_compact_fn` — empirically constant −0.5, std=0 across all steps, zero gradient contribution.
+`ROLLBACK_USED` fires with `-0.1` penalty in `compute_task_reward()` — once per episode. Rollback is available as a recovery mechanism but costs. The `used_rollback` flag on `LifeStackState` prevents using it twice.
+
+`action_type` is validated against `VALID_ACTION_TYPES` (a `frozenset` in `core/reward.py`). `metric_changes` in `step()` are filtered through `allowed_keys = set(self._internal_state.current_metrics.flatten().keys())` — the model cannot invent new metric paths.
 
 ---
 
-## Engineering Bugs Fixed
+## Deployment
 
-1. **JSON + trailing prose**: model output valid JSON then English explanation; `json.loads(full_text)` always failed → **greedy brace extraction** fixes it; non-greedy `\{.*?\}` breaks on nested `metric_changes`
-2. **max_completion_length too large**: 256 tokens → model always hit limit, `clipped_ratio=1.0` → reduced to 96 (single-step) and 128 (episodic inference)
-3. **reward_compact_fn dead weight**: std=0 across 135 steps → removed, episode_return reweighted 1.0→2.0
-4. **HF Serverless doesn't support LoRA adapters**: `InferenceClient.text_generation()` with a LoRA repo ID always fails silently → removed that path entirely; local GPU weights are priority
-5. **Parallel GPU inference timeout**: 3 ThreadPoolExecutor threads calling `model.generate()` simultaneously → serialized by PyTorch anyway, hit 65s timeout → switched to sequential execution for local model
-6. **on_hf_spaces OOM guard**: forced `api_only=True` on Spaces, preventing local model load → removed; Qwen2.5-1.5B (~3GB) fits on T4 alongside Flask+ChromaDB
-7. **Unsloth + Torch 2.10**: compiled cache crashes with `ref_hidden_states=None` → `LIFESTACK_NO_UNSLOTH=1` to disable
-8. **TRL 0.15.1 + Transformers 5.5**: `_get_train_sampler` signature mismatch → monkey-patch with `inspect.signature` guard
+LifeStack runs as two services inside a single Docker container. `start.sh` (the Docker `CMD`) starts `server.py` in the background on port 8000, waits 3 seconds for it to bind, then runs `app_flask.py` in the foreground on port 7860.
 
----
+HuggingFace health-checks port 7860, so the Flask process must stay alive. `server.py` is written to return silently on any failure (missing `openenv-core`, `create_app` crash, etc.) rather than calling `raise SystemExit` — if the OpenEnv server crashes, the Flask UI keeps the Space alive and the demo remains functional. All `server.py` error paths use `print()` + `return`.
 
-## Research Grounding
+```bash
+# Docker
+docker build -t lifestack .
+docker run -p 7860:7860 -p 8000:8000 lifestack
 
-| Principle | Source | Implementation |
-|---|---|---|
-| Stress cascade dampening (0.6/hop) | Starcke & Brand (2012) | `DependencyGraph.cascade()` |
-| Scarcity bandwidth tax | Mullainathan & Shafir (2013) | Budget depletion blocks actions |
-| Multi-objective reward weighting | Roijers et al. (2013) | 9 non-overlapping signals |
-| Retrieval-augmented moderation | RAM / RAG | ChromaDB `LifeStackMemory` |
+# Local dev — run services separately
+python server.py                  # OpenEnv on :8000
+python app_flask.py               # Flask UI on :7860
 
----
-
-## Models on Hugging Face
-
-| Model | Checkpoint | Best for |
-|---|---|---|
-| [jdsb06/lifestack-grpo](https://huggingface.co/jdsb06/lifestack-grpo) | v1 Run 4 | Single-step consistency (45/50 non-failing) |
-| [jdsb06/lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) | v4 episodic | Multi-step planning, active production model |
-
----
-
-## How to Load
-
-```python
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import PeftModel
-import torch
-
-base = AutoModelForCausalLM.from_pretrained(
-    "Qwen/Qwen2.5-1.5B-Instruct",
-    torch_dtype=torch.float16,
-    device_map="auto"
-)
-tokenizer = AutoTokenizer.from_pretrained("jdsb06/lifestack-grpo-v4")
-model = PeftModel.from_pretrained(base, "jdsb06/lifestack-grpo-v4")
-model.eval()
-```
-
-```python
-import re, json, torch
-
-prompt = """You are LifeStack. Return ONLY compact JSON.
-Task: Survive Friday 6PM Crisis
-Metrics: career.workload=85, finances.liquidity=30, mental_wellbeing.stress_level=75
-Budget: time=10h, money=$200, energy=40
-Required keys: action_type, target_domain, metric_changes, resource_cost, reasoning"""
-
-inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-with torch.no_grad():
-    out = model.generate(**inputs, max_new_tokens=128, temperature=0.3, do_sample=True)
-
-raw = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-match = re.search(r'\{.*\}', raw, re.DOTALL)
-action = json.loads(match.group()) if match else {}
-print(action)
+# Connect via OpenEnv client
+from openenv import EnvClient
+client = EnvClient("http://localhost:8000")
+obs = client.reset()
 ```
 
 ---
 
-## Training Evidence
+## Project map
 
-> **Hackathon requirement:** working training script + evidence of real training runs.
+```
+Meta-r2/
+├── core/
+│   ├── lifestack_env.py      # LifeStackEnv, WorldEngine, PartialObsFilter
+│   ├── life_state.py         # LifeMetrics (23 values), DependencyGraph (32 edges)
+│   ├── reward.py             # compute_reward, compute_task_reward, 4 scoring fns
+│   ├── cascade_utils.py      # animate_cascade() — frame-by-frame cascade replay
+│   ├── action_space.py       # AgentAction, PrimaryAction, apply_action
+│   ├── task.py               # Task, ExoEvent, Route, Milestone, FlightCrisisTask
+│   ├── verifier.py           # LifeStackVerifier (success/failure/milestone checks)
+│   ├── feedback.py           # OutcomeFeedback, compute_human_feedback_reward
+│   └── metric_schema.py      # VALID_METRIC_PATHS, normalize_metric_path
+├── agent/
+│   ├── agent.py              # LifeStackAgent (GRPO model + Groq fallback)
+│   ├── memory.py             # LifeStackMemory (ChromaDB, 3 collections)
+│   ├── conflict_generator.py # TaskGenerator (8 domains), TEMPLATES, ExoEvent injection
+│   ├── conflict_predictor.py # ConflictPredictor (pattern matching on episode history)
+│   └── counterfactuals.py    # What-if reasoning over metric snapshots
+├── intake/
+│   ├── simperson.py          # SimPerson (Big Five personality → action uptake scaling)
+│   ├── intake.py             # Data ingestion pipeline
+│   ├── gmail_intake.py       # Gmail OAuth source
+│   └── calendar_intake.py    # Google Calendar OAuth source
+├── server/
+│   └── app.py                # OpenEnv FastAPI server (create_app wrapper)
+├── scripts/
+│   ├── train_trl.py          # Full GRPO training — single-step + episodic curriculum
+│   ├── eval.py               # Evaluation script, random baseline
+│   ├── plot_training.py      # Parse training logs → reward/loss/component plots
+│   └── smoke_test.py         # Fast pipeline check (no GPU needed)
+├── notebooks/
+│   ├── Colab_GRPO_Training.ipynb   # Re-runnable training notebook
+│   └── Training_Evidence.ipynb     # Plot generation from logs
+├── data/
+│   ├── conflicts.json              # 20+ named conflict scenarios
+│   ├── training_log.json           # Episode reward history
+│   └── before_after_comparison.json # Memory ablation results
+├── plots/                          # Training evidence plots (v4 real run)
+├── docs/                           # All project documentation
+├── app_flask.py                    # Flask UI — port 7860, 10 tabs, Chart.js
+├── server.py                       # Crash-safe OpenEnv server entry point
+├── start.sh                        # Docker CMD — dual service startup
+├── Dockerfile                      # python:3.11-slim, exposes 7860 + 8000
+└── openenv.yaml                    # OpenEnv manifest
+```
 
-| Artifact | Link |
-|----------|------|
-| Re-runnable Colab training notebook | [`notebooks/Colab_GRPO_Training.ipynb`](notebooks/Colab_GRPO_Training.ipynb) |
-| Plot-generation notebook (v4 log → charts) | [`notebooks/Training_Evidence.ipynb`](notebooks/Training_Evidence.ipynb) |
-| Reward curve (v4 real run) | [`plots/reward_curve.png`](plots/reward_curve.png) |
-| Loss curve (v4 real run) | [`plots/loss_curve.png`](plots/loss_curve.png) |
-| Per-function reward components (v4) | [`plots/reward_components.png`](plots/reward_components.png) |
-| 4-panel training summary (v4) | [`plots/training_summary.png`](plots/training_summary.png) |
-| Cross-version comparison (Base → v4) | [`plots/model_progression_v1_to_v4.png`](plots/model_progression_v1_to_v4.png) |
-| Detailed numbers for every run | [`docs/model_comparison_v4.md`](docs/model_comparison_v4.md) |
-| All plots also on HuggingFace | [jdsb06/lifestack-grpo-v4/plots](https://huggingface.co/jdsb06/lifestack-grpo-v4/tree/main/plots) |
+---
 
-### v4 Key Training Metrics (final run, Stage 3)
-
-| Metric | Value |
-|--------|-------|
-| Peak GRPO reward | **0.856** |
-| Format reward (peak) | **+0.660** |
-| Episode return (avg) | **+0.140** |
-| Natural EOS terminations | **First appeared** (model self-terminating after JSON) |
-| Training time | ~2 hrs (3 stages × ~39 min on A100 80GB) |
-
-### v4 Training Summary (real run — generated from train_run_v4.log)
+## Training evidence
 
 ![4-panel training summary](plots/training_summary.png)
 
-### Model Progression (Base → v4)
-
-![Cross-version comparison](plots/model_progression_v1_to_v4.png)
+![Cross-version model progression](plots/model_progression_v1_to_v4.png)
 
 ---
 
-## Training (T4 / Colab)
-
-Pinned stack: **Unsloth 2026.4.8**, **TRL 0.15.1**, **Transformers 5.5.0**, **Torch 2.10+cu128**
+## Quick start
 
 ```bash
-# Episodic v3-style run
-LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
-  --episode-train \
-  --stages 3 \
-  --episodes-per-stage 60 \
-  --episode-horizon 3 \
-  --output-dir ./lifestack_model_v3 \
-  --push-to-hub \
-  --hub-repo-id jdsb06/lifestack-grpo-v4
+# Clone and install
+git clone https://github.com/oki-dokii/Meta-R2.git
+cd Meta-R2
+bash setup.sh        # creates .venv, installs requirements.txt, runs smoke test
+
+# Activate and run
+source .venv/bin/activate
+python app_flask.py  # Flask UI → http://localhost:7860
+python server.py     # OpenEnv server → http://localhost:8000
+
+# Smoke test (no GPU, no downloads)
+python scripts/smoke_test.py
+
+# Full training (requires GPU, ~2h on A100 80GB)
+LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py
+
+# Dry run (CPU, validates pipeline end-to-end in ~60s)
+python scripts/train_trl.py --dry-run
 ```
 
-```bash
-# Evaluate baseline (no LoRA)
-python scripts/eval_baseline.py --output baseline_results.json
-```
-
----
-
-## Repository Layout
-
-```
-Meta-R2/
-├── core/              # LifeStackEnv, DependencyGraph, reward, life_state
-├── agent/             # LifeStackAgent, counterfactuals, conflict_generator
-├── intake/            # SimPerson (personality profiles)
-├── scripts/           # train_trl.py, eval_baseline.py, gradio_demo.py
-├── templates/         # Flask UI templates
-├── docs/              # Full documentation (start at docs/README.md)
-├── app_flask.py       # Production Flask app (port 7860)
-├── server.py          # OpenEnv HTTP server (port 8000)
-├── start.sh           # Entrypoint: starts both services
-├── Dockerfile
-└── openenv.yaml       # OpenEnv manifest
-```
-
----
-
-## Citation
-
-```bibtex
-@misc{lifestack2026,
-  title        = {LifeStack: Training AI to Handle Life's Cascading Crises},
-  author       = {Team BholeChature, Scaler School of Technology},
-  year         = {2026},
-  howpublished = {Meta × HuggingFace PyTorch OpenEnv Hackathon 2026},
-  url          = {https://github.com/oki-dokii/Meta-R2}
-}
-```
+The trained checkpoints for v1, v3, and v4 are on HuggingFace Hub at `jdsb06/lifestack-grpo`, `jdsb06/lifestack-grpo-v3`, and `jdsb06/lifestack-grpo-v4`. Load them with standard `PeftModel.from_pretrained()` against `Qwen/Qwen2.5-1.5B-Instruct` as the base.

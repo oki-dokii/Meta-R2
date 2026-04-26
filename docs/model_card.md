@@ -1,127 +1,106 @@
----
-language:
-- en
-tags:
-- grpo
-- trl
-- unsloth
-- reinforcement-learning
-- life-planning
-- structured-output
-license: other  # set to match the repository LICENSE when you publish
----
+# Model Card
 
-# Model Card: LifeStack GRPO (Qwen2.5-1.5B-Instruct)
-
-## Summary
-
-**LifeStack** fine-tunes **Qwen2.5-1.5B-Instruct** (4-bit via Unsloth) with **GRPO** (Group Relative Policy Optimization) using **Hugging Face TRL 0.15.1**. The policy generates **JSON action plans** for multi-domain life conflicts inside the **LifeStackEnv** simulator (OpenEnv manifest: `openenv.yaml`).
-
-**Checkpoints:**
-
-| Hub ID | Description |
-|--------|-------------|
-| `jdsb06/lifestack-grpo` | Run 4 — best **single-step** curriculum checkpoint |
-| `jdsb06/lifestack-grpo-v3` | **Episodic** v3 — curriculum **1→4**; mean reward depressed by a constant penalty head |
-| `jdsb06/lifestack-grpo-v4` | **Episodic** v4 — **current** training; removed dead-weight reward, up-weighted trajectory return |
-
-**Code:** [https://github.com/oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2)
+**HuggingFace repos:**
+- v1: [jdsb06/lifestack-grpo](https://huggingface.co/jdsb06/lifestack-grpo)
+- v3: [jdsb06/lifestack-grpo-v3](https://huggingface.co/jdsb06/lifestack-grpo-v3)
+- v4: [jdsb06/lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) (best)
 
 ---
 
-## Intended use
+## What these models are
 
-- **Research / demo:** structured decision support in a **simulated** environment.
-- **Not** for medical, legal, or financial advice in the real world.
-- Outputs must be **validated** by application logic; treat the model as a **proposal generator**.
-
----
-
-## Model details
-
-| Field | Value |
-|-------|--------|
-| Base | `unsloth/Qwen2.5-1.5B-Instruct-unsloth-bnb-4bit` |
-| Fine-tuning | GRPO (`trl==0.15.1`), LoRA r=16, α=16 |
-| Target modules | `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj` |
-| Trainable parameters | ~18.5M / ~1.56B total (~1.18%) |
-| Domains | career, finances, relationships, physical_health, mental_wellbeing, time, transport_crisis, code_merge_crisis |
-
----
-
-## Training procedure
-
-1. **Single-step curriculum** (early runs): format warm-up, then richer reward stack (task success, milestones, long-horizon rollout reward, etc.).
-2. **Episodic curriculum** (v3+): horizon **3** actions per episode; prompts ask for compact JSON with an **`actions`** list; rewards combine format, EOS cleanliness, plausibility, and **discounted environment return**.
-3. **Difficulty curriculum:** stages advance when logged mean reward ≥ **0** (see `curriculum_state.json` in training output).
-
-**Environment:** set `LIFESTACK_NO_UNSLOTH=1` when Unsloth’s compiled cache conflicts with **Torch 2.10** (`ref_hidden_states=None`).
-
-**Hardware reference:** NVIDIA **T4 15GB**; training time depends on `--stages`, `--episodes-per-stage`, and `--num-train-epochs`.
-
----
-
-## Reward functions (v4 episodic)
-
-| Function | Weight | Role |
-|----------|--------|------|
-| `reward_episode_format_fn` | 1.0 | Valid JSON schema, required keys, allowed enums |
-| `reward_clean_eos_fn` | 0.5 | Penalizes text after the closing `}` |
-| `reward_episode_plausibility_fn` | 0.5 | Penalizes implausible metric jumps vs resource cost |
-| `reward_episode_return_fn` | 2.0 | Discounted sum of env step rewards + terminal shaping |
-
-**Removed in v4:** `reward_compact_fn` (empirically constant, zero variance — no gradient).
-
----
-
-## Example input / output
-
-**User / system prompt (abridged):** crisis description, current metrics, valid routes — see `scripts/train_trl.py` prompt builders.
-
-**Target completion (single-step shape):**
+LoRA adapters trained on top of `Qwen/Qwen2.5-1.5B-Instruct`. Given a life conflict scenario (a JSON prompt describing a crisis, metric states, and available routes), the model outputs a structured JSON action:
 
 ```json
 {
   "action_type": "communicate",
   "target_domain": "relationships",
-  "metric_changes": {"relationships.partner_trust": 5},
-  "resource_cost": {"time": 2, "money": 0, "energy": 10},
-  "reasoning": "Short calm conversation before the deadline reduces escalation."
+  "metric_changes": {"relationships.romantic": 12.0, "mental_wellbeing.stress_level": -5.0},
+  "resource_cost": {"time": 0.5, "money": 0, "energy": 10.0},
+  "reasoning": "A reassuring call prevents relationship erosion while stress is high."
 }
 ```
 
-**Episodic shape:** JSON with an `"actions"` array of objects in the same schema.
+The adapter is not a general-purpose assistant. It is specialized for the LifeStack action space (`VALID_ACTION_TYPES = frozenset({"negotiate", "communicate", "delegate", "spend", "reschedule", "rest", "deprioritize", "execute", "prepare", "self_care"})`).
 
 ---
 
-## Evaluation
+## Training details
 
-Reported **mean reward** during development ranged from about **−0.94** (broken baseline) to **+0.73** (best episodic stage) depending on run and metric mix. **Evaluation means often stayed near zero** even when training improved — this is a **hard** simulation with multiple penalty terms, not a toy sentiment task.
+| Property | Value |
+|----------|-------|
+| Base model | `Qwen/Qwen2.5-1.5B-Instruct` |
+| Algorithm | GRPO (Group Relative Policy Optimization) |
+| Library | HuggingFace TRL 0.15.1 |
+| Efficiency | Unsloth 2026.4.8 (4-bit QLoRA) or plain HF+PEFT (bf16) |
+| LoRA rank | r=16, lora_alpha=16 |
+| LoRA targets | q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj |
+| Environment | `LifeStackEnv` — 23 metrics, 8 domains, 32-edge dependency graph |
+| Training hardware | A100 80GB |
 
-Metrics to monitor in logs:
+**v1** was trained with `train_curriculum()` — 5 stages of single-step GRPO, 100 prompts per stage, with 10 reward functions starting from stage 2. Training log: [`train_run_v1.log`](../train_run_v1.log).
 
-- **`reward` / `train/reward`:** scalar GRPO objective (weighted sum of heads).
-- **`clipped_ratio`:** near 1.0 can indicate policy updates hitting PPO/GRPO limits or “talkative” completions wasting tokens.
-- **`frac_reward_zero_std`:** fraction of reward components with **zero** standard deviation across the group — high values mean weak relative preferences.
-
----
-
-## Limitations
-
-- **Simulation only:** metrics and cascades are **hand-crafted**, not real life.
-- **Small model:** reasoning depth is limited; long horizons need careful prompt and length budgets.
-- **JSON brittleness:** without robust parsing, trailing prose breaks naive `json.loads` — production systems must use **safe extraction** (greedy outer braces or incremental `JSONDecoder.raw_decode`).
-- **Reward design sensitivity:** a constant penalty term with **no variance** can **flatten** the logged reward without teaching anything (the v3 → v4 lesson).
+**v3** and **v4** were trained with `train_episodic_curriculum()` — episodic GRPO using `LifeStackGRPOTrainer` with JSON-boundary gradient masking, `episode_horizon=3`, 4 reward functions. v4 removed `reward_compact_fn` (zero variance throughout v3 training). Training log for v4: [`jdsb06/lifestack-grpo-v4/train_run_v4.log`](https://huggingface.co/jdsb06/lifestack-grpo-v4/blob/main/train_run_v4.log).
 
 ---
 
-## Ethical considerations
+## Training evidence
 
-Do not deploy for high-stakes decisions without human oversight. The model may emit **plausible-looking** JSON that is **unfair, incomplete, or unsafe** if applied literally.
+The training logs are real runs. Key metrics from v4 (final episodic stage, sourced from `train_run_v4.log`):
+
+| Metric | Value |
+|--------|-------|
+| Peak GRPO reward | ~0.856 |
+| Format reward (peak) | +0.660 |
+| Episode return (avg) | +0.140 |
+| Training time | ~2 hrs (3 stages on A100 80GB) |
+| Natural EOS terminations | First appeared in v4 (model self-terminating after JSON close) |
+
+Plots (reward curve, loss curve, per-component breakdown) are in [`plots/`](../plots/) and mirrored at [`jdsb06/lifestack-grpo-v4/plots/`](https://huggingface.co/jdsb06/lifestack-grpo-v4/tree/main/plots).
+
+The re-runnable Colab notebook is at [`notebooks/Colab_GRPO_Training.ipynb`](../notebooks/Colab_GRPO_Training.ipynb).
 
 ---
 
-## Citation / links
+## Loading
 
-- Repository: [https://github.com/oki-dokii/Meta-R2](https://github.com/oki-dokii/Meta-R2)
-- Models: [lifestack-grpo](https://huggingface.co/jdsb06/lifestack-grpo) · [lifestack-grpo-v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) · [lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4)
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+base = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    torch_dtype="auto",
+    device_map="auto"
+)
+tokenizer = AutoTokenizer.from_pretrained("jdsb06/lifestack-grpo-v4")
+model = PeftModel.from_pretrained(base, "jdsb06/lifestack-grpo-v4")
+model.eval()
+```
+
+Or use `LifeStackAgent` directly — it handles model loading, fallback, and inference:
+
+```python
+from agent.agent import LifeStackAgent
+agent = LifeStackAgent()   # loads jdsb06/lifestack-grpo-v4 by default
+```
+
+---
+
+## Known limitations
+
+The model is specialized for the LifeStack action space. Using it outside of LifeStack prompts will produce well-formed JSON that may be semantically nonsensical for other domains.
+
+`reward_human_feedback_fn` requires a populated `LifeStackMemory` (ChromaDB). On fresh environments it abstains (returns 0.0). This means the human feedback signal was sparse during training on Colab/Kaggle runs where ChromaDB was not installed.
+
+The holdout evaluation in `scripts/train_trl.py` uses the same `TaskGenerator` as training, which limits how confidently we can claim generalization. The training data is diverse across 8 domains and 5 difficulty levels, but it's procedurally generated from the same templates.
+
+---
+
+## Related files
+
+- `agent/agent.py` — `LifeStackAgent` with lazy model loading
+- `scripts/train_trl.py` — full training code
+- `notebooks/Colab_GRPO_Training.ipynb` — Colab notebook
+- `docs/HF_MODEL_CARD_V4.md` — full model card for HF Hub upload
+- `docs/HF_MODEL_CARD_V1.md` — v1 model card for HF Hub upload
