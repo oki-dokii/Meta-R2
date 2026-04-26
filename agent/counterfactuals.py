@@ -138,10 +138,20 @@ def generate_counterfactuals(agent, metrics, budget, conflict, person, chosen_ac
             return None
 
     results = []
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(_run_one, t): t for t in target_types}
-        for future in as_completed(futures, timeout=65):
-            result = future.result()
+    # GPU inference is serialized — running 3 threads in parallel on the same
+    # model just adds thread overhead and hits the timeout. Run sequentially
+    # when a local model is loaded; use threads only for API-backed agents.
+    use_parallel = not getattr(agent, 'local_model', None)
+    if use_parallel:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(_run_one, t): t for t in target_types}
+            for future in as_completed(futures, timeout=65):
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+    else:
+        for t in target_types:
+            result = _run_one(t)
             if result is not None:
                 results.append(result)
 

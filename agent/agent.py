@@ -172,7 +172,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     # ── Backend inference dispatcher ──────────────────────────────────────────
 
     def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False,
-                       trained_model_only: bool = False) -> str | None:
+                       trained_model_only: bool = False, max_new_tokens: int = 128) -> str | None:
         """
         Call the best available backend and return raw text.
 
@@ -193,7 +193,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
             with torch.no_grad():
                 outputs = self.local_model.generate(
                     **inputs,
-                    max_new_tokens=512,
+                    max_new_tokens=max_new_tokens,
                     temperature=temperature,
                     do_sample=True,
                     pad_token_id=self.tokenizer.pad_token_id,
@@ -266,7 +266,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
 
         # Try trained model first (HF v3 via InferenceClient or local weights)
         raw = self._run_inference(episode_prompt, temperature=0.4, force_api=force_api,
-                                  trained_model_only=False)
+                                  trained_model_only=False, max_new_tokens=128)
 
         # Try to extract first action from episode {"actions":[...]} format
         if raw:
@@ -336,7 +336,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         def _call():
             try:
                 content = self._run_inference(prompt, temperature=0.3, force_api=force_api,
-                                              trained_model_only=trained_model_only)
+                                              trained_model_only=trained_model_only, max_new_tokens=128)
                 if not content:
                     result_box[0] = self._fallback_action("No content returned.", fallback_type)
                     return
@@ -352,7 +352,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                             print(f"JSON parse attempt 1 failed ({parse_err}). Retrying with strict prompt...")
                             retry_prompt = prompt + "\n\nRETURN ONLY VALID COMPACT JSON. NO PROSE. NO MARKDOWN. NO TRAILING COMMAS."
                             retry_content = self._run_inference(retry_prompt, temperature=0.1, force_api=force_api,
-                                                                trained_model_only=trained_model_only)
+                                                                trained_model_only=trained_model_only, max_new_tokens=128)
                             if retry_content:
                                 content = retry_content
                         else:
