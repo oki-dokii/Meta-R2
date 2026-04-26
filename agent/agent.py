@@ -11,7 +11,7 @@ from agent.conflict_generator import ConflictEvent, generate_conflict
 from core.action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
 from intake.simperson import SimPerson
 
-DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo"
+DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v3"   # latest trained GRPO adapter
 
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
@@ -173,18 +173,30 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
 
     # ── Backend inference dispatcher ──────────────────────────────────────────
 
-    def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False) -> str | None:
-        """Call whichever backend is available and return raw text. Sets self._last_model_name."""
+    def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False,
+                       trained_model_only: bool = False) -> str | None:
+        """
+        Call the best available backend and return raw text.
+
+        Priority order:
+          1. Local GRPO adapter (if loaded and not force_api)
+          2. HF InferenceClient → jdsb06/lifestack-grpo-v3  (trained model via HF Serverless)
+          3. Groq 70B (general-purpose fallback — skipped when trained_model_only=True)
+
+        trained_model_only=True is used for counterfactual generation so that
+        the What-If Lab always reflects the trained model's policy, never Groq.
+        """
         import torch
         content = None
 
+        # 1. Local GRPO adapter weights (dev machine / local GPU)
         if self.local_model and not force_api:
             self._last_model_name = self.local_model_path
             inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
             with torch.no_grad():
                 outputs = self.local_model.generate(
                     **inputs,
-                    max_new_tokens=512,   # was 256 — raised to prevent mid-JSON truncation
+                    max_new_tokens=512,
                     temperature=temperature,
                     do_sample=True,
                     pad_token_id=self.tokenizer.pad_token_id,
@@ -193,6 +205,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                 outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
             ).strip()
 
+        # 2. Trained GRPO model via HF Serverless Inference (jdsb06/lifestack-grpo-v3)
         elif self.hf_client:
             self._last_model_name = f"hf:{self.hf_model}"
             try:
@@ -202,9 +215,13 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                 if prompt in content:
                     content = content.replace(prompt, "").strip()
             except Exception as hf_err:
-                print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
+                if trained_model_only:
+                    print(f"⚠️ HF Inference Error: {hf_err}. trained_model_only=True — not falling back to Groq.")
+                else:
+                    print(f"⚠️ HF Inference Error: {hf_err}. Falling back to Groq.")
 
-        if content is None and hasattr(self, 'client'):
+        # 3. Groq 70B — general fallback only (never used for counterfactuals)
+        if content is None and not trained_model_only and hasattr(self, 'client'):
             self._last_model_name = f"groq:{self.model}"
             for attempt in range(2):
                 try:
@@ -239,12 +256,14 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     # ── Public API ────────────────────────────────────────────────────────────
 
     def get_action_for_type(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, forced_type: str, api_only: bool = False) -> "AgentAction":
+        """Generate an action of a specific type using the trained GRPO model only (no Groq fallback)."""
         force_api = self.api_only or api_only
         if not force_api and not self._model_load_attempted:
             self._try_load_model()
         base_prompt = self.build_prompt(metrics, budget, conflict, person)
         forced_prompt = base_prompt + f"\n\nCRITICAL REQUIREMENT: You MUST set 'action_type' to exactly '{forced_type}'."
-        return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type, force_api=force_api)
+        return self._get_action_from_prompt(forced_prompt, fallback_type=forced_type,
+                                            force_api=force_api, trained_model_only=True)
 
     def get_action(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent, person: SimPerson, few_shot_context: str = "", api_only: bool = False, timeout: int = 55) -> "AgentAction":
         force_api = self.api_only or api_only
@@ -261,12 +280,14 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
 
     # ── Core inference + parse loop ───────────────────────────────────────────
 
-    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False, timeout: int = 55) -> "AgentAction":
+    def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False,
+                                timeout: int = 55, trained_model_only: bool = False) -> "AgentAction":
         result_box = [None]
 
         def _call():
             try:
-                content = self._run_inference(prompt, temperature=0.3, force_api=force_api)
+                content = self._run_inference(prompt, temperature=0.3, force_api=force_api,
+                                              trained_model_only=trained_model_only)
                 if not content:
                     result_box[0] = self._fallback_action("No content returned.", fallback_type)
                     return
@@ -281,7 +302,8 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                         if parse_attempt == 0:
                             print(f"JSON parse attempt 1 failed ({parse_err}). Retrying with strict prompt...")
                             retry_prompt = prompt + "\n\nRETURN ONLY VALID COMPACT JSON. NO PROSE. NO MARKDOWN. NO TRAILING COMMAS."
-                            retry_content = self._run_inference(retry_prompt, temperature=0.1, force_api=force_api)
+                            retry_content = self._run_inference(retry_prompt, temperature=0.1, force_api=force_api,
+                                                                trained_model_only=trained_model_only)
                             if retry_content:
                                 content = retry_content
                         else:
