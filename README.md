@@ -16,6 +16,7 @@ tags:
 
 [![HF Space](https://img.shields.io/badge/HF_Space-Live_Demo-yellow?style=flat-square)](https://huggingface.co/spaces/jdsb06/meta-r2)
 [![v1 Model](https://img.shields.io/badge/Model-lifestack--grpo-blue?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo)
+[![v2 Model](https://img.shields.io/badge/Model-lifestack--grpo--v2-teal?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v2)
 [![v3 Model](https://img.shields.io/badge/Model-lifestack--grpo--v3-violet?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v3)
 [![v4 Model](https://img.shields.io/badge/Model-lifestack--grpo--v4-green?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v4)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-0.2.3-orange?style=flat-square)](https://github.com/meta-pytorch/OpenEnv)
@@ -32,7 +33,7 @@ tags:
 | 📊 **Training Evidence (plots)** | [plots/](plots/) — reward curve, loss curve, components, summary |
 | 🏋️ **v4 Training Log (raw)** | [train_run_v4.log on HF](https://huggingface.co/jdsb06/lifestack-grpo-v4/blob/main/train_run_v4.log) |
 | 🏋️ **v1 Training Log (raw)** | [train_run_v1.log](train_run_v1.log) |
-| 🤖 **All models** | [v1](https://huggingface.co/jdsb06/lifestack-grpo) · [v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) · [v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) |
+| 🤖 **All models** | [v1](https://huggingface.co/jdsb06/lifestack-grpo) · [v2](https://huggingface.co/jdsb06/lifestack-grpo-v2) · [v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) · [v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) |
 | 🌐 **GitHub Source** | https://github.com/oki-dokii/Meta-R2 |
 
 ---
@@ -320,4 +321,4 @@ LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py
 python scripts/train_trl.py --dry-run
 ```
 
-The trained checkpoints for v1, v3, and v4 are on HuggingFace Hub at `jdsb06/lifestack-grpo`, `jdsb06/lifestack-grpo-v3`, and `jdsb06/lifestack-grpo-v4`. Load them with standard `PeftModel.from_pretrained()` against `Qwen/Qwen2.5-1.5B-Instruct` as the base.
+The trained checkpoints for v1, v2, v3, and v4 are on HuggingFace Hub at `jdsb06/lifestack-grpo`, `jdsb06/lifestack-grpo-v2`, `jdsb06/lifestack-grpo-v3`, and `jdsb06/lifestack-grpo-v4`. Load them with standard `PeftModel.from_pretrained()` against `Qwen/Qwen2.5-1.5B-Instruct` as the base.
