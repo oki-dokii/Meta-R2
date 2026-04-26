@@ -157,6 +157,14 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         if person:
             hint = person.get_personality_hint()
             persona_line = f"Person: {hint}\n"
+        energy = flat.get("physical_health.energy", 50.0)
+        rest_ok = energy < 35
+        strategy = (
+            "Strategy: Use rest ONLY if physical_health.energy < 35. "
+            "Prefer negotiate/communicate/delegate/prepare/self_care for most situations."
+            if not rest_ok else
+            "Strategy: Energy is low — rest or self_care is appropriate."
+        )
         return (
             "You are LifeStack. Return ONLY compact JSON.\n"
             f"Task: {conflict.title}\n"
@@ -164,8 +172,9 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
             f"{persona_line}"
             f"Key metrics:\n{metrics_str}\n"
             f"Budget: time={budget.time_hours:.1f}, money={budget.money_dollars:.1f}, energy={budget.energy_units:.1f}\n"
+            f"{strategy}\n"
             f"Required keys: action_type, target_domain, metric_changes, resource_cost, reasoning.{type_constraint}\n"
-            '{"action_type":"negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute",'
+            '{"action_type":"negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|prepare|self_care",'
             '"target_domain":"career|finances|relationships|physical_health|mental_wellbeing|time",'
             '"metric_changes":{"domain.submetric":delta},'
             '"resource_cost":{"time":0,"money":0,"energy":0},'
@@ -223,23 +232,31 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     _ACTION_TYPE_MAP = {
         "plan":        "prepare",
         "work":        "execute",
-        "study":       "execute",
-        "exercise":    "rest",
-        "workout":     "rest",
+        "study":       "prepare",
+        "exercise":    "self_care",
+        "workout":     "self_care",
+        "meditate":    "self_care",
         "sleep":       "rest",
         "relax":       "rest",
+        "recover":     "rest",
         "save":        "deprioritize",
         "cut":         "deprioritize",
+        "reduce":      "deprioritize",
         "talk":        "communicate",
         "call":        "communicate",
         "meet":        "communicate",
+        "message":     "communicate",
+        "email":       "communicate",
         "buy":         "spend",
         "hire":        "delegate",
         "assign":      "delegate",
+        "outsource":   "delegate",
         "postpone":    "reschedule",
         "delay":       "reschedule",
+        "defer":       "reschedule",
         "bargain":     "negotiate",
         "compromise":  "negotiate",
+        "request":     "negotiate",
     }
 
     _VALID_DOMAINS = {
