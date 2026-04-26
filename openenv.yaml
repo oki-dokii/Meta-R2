@@ -3,10 +3,13 @@
 
 name: lifestack-v1
 version: 1.1.0
-description: "Premium multi-domain life conflict resolution simulation."
+description: "Multi-domain life conflict resolution RL environment. Models life as a 40-edge dependency graph across 8 domains. Trained with GRPO via TRL + Unsloth."
 entry_point: "core.lifestack_env:LifeStackEnv"
 action_cls: "core.lifestack_env:LifeStackAction"
 observation_cls: "core.lifestack_env:LifeStackObservation"
+
+hub_id: "jdsb06/meta-r2"
+hub_type: "space"
 
 metadata:
   difficulty_range: [1, 5]
@@ -14,8 +17,15 @@ metadata:
   task_domains: [career, finances, relationships, physical_health, mental_wellbeing, time, transport_crisis, code_merge_crisis]
   domains: ["career", "finances", "relationships", "physical_health", "mental_wellbeing", "time"]
   resources: ["time", "money", "energy"]
-  
-# Optional: Default serve configuration
+  trained_models:
+    - "jdsb06/lifestack-grpo"
+    - "jdsb06/lifestack-grpo-v3"
+    - "jdsb06/lifestack-grpo-v4"
+  training_framework: "TRL 0.15.1 + Unsloth 2026.4.8"
+  algorithm: "GRPO"
+  base_model: "Qwen/Qwen2.5-1.5B-Instruct"
+
+# Default serve configuration
 serve:
   host: "0.0.0.0"
   port: 8000

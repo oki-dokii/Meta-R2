@@ -15,9 +15,26 @@ pinned: true
 
 [![GitHub](https://img.shields.io/badge/GitHub-Source_Code-black?style=flat-square&logo=github)](https://github.com/oki-dokii/Meta-R2)
 [![HF Space](https://img.shields.io/badge/HF_Space-Live_Demo-yellow?style=flat-square)](https://huggingface.co/spaces/jdsb06/meta-r2)
-[![v1 Model](https://img.shields.io/badge/Model-lifestack--grpo-blue?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo)
+[![v1 Model](https://img.shields.io/badge/Model-lifestack--grpo--v1-blue?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo)
 [![v3 Model](https://img.shields.io/badge/Model-lifestack--grpo--v3-violet?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v3)
-[![OpenEnv](https://img.shields.io/badge/OpenEnv-0.2.3-orange?style=flat-square)](https://github.com/facebookresearch/openenv)
+[![v4 Model](https://img.shields.io/badge/Model-lifestack--grpo--v4-green?style=flat-square)](https://huggingface.co/jdsb06/lifestack-grpo-v4)
+[![OpenEnv](https://img.shields.io/badge/OpenEnv-0.2.3-orange?style=flat-square)](https://github.com/meta-pytorch/OpenEnv)
+
+---
+
+## Quick Links for Judges
+
+| What | Link |
+|------|------|
+| 🚀 **Live Demo (HF Space)** | https://huggingface.co/spaces/jdsb06/meta-r2 |
+| 📝 **Mini-Blog / Model Card (HF)** | https://huggingface.co/jdsb06/lifestack-grpo-v4 |
+| 🎓 **Re-runnable Colab Training Notebook** | [notebooks/Colab_GRPO_Training.ipynb](notebooks/Colab_GRPO_Training.ipynb) |
+| 📊 **Training Evidence (plots)** | [plots/](plots/) — reward curve, loss curve, components, summary |
+| 🏋️ **v4 Training Log (raw)** | [train_run_v4.log on HF](https://huggingface.co/jdsb06/lifestack-grpo-v4/blob/main/train_run_v4.log) |
+| 🏋️ **v1 Training Log (raw)** | [train_run_v1.log](train_run_v1.log) |
+| 🤖 **Best model (v4)** | [jdsb06/lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) |
+| 🤖 **All models** | [v1](https://huggingface.co/jdsb06/lifestack-grpo) · [v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) · [v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) |
+| 🌐 **GitHub Source** | https://github.com/oki-dokii/Meta-R2 |
 
 ---
 
