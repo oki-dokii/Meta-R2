@@ -169,6 +169,50 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
 
         return json.loads(text)
 
+    _VALID_ACTION_TYPES = {
+        "negotiate", "communicate", "delegate", "spend",
+        "reschedule", "rest", "deprioritize", "execute",
+    }
+    # Map out-of-vocab types the model sometimes generates to the nearest valid one.
+    _ACTION_TYPE_MAP = {
+        "prepare":     "execute",
+        "plan":        "execute",
+        "work":        "execute",
+        "study":       "execute",
+        "exercise":    "rest",
+        "workout":     "rest",
+        "sleep":       "rest",
+        "relax":       "rest",
+        "save":        "deprioritize",
+        "cut":         "deprioritize",
+        "talk":        "communicate",
+        "call":        "communicate",
+        "meet":        "communicate",
+        "buy":         "spend",
+        "hire":        "delegate",
+        "assign":      "delegate",
+        "postpone":    "reschedule",
+        "delay":       "reschedule",
+        "bargain":     "negotiate",
+        "compromise":  "negotiate",
+    }
+
+    def _normalize_action_type(self, raw_type: str) -> str:
+        t = (raw_type or "execute").lower().strip()
+        if t in self._VALID_ACTION_TYPES:
+            return t
+        if t in self._ACTION_TYPE_MAP:
+            mapped = self._ACTION_TYPE_MAP[t]
+            print(f"[action_type] '{raw_type}' → '{mapped}' (normalised)")
+            return mapped
+        # Prefix match as last resort
+        for valid in self._VALID_ACTION_TYPES:
+            if t.startswith(valid) or valid.startswith(t):
+                print(f"[action_type] '{raw_type}' → '{valid}' (prefix match)")
+                return valid
+        print(f"[action_type] '{raw_type}' unknown → 'execute'")
+        return "execute"
+
     # ── Backend inference dispatcher ──────────────────────────────────────────
 
     def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False,
@@ -292,7 +336,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                                     pass
                         return AgentAction(
                             primary=PrimaryAction(
-                                action_type=a.get("action_type", forced_type),
+                                action_type=self._normalize_action_type(a.get("action_type", forced_type)),
                                 target_domain=a.get("target_domain", "mental_wellbeing"),
                                 metric_changes=metric_changes,
                                 resource_cost=a.get("resource_cost", {}),
@@ -323,9 +367,10 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
             return self._fallback_action("Error: No model configured (set GROQ_API_KEY, HF_TOKEN, or LIFESTACK_MODEL_PATH).")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
-        # API-only path (Groq) is fast; local GPU path needs more headroom for 512-token generation + retry
         effective_timeout = 25 if force_api else timeout
-        return self._get_action_from_prompt(prompt, force_api=force_api, timeout=effective_timeout)
+        # Agent's Choice must always come from the trained model — never Groq.
+        return self._get_action_from_prompt(prompt, force_api=force_api, timeout=effective_timeout,
+                                            trained_model_only=not force_api)
 
     # ── Core inference + parse loop ───────────────────────────────────────────
 
@@ -375,7 +420,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
 
                 result_box[0] = AgentAction(
                     primary=PrimaryAction(
-                        action_type=data.get("action_type", "rest"),
+                        action_type=self._normalize_action_type(data.get("action_type", "execute")),
                         target_domain=data.get("target_domain", "mental_wellbeing"),
                         metric_changes=metric_changes,
                         resource_cost=data.get("resource_cost", {}),
