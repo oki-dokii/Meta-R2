@@ -1,0 +1,29 @@
+{
+  "schema": "lifestack_baseline_eval_v1",
+  "note": "Base model eval (no LoRA). 50 episodes, same schedule as evaluate_and_plot. Per-episode rows omitted; re-run: python scripts/eval_baseline.py --output baseline_results.json",
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "load_method": "transformers:Qwen/Qwen2.5-1.5B-Instruct",
+  "environment": "linux GPU server, HF fallback (Unsloth unavailable due to TRL import mismatch)",
+  "n_episodes": 50,
+  "mean_reward": -0.07,
+  "per_domain": {
+    "career": { "n": 7, "mean": -0.1429 },
+    "finances": { "n": 7, "mean": 0.0 },
+    "relationships": { "n": 6, "mean": 0.0 },
+    "physical_health": { "n": 6, "mean": -0.1667 },
+    "mental_wellbeing": { "n": 6, "mean": -0.25 },
+    "time": { "n": 6, "mean": 0.0 },
+    "transport_crisis": { "n": 6, "mean": 0.0 },
+    "code_merge_crisis": { "n": 6, "mean": 0.0 }
+  },
+  "all_domains_order": [
+    "career",
+    "finances",
+    "relationships",
+    "physical_health",
+    "mental_wellbeing",
+    "time",
+    "transport_crisis",
+    "code_merge_crisis"
+  ]
+}
