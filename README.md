@@ -29,7 +29,7 @@ tags:
 |------|------|
 | 🚀 **Live Demo (HF Space)** | https://huggingface.co/spaces/jdsb06/meta-r2 |
 | 📝 **Mini-Blog / Model Card** | https://huggingface.co/jdsb06/lifestack-grpo-v4 |
-| 🎓 **Re-runnable Colab Training Notebook** | [notebooks/Colab_GRPO_Training.ipynb](notebooks/Colab_GRPO_Training.ipynb) |
+| 🎓 **Re-runnable Colab Training Notebook** | [Colab_GRPO_Training.ipynb](https://colab.research.google.com/drive/184NGSW_BkLQAmOGgDlgEqrArJqBHr-B9?usp=sharing) |
 | 📊 **Training Evidence (plots)** | [plots/](plots/) — reward curve, loss curve, components, summary |
 | 🏋️ **v4 Training Log (raw)** | [train_run_v4.log on HF](https://huggingface.co/jdsb06/lifestack-grpo-v4/blob/main/train_run_v4.log) |
 | 🏋️ **v1 Training Log (raw)** | [train_run_v1.log](train_run_v1.log) |
