@@ -96,13 +96,14 @@ class LifeStackMemory:
         reasoning: str,
         trajectory: list[dict] = None,
         route_outcome: str = None,
-        episode_id: str = None
+        episode_id: str = None,
+        personality_type: str = None
     ) -> None:
         """Stores individual decision for longitudinal tracking."""
-            
+
         text = f"{conflict_title} Action: {action_type} Domain: {target_domain} Reward: {reward:.2f} {reasoning[:100]}"
         embedding = self._embed_text(text)
-        
+
         doc_id = str(uuid.uuid4())
         self.collection.add(
             ids=[doc_id],
@@ -116,6 +117,7 @@ class LifeStackMemory:
                 "reasoning": reasoning,
                 "route_outcome": route_outcome or "",
                 "episode_id": episode_id or "",
+                "personality_type": personality_type or "unknown",
                 "timestamp": datetime.now().isoformat()
             }]
         )
@@ -239,46 +241,75 @@ class LifeStackMemory:
             })
         return output
 
-    def retrieve_similar(self, conflict_title: str, current_metrics: dict, n: int = 3) -> list[dict]:
-        """Retrieves the n most similar past high-reward decisions using semantic search."""
+    def retrieve_similar(self, conflict_title: str, current_metrics: dict, n: int = 3,
+                         personality_type: str = None) -> list[dict]:
+        """Retrieves the n most similar past high-reward decisions using semantic search.
+
+        When personality_type is provided, tries personality-matched results first and
+        fills remaining slots from the global pool so we always return n results.
+        """
         if self.collection.count() == 0:
             return []
 
-        # Build query from conflict title + 3 most stressed metrics (lowest values)
         sorted_metrics = sorted(current_metrics.items(), key=lambda x: x[1])
         top_stressed = " ".join(f"{k}:{v:.0f}" for k, v in sorted_metrics[:3])
         query_text = f"{conflict_title} {top_stressed}"
-
         query_embedding = self._embed_text(query_text)
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(n * 2, self.collection.count()) # Retrieve more to filter for high reward
-        )
 
-        output = []
-        for i, meta in enumerate(results['metadatas'][0]):
-            if meta.get("reward", 0.0) < 0.05: # Filter out negative/zero reward decisions
-                continue
-            if len(output) >= n:
-                break
-            distance = results['distances'][0][i]
-            similarity = round(1.0 / (1.0 + distance), 4)
-            output.append({
-                "route_taken": meta.get("route_taken", ""),
-                "action_type": meta.get("action_type", ""),
-                "target_domain": meta.get("target_domain", ""),
-                "metrics_diff": meta.get("metrics_diff", ""),
-                "reward": meta.get("reward", 0.0),
-                "reasoning": meta.get("reasoning", ""),
-                "episode_id": meta.get("episode_id", ""),
-                "similarity_score": similarity
-            })
+        fetch = min(n * 4, self.collection.count())
 
-        return output
+        def _parse_results(results) -> list[dict]:
+            output = []
+            for i, meta in enumerate(results['metadatas'][0]):
+                if meta.get("reward", 0.0) < 0.05:
+                    continue
+                distance = results['distances'][0][i]
+                output.append({
+                    "route_taken": meta.get("route_taken", ""),
+                    "action_type": meta.get("action_type", ""),
+                    "target_domain": meta.get("target_domain", ""),
+                    "metrics_diff": meta.get("metrics_diff", ""),
+                    "reward": meta.get("reward", 0.0),
+                    "reasoning": meta.get("reasoning", ""),
+                    "episode_id": meta.get("episode_id", ""),
+                    "personality_type": meta.get("personality_type", "unknown"),
+                    "similarity_score": round(1.0 / (1.0 + distance), 4),
+                })
+            return output
 
-    def build_few_shot_prompt(self, conflict_title: str, current_metrics: dict) -> str:
+        # --- personality-matched pass ---
+        matched: list[dict] = []
+        if personality_type and personality_type != "unknown":
+            try:
+                r = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=fetch,
+                    where={"personality_type": {"$eq": personality_type}},
+                )
+                matched = _parse_results(r)[:n]
+            except Exception:
+                pass  # personality filter unsupported or empty — fall through
+
+        # --- global fill-up pass ---
+        if len(matched) < n:
+            r = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=fetch,
+            )
+            seen_episodes = {m["episode_id"] for m in matched}
+            for entry in _parse_results(r):
+                if len(matched) >= n:
+                    break
+                if entry["episode_id"] not in seen_episodes:
+                    matched.append(entry)
+                    seen_episodes.add(entry["episode_id"])
+
+        return matched[:n]
+
+    def build_few_shot_prompt(self, conflict_title: str, current_metrics: dict,
+                              personality_type: str = None) -> str:
         """Formats retrieved memories into a few-shot prompt block for the LLM."""
-        memories = self.retrieve_similar(conflict_title, current_metrics)
+        memories = self.retrieve_similar(conflict_title, current_metrics, personality_type=personality_type)
         if not memories:
             return ""
 
@@ -290,11 +321,12 @@ class LifeStackMemory:
                 fb = self.retrieve_feedback(episode_id)
                 if fb:
                     fb_context = f"\n  HUMAN FEEDBACK: Rated {fb['effectiveness']}/10. Notes: {fb['unexpected_effects']}"
-            
+            p_tag = f" [{m['personality_type']}]" if m.get("personality_type", "unknown") != "unknown" else ""
             short_reason = m['reasoning'][:120]
-            line = f"- Action Taken: [{m['action_type'].upper()}] on {m['target_domain'].upper()}\n  Agent's Initial Reasoning: {short_reason}{fb_context}"
+            line = (f"- Action Taken: [{m['action_type'].upper()}] on {m['target_domain'].upper()}{p_tag}\n"
+                    f"  Agent's Initial Reasoning: {short_reason}{fb_context}")
             lines.append(line)
-            
+
         return "\n".join(lines)
 
     def get_stats(self) -> dict:

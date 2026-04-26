@@ -426,20 +426,20 @@ def perform_action():
     few_shot = ""
     retrieved = []
     if memory_enabled:
-        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
-        retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten())
-        
+        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten(), personality_type=person_label)
+        retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten(), personality_type=person_label)
+
     action = AGENT.get_action(before_metrics, before_budget, conflict, person, few_shot_context=few_shot)
     _normalize_action_metric_changes(action)
-    
-    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost, 
-                                     before_metrics.mental_wellbeing.stress_level)
-    
+
+    uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
+                                      before_metrics.mental_wellbeing.stress_level)
+
     env_action = LifeStackAction.from_agent_action(action)
     env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
-    
+
     obs = env.step(env_action)
-    
+
     episode_id = "".join(str(uuid.uuid4()).split("-")[:2]).upper()
 
     # Store decision in memory for future RAG
@@ -451,6 +451,7 @@ def perform_action():
         metrics_snapshot=before_metrics.flatten(),
         reasoning=action.reasoning,
         episode_id=episode_id,
+        personality_type=person_label,
     )
     
     cf_data = generate_counterfactuals(AGENT, before_metrics, before_budget, conflict, person, action)
@@ -705,7 +706,7 @@ def run_custom():
         few_shot = ""
         if MEMORY:
             try:
-                few_shot = MEMORY.build_few_shot_prompt(conflict.title, m.flatten())
+                few_shot = MEMORY.build_few_shot_prompt(conflict.title, m.flatten(), personality_type=person.name)
             except Exception as e:
                 print(f"⚠️ Memory retrieval failed: {e}")
 
@@ -1264,7 +1265,7 @@ def _run_baseline(conflict, person):
         }
     }
 
-def _run_agent_comparison_side(conflict, person, api_only: bool):
+def _run_agent_comparison_side(conflict, person, api_only: bool, person_label: str = None):
     """Run one side of the comparison: api_only=True → untrained LLM, False → GRPO-trained."""
     env = LifeStackEnv()
     env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
@@ -1274,7 +1275,7 @@ def _run_agent_comparison_side(conflict, person, api_only: bool):
     # RAG: If we are running the trained side (not api_only), fetch memories
     few_shot = ""
     if not api_only:
-        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
+        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten(), personality_type=person_label)
         
     action = AGENT.get_action(before_metrics, before_budget, conflict, person, api_only=api_only, few_shot_context=few_shot)
     _normalize_action_metric_changes(action)
@@ -1307,13 +1308,13 @@ def run_comparison():
 
     # Untrained LLM path — forces Groq API, no GRPO optimization
     try:
-        baseline = _run_agent_comparison_side(conflict, person, api_only=True)
+        baseline = _run_agent_comparison_side(conflict, person, api_only=True, person_label=person_label)
     except Exception as e:
         baseline = {"error": str(e)}
 
     # GRPO-trained agent path — uses local model if available, lazy-loaded
     try:
-        trained = _run_agent_comparison_side(conflict, person, api_only=False)
+        trained = _run_agent_comparison_side(conflict, person, api_only=False, person_label=person_label)
     except Exception as e:
         trained = {"error": str(e)}
 
@@ -1339,8 +1340,8 @@ def memory_compare():
             few_shot = ""
             retrieved = []
             if use_memory:
-                few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten())
-                retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten())
+                few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_metrics.flatten(), personality_type=person_label)
+                retrieved = MEMORY.retrieve_similar(conflict.title, before_metrics.flatten(), personality_type=person_label)
             action = AGENT.get_action(before_metrics, before_budget, conflict, person, few_shot_context=few_shot)
             _normalize_action_metric_changes(action)
             uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
@@ -1355,6 +1356,7 @@ def memory_compare():
                 reward=obs.reward,
                 metrics_snapshot=before_metrics.flatten(),
                 reasoning=action.reasoning,
+                personality_type=person_label,
             )
             return {
                 "metrics": obs.metrics,
@@ -1397,13 +1399,23 @@ def personality_compare():
         env.reset(conflict=conflict.primary_disruption, budget={"time": max((conflict.resource_budget or {}).get("time", 20.0), 4.0), "money": max((conflict.resource_budget or {}).get("money", 500.0), 500.0), "energy": max((conflict.resource_budget or {}).get("energy", 100.0), 20.0)})
         before_m = copy.deepcopy(env.state.current_metrics)
         before_b = copy.deepcopy(env.state.budget)
-        action = AGENT.get_action(before_m, before_b, conflict, person)
+        few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_m.flatten(), personality_type=person_label)
+        action = AGENT.get_action(before_m, before_b, conflict, person, few_shot_context=few_shot)
         _normalize_action_metric_changes(action)
         uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
                                           before_m.mental_wellbeing.stress_level)
         env_action = LifeStackAction.from_agent_action(action)
         env_action.metric_changes = {k: v * uptake for k, v in action.primary.metric_changes.items()}
         obs = env.step(env_action)
+        MEMORY.store_decision(
+            conflict_title=conflict.title,
+            action_type=action.primary.action_type,
+            target_domain=action.primary.target_domain,
+            reward=obs.reward,
+            metrics_snapshot=before_m.flatten(),
+            reasoning=action.reasoning,
+            personality_type=person_label,
+        )
         return {
             "name": person.name,
             "ocean": {
@@ -1485,8 +1497,8 @@ def memory_ablation():
         before_b = copy.deepcopy(env.state.budget)
         few_shot, retrieved = "", []
         if use_memory:
-            few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_m.flatten())
-            retrieved = MEMORY.retrieve_similar(conflict.title, before_m.flatten())
+            few_shot = MEMORY.build_few_shot_prompt(conflict.title, before_m.flatten(), personality_type=person_label)
+            retrieved = MEMORY.retrieve_similar(conflict.title, before_m.flatten(), personality_type=person_label)
         action = AGENT.get_action(before_m, before_b, conflict, person, few_shot_context=few_shot)
         _normalize_action_metric_changes(action)
         uptake = person.respond_to_action(action.primary.action_type, action.primary.resource_cost,
@@ -1496,7 +1508,8 @@ def memory_ablation():
         obs = env.step(env_action)
         MEMORY.store_decision(conflict_title=conflict.title, action_type=action.primary.action_type,
                               target_domain=action.primary.target_domain, reward=obs.reward,
-                              metrics_snapshot=before_m.flatten(), reasoning=action.reasoning)
+                              metrics_snapshot=before_m.flatten(), reasoning=action.reasoning,
+                              personality_type=person_label)
         return {"metrics": obs.metrics, "action": {
             "type": action.primary.action_type, "target": action.primary.target_domain,
             "description": action.primary.description, "reasoning": action.reasoning,
