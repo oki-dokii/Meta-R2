@@ -46,16 +46,109 @@ LifeStack is built around exactly this problem. It is a multi-domain life-manage
 
 ## What Judges Can Explore in the Live Demo
 
-The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on a T4 GPU. Six interactive tabs:
+The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on a T4 GPU with ten interactive tabs.
 
-| Tab | What it demonstrates |
-|-----|---------------------|
-| **Personality Lab** | Pick a Big Five (OCEAN) profile — high conscientiousness + high neuroticism responds differently to the same crisis than low agreeableness + high extraversion. The model adapts its action strategy to personality. |
-| **What-If Lab** | For any crisis, v4 proposes an action then generates 3 counterfactual alternatives (`rest`, `negotiate`, `delegate`). All from the trained model — no Groq fallback. Demonstrates policy diversity. |
-| **Untrained vs GRPO-Trained** | Side-by-side: vanilla Groq 70B vs the v4 GRPO adapter on the same prompt. The trained model picks more targeted, resource-aware actions. |
-| **Model Evolution (v1→v4)** | All 4 model versions loaded simultaneously on the same scenario. Policy shift is visible across training iterations — v2 starts delegating where v1 rests; v4 reasons about resource constraints that v1 ignores. |
-| **Longitudinal Memory** | Personality-aware RAG: each decision is stored with its personality type in ChromaDB. On every request the agent retrieves same-personality precedents first, then fills remaining slots from the global pool. The few-shot context block shows which profile each precedent came from, so Alex's past high-stress decisions surface for Alex before Sam's low-stress ones do. |
-| **Live Simulation** | Real-time cascade animation across the 32-edge dependency graph, with the agent proposing interventions at each step. |
+---
+
+### Tab 1 — Situational Portal (main simulation)
+
+The entry point. Pick a persona (one of several pre-built `SimPerson` profiles) and a life conflict from `data/conflicts.json`, then hit **Start Simulation**.
+
+What happens under the hood: `LifeStackEnv.reset()` seeds the 23 metrics from the conflict's `primary_disruption` via `DependencyGraph.cascade()`. The agent builds a compact training-format prompt (conflict title, 5 key metrics, remaining budget, personality hint, strategy line) and runs it through the v4 LoRA adapter. The resulting JSON action is parsed, normalized, and applied to the environment via `env.step()`.
+
+What you see: a **Domain Risk Heatmap** (6 colour-coded blocks that shift red as metrics drop), a live metric bar chart across all 23 values updating after each step, the agent's chosen action with reasoning and a per-step reward score, and an **AI Risk Prediction** panel showing a 7-step γ=0.9 discounted rollout from the post-action state — the model's own forecast of where the cascade leads if nothing else changes.
+
+A **Context Augmentation (RAG)** toggle injects personality-filtered ChromaDB memories as few-shot context. Toggle it off and back on to see the agent's phrasing shift when it has past precedents to draw from.
+
+---
+
+### Tab 2 — Untrained vs GRPO-Trained
+
+Same conflict, same persona, two inference paths running in parallel: vanilla Groq `llama-3.3-70b-versatile` (no RL, no fine-tuning) on the left; the v4 GRPO adapter on the right.
+
+Both sides run through the same `LifeStackEnv`, apply the same cascade graph, and get scored by the same 10 reward functions. The reward delta badge at the bottom shows the numeric gap.
+
+The pattern that surfaces repeatedly: the untrained LLM picks generic, low-specificity actions (`delegate everything`, `take a break`) with vague resource costs. The trained model names a target domain, specifies resource units, and reasons about cascade risk. This is a direct consequence of GRPO training on the plausibility and reasoning-coherence reward functions.
+
+---
+
+### Tab 3 — Model Evolution (v1 → v4)
+
+All four HuggingFace adapter checkpoints (`lifestack-grpo`, `v2`, `v3`, `v4`) are loaded simultaneously and run against the same free-text scenario you type in.
+
+Each version gets its own card showing action type, target domain, reward score, and raw reasoning. The policy shift across versions is visible: v1 defaults to rest or generic delegation; v2 starts using communicate and negotiate; v3 introduces multi-step reasoning fragments; v4 explicitly names resource costs and cascade effects.
+
+The summary cards above the outputs show the dominant action type per version and the reward score, making the training progression concrete without requiring the reader to dig into logs.
+
+---
+
+### Tab 4 — Memory Effect
+
+A controlled ablation of the RAG layer. Pick a conflict and persona, then click **Run Both Episodes**. The left card runs the agent cold — no memory context, no few-shot injection. The right card runs the same scenario with full ChromaDB retrieval enabled.
+
+The warm run shows the retrieved memories inline: which past decisions were surfaced, their original reward, which personality type they came from (after the personality-aware memory update), and how similar they were to the current situation. You can watch the agent's reasoning change register when it has prior experience to reference.
+
+The reward delta between cold and warm is the live version of the `avg_no_memory: 1.13 → avg_with_memory: 2.45` comparison in `data/before_after_comparison.json`.
+
+---
+
+### Tab 5 — Personality Lab
+
+Two personas face the same crisis side by side. Pick **Persona A** and **Persona B** from the dropdowns (e.g. Alex the high-stress executive vs. Sam the calm pragmatist), choose a conflict, and click **Compare Response**.
+
+Each persona runs through `SimPerson.respond_to_action()` — a Big Five uptake scaling model that modulates how much of the agent's recommended metric change the person actually absorbs. High neuroticism amplifies stress cascades; high conscientiousness increases follow-through on negotiate and prepare actions. The OCEAN scores for each persona are shown in the output card.
+
+Both runs now use personality-filtered RAG: Alex retrieves past decisions tagged with Alex's profile first, Sam gets Sam's. The result is two genuinely divergent action paths from the same underlying crisis — not just different personas receiving the same advice differently, but the agent actively recommending different strategies.
+
+---
+
+### Tab 6 — What-If Lab
+
+After any simulation run, this tab shows the agent's chosen action alongside three counterfactual alternatives generated by forcing specific action types (`rest`, `negotiate`, `delegate`). All four come from the v4 adapter — there is no rule-based fallback.
+
+Each alternative card shows the action description, the projected metric changes, the reward score, and a trade-off summary (e.g. `NEGOTIATE reduces workload but costs 3h time and raises relationship.professional_network by 8`). This is powered by `agent/counterfactuals.py` running the environment forward from the same pre-action state for each forced action type.
+
+The tab demonstrates that the policy has genuine range — v4 can produce meaningfully different plans for the same situation, not just a single memorized response.
+
+---
+
+### Tab 7 — Task Explorer
+
+A read-only browser for all conflict scenarios in `data/conflicts.json` plus the built-in `FlightCrisisTask`. Select a scenario from the dropdown to see its full structure: scenario text, goal, viable routes with action type mappings, milestones with reward weights, resource budget, primary disruption vector, and any scheduled `ExoEvent` objects with their trigger steps.
+
+This is the fastest way to understand what the RL environment actually looks like from the inside — what routes exist, what the success conditions are, and how hard the task is (difficulty rating shown as a badge).
+
+---
+
+### Tab 8 — Analytics
+
+Live session statistics that update as you run episodes across any other tab.
+
+**Training Progression chart** — bar chart comparing eval reward per training run (Base, Run 1–4, v3, v4) against the untrained baseline (dashed line). The numbers are hardcoded from actual training logs.
+
+**Base Model Per-Domain Reward chart** — radar/bar showing where the raw Qwen2.5-1.5B fails most. mental_wellbeing (−0.25), physical_health (−0.17), and career (−0.14) are the worst domains — the ones where the base model actively made things worse.
+
+**Key Findings cards** — four callout boxes covering the fix that mattered (greedy regex extraction → +85.7%), the honest limitation (v1 plateau at difficulty 1), the new capability (multi-step episode return), and v4's peak 0.856 reward.
+
+**Live Session Reward chart** — rolling line chart of reward scores from your current session's episodes. Memory & Agent Stats shows total ChromaDB memories, memory precedents, session average reward, and top action type.
+
+---
+
+### Tab 9 — System Map
+
+An interactive vis-network graph of the 32-edge `DependencyGraph`. Each of the 23 metrics is a node; edges are weighted and colour-coded (green = positive influence, red = negative drag). Edge thickness scales with weight magnitude.
+
+Click any node to highlight its first-order neighbours. The engine note below the graph explains the cascade mechanics: a 10-point workload spike triggers the `career.workload → mental_wellbeing.stress_level (0.70)` edge, which then fires `stress → sleep_quality (−0.55)` and `stress → motivation (−0.40)`, attenuated 40% per hop by the 0.6 dampening factor.
+
+**Recenter Map** and **Freeze Nodes** controls in the bottom-left allow repositioning the layout. The graph is fetched live from `/api/simulation/graph` so it reflects the actual in-memory `DependencyGraph` object.
+
+---
+
+### Tab 10 — Verification (Outcome Signal)
+
+A human-in-the-loop feedback form. After running an episode you can submit the real-world outcome by entering the episode trace ID (shown on every action card), rating actual effectiveness 0–10, logging actual hours spent, and noting any unexpected deviations from the plan.
+
+Submitted feedback is stored in the ChromaDB `feedback_collection` and retrieved by `reward_human_feedback_fn` during future training runs — closing the reinforcement loop with real outcome data rather than simulated reward. The `OutcomeFeedback` object written here is the same type consumed by `compute_human_feedback_reward()` in `core/feedback.py`.
 
 ---
 
