@@ -141,7 +141,13 @@ def _format_grpo_card(scenario: str, version: str) -> str:
                 f"<pre class='text-[10px] text-slate-300 whitespace-pre-wrap max-h-48 overflow-auto'>{html.escape(raw[:700])}</pre>"
                 "</div>"
             )
-        data = json.loads(match.group())
+        # Repair common model JSON quirks before parsing
+        raw_json = match.group()
+        raw_json = re.sub(r'(?<=:)\s*\+(\d)', r' \1', raw_json)  # +5 → 5
+        raw_json = re.sub(r'\bNaN\b', '0', raw_json)
+        raw_json = re.sub(r'\bdelta\b', '0', raw_json)
+        raw_json = re.sub(r',\s*([}\]])', r'\1', raw_json)         # trailing commas
+        data = json.loads(raw_json)
         cost = data.get("resource_cost", {}) or {}
         trailing = len(raw) - (match.start() + len(match.group()))
         eos_badge = (
@@ -150,8 +156,18 @@ def _format_grpo_card(scenario: str, version: str) -> str:
             else f"<span class='text-[10px] rounded bg-red-500/15 text-red-300 px-2 py-1'>+{trailing} trailing chars</span>"
         )
         pretty = html.escape(json.dumps(data, indent=2))
-        action = html.escape(str(data.get("action_type", "?")).upper())
-        domain = html.escape(str(data.get("target_domain", "?")))
+        # Normalise action_type
+        _valid_actions = {"negotiate","communicate","delegate","spend","reschedule","rest","deprioritize","execute","prepare","self_care"}
+        _action_map = {"delegatetask":"delegate","exercisetask":"rest","exercise":"rest","workout":"rest","plan":"prepare","save":"deprioritize","talk":"communicate","call":"communicate"}
+        at = str(data.get("action_type","execute")).lower().strip()
+        at = _action_map.get(at, at) if at not in _valid_actions else at
+        action = html.escape(at.upper())
+        # Normalise target_domain
+        _valid_domains = {"career","finances","relationships","physical_health","mental_wellbeing","time"}
+        _domain_map = {"academic":"career","financials":"finances","finance":"finances","money":"finances","health":"physical_health","physical":"physical_health","mental":"mental_wellbeing","wellbeing":"mental_wellbeing","mental_health":"mental_wellbeing","social":"relationships","work":"career","job":"career"}
+        d = str(data.get("target_domain","mental_wellbeing")).lower().strip()
+        d = _domain_map.get(d, d) if d not in _valid_domains else d
+        domain = html.escape(d)
         reasoning = html.escape(str(data.get("reasoning", ""))[:260])
         return f"""
         <div class="rounded-xl border border-slate-700 bg-slate-950/60 p-4 h-full">
