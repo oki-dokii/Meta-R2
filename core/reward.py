@@ -332,7 +332,7 @@ def compute_task_reward(
 
 VALID_ACTION_TYPES = frozenset({
     "negotiate", "communicate", "delegate", "spend",
-    "reschedule", "rest", "deprioritize", "execute",
+    "reschedule", "rest", "deprioritize", "execute", "prepare", "self_care"
 })
 
 VALID_DOMAINS = frozenset({
@@ -446,6 +446,8 @@ def reward_reasoning_coherence(reasoning: str, action_type: str = "") -> float:
         "deprioritize": ["later", "postpone", "unimportant", "drop"],
         "reschedule": ["reschedule", "delay", "postpone", "move", "time", "calendar", "slot"],
         "execute": ["route", "plan", "action", "implement", "complete", "resolve", "execute"],
+        "prepare": ["plan", "study", "prep", "review", "outline", "organize"],
+        "self_care": ["therapy", "meditate", "walk", "relax", "breathe", "routine", "stability"]
     }
     
     if action_type and action_type in action_keywords:

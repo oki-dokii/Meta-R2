@@ -172,11 +172,11 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     _VALID_ACTION_TYPES = {
         "negotiate", "communicate", "delegate", "spend",
         "reschedule", "rest", "deprioritize", "execute",
+        "prepare", "self_care"
     }
     # Map out-of-vocab types the model sometimes generates to the nearest valid one.
     _ACTION_TYPE_MAP = {
-        "prepare":     "execute",
-        "plan":        "execute",
+        "plan":        "prepare",
         "work":        "execute",
         "study":       "execute",
         "exercise":    "rest",
