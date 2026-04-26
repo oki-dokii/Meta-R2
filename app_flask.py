@@ -55,6 +55,7 @@ MODEL_REGISTRY = {
     "v1": os.environ.get("LIFESTACK_MODEL_V1", "jdsb06/lifestack-grpo-v1"),
     "v2": os.environ.get("LIFESTACK_MODEL_V2", "jdsb06/lifestack-grpo-v2"),
     "v3": os.environ.get("LIFESTACK_MODEL_V3", "jdsb06/lifestack-grpo-v3"),
+    "v4": os.environ.get("LIFESTACK_MODEL_V4", "jdsb06/lifestack-grpo-v4"),
 }
 _GRPO_CACHE: dict = {}
 
@@ -287,7 +288,7 @@ def index():
 
 @app.route('/api/model-evolution/run', methods=['POST'])
 def run_model_evolution():
-    """Compare v1/v2/v3 GRPO adapters on the same user-provided scenario."""
+    """Compare v1/v2/v3/v4 GRPO adapters on the same user-provided scenario."""
     data = request.json or {}
     scenario = (data.get("scenario") or "").strip()
     if len(scenario) < 12:
@@ -298,6 +299,7 @@ def run_model_evolution():
             "v1": _format_grpo_card(scenario, "v1"),
             "v2": _format_grpo_card(scenario, "v2"),
             "v3": _format_grpo_card(scenario, "v3"),
+            "v4": _format_grpo_card(scenario, "v4"),
         }
     })
 
@@ -1058,6 +1060,7 @@ def get_model_stats():
             {"label": "Run 3",         "reward": -0.010, "note": "Greedy regex fix — +85.7% vs baseline"},
             {"label": "Run 4 (v1)",    "reward": -0.100, "note": "5-stage curriculum — consistent but plateau"},
             {"label": "v3 (ep return)","reward":  0.140, "note": "Episodic multi-step — new capability"},
+            {"label": "v4 (ep return)","reward":  0.856, "note": "Episodic curriculum · difficulty 1→2→3 · first natural EOS"},
         ],
         "key_metrics": {
             "baseline_reward":             -0.07,
@@ -1066,6 +1069,10 @@ def get_model_stats():
             "v3_episode_return":            0.140,
             "v3_format_score":              0.629,
             "v3_zero_grad_pct":             0,
+            "v4_peak_reward":               0.856,
+            "v4_format_score":              0.660,
+            "v4_episode_return":            0.140,
+            "v4_natural_eos":               True,
             "v1_non_failing_episodes":     "45/50",
             "trainable_params_pct":         1.18,
         },

@@ -34,7 +34,7 @@
                 <p class="text-slate-400 text-sm">Meta × HuggingFace OpenEnv Hackathon Finale</p>
             </div>
             <div class="hidden md:block text-right">
-                <span class="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-bold border border-indigo-500/20">PRODUCTION HARDENED v3.0</span>
+                <span class="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-bold border border-indigo-500/20">PRODUCTION HARDENED v4.0</span>
             </div>
         </header>
 
@@ -242,9 +242,9 @@
                 <div class="flex flex-col lg:flex-row lg:items-end gap-6 mb-8">
                     <div class="flex-1">
                         <div class="text-[10px] uppercase tracking-[0.3em] text-violet-400 font-black mb-2">Training Journey</div>
-                        <h2 class="text-3xl font-black tracking-tight mb-2">v1 → v2 → v3 GRPO Evolution</h2>
+                        <h2 class="text-3xl font-black tracking-tight mb-2">v1 → v2 → v3 → v4 GRPO Evolution</h2>
                         <p class="text-sm text-slate-400 max-w-3xl">
-                            Compare the three pushed HuggingFace adapters on the same crisis prompt. This is the live deployed
+                            Compare all four pushed HuggingFace adapters on the same crisis prompt. This is the live deployed
                             Flask/Docker path, not the local Gradio app.
                         </p>
                     </div>
@@ -253,7 +253,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                     <div class="rounded-2xl border border-blue-500/30 bg-slate-950/50 p-5">
                         <div class="text-blue-300 font-black mb-1">v1 — Single-step Curriculum</div>
                         <p class="text-xs text-slate-500 mb-4">Format + route-target rewards.</p>
@@ -273,7 +273,7 @@
                         </div>
                     </div>
                     <div class="rounded-2xl border border-violet-500/30 bg-slate-950/50 p-5">
-                        <div class="text-violet-300 font-black mb-1">v3 — Episodic Multi-step <span class="text-[9px] rounded bg-violet-500/20 px-2 py-1">TRAINED</span></div>
+                        <div class="text-violet-300 font-black mb-1">v3 — Episodic Multi-step</div>
                         <p class="text-xs text-slate-500 mb-4">3-action episode sequences · difficulty 1→2→3 curriculum · 135 steps.</p>
                         <div class="space-y-2 text-xs">
                             <div class="flex justify-between"><span class="text-slate-500">Episode return</span><b class="text-emerald-300">+0.140</b></div>
@@ -282,16 +282,26 @@
                             <div class="flex justify-between"><span class="text-slate-500">Zero-grad groups</span><b class="text-emerald-300">0%</b></div>
                         </div>
                     </div>
+                    <div class="rounded-2xl border border-amber-500/30 bg-slate-950/50 p-5">
+                        <div class="text-amber-300 font-black mb-1">v4 — Episodic Curriculum <span class="text-[9px] rounded bg-amber-500/20 px-2 py-1">NEW</span></div>
+                        <p class="text-xs text-slate-500 mb-4">Difficulty 1→2→3 · horizon=3 · first natural EOS terminations.</p>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between"><span class="text-slate-500">Peak reward</span><b class="text-emerald-300">0.856</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Format score</span><b class="text-emerald-300">0.660</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Episode return</span><b class="text-amber-300">~0.140</b></div>
+                            <div class="flex justify-between"><span class="text-slate-500">Natural EOS</span><b class="text-emerald-300">First</b></div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 mb-6">
                     <label class="block text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Life Scenario</label>
                     <textarea id="evo-scenario" class="w-full h-28 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-200 outline-none focus:border-violet-500" placeholder="Example: I have a product deadline tonight, my partner is upset that I missed dinner, and I am exhausted after three days of poor sleep."></textarea>
-                    <button onclick="runModelEvolution()" id="evo-btn" class="mt-4 rounded-xl bg-violet-600 px-6 py-3 text-sm font-bold hover:bg-violet-500 transition">🔬 Compare v1 vs v2 vs v3</button>
+                    <button onclick="runModelEvolution()" id="evo-btn" class="mt-4 rounded-xl bg-violet-600 px-6 py-3 text-sm font-bold hover:bg-violet-500 transition">Compare v1 vs v2 vs v3 vs v4</button>
                     <div id="evo-status" class="mt-3 text-xs text-slate-500"></div>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div>
                         <div class="text-xs font-black text-blue-300 mb-2">v1 Output</div>
                         <div id="evo-v1" class="min-h-[180px] rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">Run comparison to load model output.</div>
@@ -303,6 +313,10 @@
                     <div>
                         <div class="text-xs font-black text-violet-300 mb-2">v3 Output</div>
                         <div id="evo-v3" class="min-h-[180px] rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">Run comparison to load model output.</div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-black text-amber-300 mb-2">v4 Output</div>
+                        <div id="evo-v4" class="min-h-[180px] rounded-xl border border-slate-800 bg-slate-950/30 p-4 text-xs text-slate-500">Run comparison to load model output.</div>
                     </div>
                 </div>
             </div>
@@ -568,19 +582,19 @@
                     <div class="text-[9px] text-slate-500 mt-1">Run 3 vs Base Model</div>
                 </div>
                 <div class="glass p-5 rounded-2xl text-center border border-violet-500/20 bg-violet-500/5">
-                    <div class="text-[9px] uppercase font-black text-violet-400 mb-1 tracking-widest">v3 Episode Return</div>
-                    <div class="text-4xl font-black text-violet-300">+0.140</div>
-                    <div class="text-[9px] text-slate-500 mt-1">Multi-step · γ=0.9 discounted</div>
+                    <div class="text-[9px] uppercase font-black text-violet-400 mb-1 tracking-widest">v4 Peak Reward</div>
+                    <div class="text-4xl font-black text-violet-300">0.856</div>
+                    <div class="text-[9px] text-slate-500 mt-1">Best epoch · Stage 3 · Natural EOS</div>
                 </div>
                 <div class="glass p-5 rounded-2xl text-center border border-indigo-500/20 bg-indigo-500/5">
-                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1 tracking-widest">v3 Format Score</div>
-                    <div class="text-4xl font-black text-indigo-300">0.629</div>
+                    <div class="text-[9px] uppercase font-black text-indigo-400 mb-1 tracking-widest">v4 Format Score</div>
+                    <div class="text-4xl font-black text-indigo-300">0.660</div>
                     <div class="text-[9px] text-slate-500 mt-1">JSON validity + schema</div>
                 </div>
                 <div class="glass p-5 rounded-2xl text-center border border-amber-500/20 bg-amber-500/5">
                     <div class="text-[9px] uppercase font-black text-amber-400 mb-1 tracking-widest">Zero-Grad Groups</div>
                     <div class="text-4xl font-black text-amber-300">0%</div>
-                    <div class="text-[9px] text-slate-500 mt-1">Real gradient throughout v3</div>
+                    <div class="text-[9px] text-slate-500 mt-1">Real gradient throughout v3/v4</div>
                 </div>
             </div>
 
@@ -959,6 +973,7 @@
                 'Run 3':          '#22c55e',
                 'Run 4 (v1)':     '#818cf8',
                 'v3 (ep return)': '#a78bfa',
+                'v4 (ep return)': '#f59e0b',
             };
             const baseReward = runs.find(r => r.label === 'Base Model')?.reward ?? -0.07;
 
@@ -1543,7 +1558,7 @@
 
         async function submitFeedback(e) { e.preventDefault(); const formData = new FormData(e.target); const res = await fetch('/api/feedback/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(formData.entries())) }); document.getElementById('fb-status').innerText = "✅ Outcome Broadcasted to ChromaDB!"; e.target.reset(); }
 
-        // ── Model Evolution: v1 vs v2 vs v3 HF adapters ──
+        // ── Model Evolution: v1 vs v2 vs v3 vs v4 HF adapters ──
         async function runModelEvolution() {
             const scenario = document.getElementById('evo-scenario').value.trim();
             const btn = document.getElementById('evo-btn');
@@ -1555,10 +1570,10 @@
             }
 
             btn.disabled = true;
-            btn.innerText = "⏳ Loading HF adapters...";
+            btn.innerText = "Loading HF adapters...";
             status.className = "mt-3 text-xs text-slate-500";
             status.innerText = "First run may take time while models download from HuggingFace Hub.";
-            ['v1', 'v2', 'v3'].forEach(v => {
+            ['v1', 'v2', 'v3', 'v4'].forEach(v => {
                 document.getElementById(`evo-${v}`).innerHTML = "<div class='animate-pulse text-slate-500'>Generating...</div>";
             });
 
@@ -1573,18 +1588,19 @@
                 document.getElementById('evo-v1').innerHTML = data.cards.v1;
                 document.getElementById('evo-v2').innerHTML = data.cards.v2;
                 document.getElementById('evo-v3').innerHTML = data.cards.v3;
+                document.getElementById('evo-v4').innerHTML = data.cards.v4;
                 status.innerText = "Comparison complete. Models are cached for faster reruns.";
             } catch (err) {
                 const msg = String(err.message || err);
                 status.className = "mt-3 text-xs text-red-300";
                 status.innerText = `Model comparison failed: ${msg}`;
-                ['v1', 'v2', 'v3'].forEach(v => {
+                ['v1', 'v2', 'v3', 'v4'].forEach(v => {
                     document.getElementById(`evo-${v}`).innerHTML =
                         `<div class='rounded-xl border border-red-500/40 bg-red-950/20 p-4 text-red-300 text-xs'>${msg}</div>`;
                 });
             } finally {
                 btn.disabled = false;
-                btn.innerText = "🔬 Compare v1 vs v2 vs v3";
+                btn.innerText = "Compare v1 vs v2 vs v3 vs v4";
             }
         }
 
