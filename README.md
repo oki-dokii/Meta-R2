@@ -342,6 +342,42 @@ print(action)
 
 ---
 
+## Training Evidence
+
+> **Hackathon requirement:** working training script + evidence of real training runs.
+
+| Artifact | Link |
+|----------|------|
+| Re-runnable Colab training notebook | [`notebooks/Colab_GRPO_Training.ipynb`](notebooks/Colab_GRPO_Training.ipynb) |
+| Plot-generation notebook (v4 log → charts) | [`notebooks/Training_Evidence.ipynb`](notebooks/Training_Evidence.ipynb) |
+| Reward curve (v4 real run) | [`plots/reward_curve.png`](plots/reward_curve.png) |
+| Loss curve (v4 real run) | [`plots/loss_curve.png`](plots/loss_curve.png) |
+| Per-function reward components (v4) | [`plots/reward_components.png`](plots/reward_components.png) |
+| 4-panel training summary (v4) | [`plots/training_summary.png`](plots/training_summary.png) |
+| Cross-version comparison (Base → v4) | [`plots/model_progression_v1_to_v4.png`](plots/model_progression_v1_to_v4.png) |
+| Detailed numbers for every run | [`docs/model_comparison_v4.md`](docs/model_comparison_v4.md) |
+| All plots also on HuggingFace | [jdsb06/lifestack-grpo-v4/plots](https://huggingface.co/jdsb06/lifestack-grpo-v4/tree/main/plots) |
+
+### v4 Key Training Metrics (final run, Stage 3)
+
+| Metric | Value |
+|--------|-------|
+| Peak GRPO reward | **0.856** |
+| Format reward (peak) | **+0.660** |
+| Episode return (avg) | **+0.140** |
+| Natural EOS terminations | **First appeared** (model self-terminating after JSON) |
+| Training time | ~2 hrs (3 stages × ~39 min on A100 80GB) |
+
+### v4 Training Summary (real run — generated from train_run_v4.log)
+
+![4-panel training summary](plots/training_summary.png)
+
+### Model Progression (Base → v4)
+
+![Cross-version comparison](plots/model_progression_v1_to_v4.png)
+
+---
+
 ## Training (T4 / Colab)
 
 Pinned stack: **Unsloth 2026.4.8**, **TRL 0.15.1**, **Transformers 5.5.0**, **Torch 2.10+cu128**
