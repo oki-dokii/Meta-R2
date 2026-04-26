@@ -11,7 +11,7 @@ from agent.conflict_generator import ConflictEvent, generate_conflict
 from core.action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
 from intake.simperson import SimPerson
 
-DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v4"   # Force latest v4 trained GRPO adapter
+DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v4"
 
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
@@ -62,13 +62,13 @@ class LifeStackAgent:
             peft_config = PeftConfig.from_pretrained(self.local_model_path)
             base_model_name = peft_config.base_model_name_or_path
 
-            self.tokenizer = AutoTokenizer.from_pretrained("jdsb06/lifestack-grpo-v4")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
                 torch_dtype=dtype,
                 device_map=device_map,
             )
-            self.local_model = PeftModel.from_pretrained(base_model, "jdsb06/lifestack-grpo-v4")
+            self.local_model = PeftModel.from_pretrained(base_model, self.local_model_path)
             self.local_model.eval()
             # Clear max_length from the model's default generation config so that
             # our explicit max_new_tokens= doesn't trigger a "both are set" warning.
@@ -133,6 +133,39 @@ VALID target_domain values: career, finances, relationships, physical_health, me
 STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prepare' for exams/deadlines. Use 'self_care' for emotional stability. Use 'rest' ONLY if energy < 30. Avoid generic advice.
 """
         return prompt
+
+    def _build_local_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent,
+                            forced_type: str = None) -> str:
+        """Compact prompt matching the GRPO training distribution in train_trl.py."""
+        flat = metrics.flatten()
+        priority = [
+            "career.workload", "finances.liquidity", "relationships.romantic",
+            "physical_health.energy", "mental_wellbeing.stress_level",
+            "time.free_hours_per_week", "time.commute_burden",
+        ]
+        key_metrics = [k for k in priority if k in flat][:5]
+        for k in flat:
+            if k not in key_metrics:
+                key_metrics.append(k)
+            if len(key_metrics) >= 5:
+                break
+        metrics_str = "\n".join(f"- {k}: {flat[k]:.1f}" for k in key_metrics[:5])
+        type_constraint = ""
+        if forced_type:
+            type_constraint = f'\nYou MUST use action_type="{forced_type}".'
+        return (
+            "You are LifeStack. Return ONLY compact JSON.\n"
+            f"Task: {conflict.title}\n"
+            f"Story: {conflict.story[:160]}\n"
+            f"Key metrics:\n{metrics_str}\n"
+            f"Budget: time={budget.time_hours:.1f}, money={budget.money_dollars:.1f}, energy={budget.energy_units:.1f}\n"
+            f"Required keys: action_type, target_domain, metric_changes, resource_cost, reasoning.{type_constraint}\n"
+            '{"action_type":"negotiate|communicate|delegate|spend|reschedule|rest|deprioritize|execute",'
+            '"target_domain":"career|finances|relationships|physical_health|mental_wellbeing|time",'
+            '"metric_changes":{"domain.submetric":delta},'
+            '"resource_cost":{"time":0,"money":0,"energy":0},'
+            '"reasoning":"brief explanation"}'
+        )
 
     # ── JSON extraction with multi-stage repair ───────────────────────────────
 
@@ -216,16 +249,17 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     # ── Backend inference dispatcher ──────────────────────────────────────────
 
     def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False,
-                       trained_model_only: bool = False, max_new_tokens: int = 192) -> str | None:
+                       trained_model_only: bool = False, max_new_tokens: int = 192,
+                       local_prompt: str = None) -> str | None:
         """
         Call the best available backend and return raw text.
 
         Priority order:
-          1. Local GRPO adapter weights (loaded at startup in background thread)
+          1. Local GRPO adapter weights — uses local_prompt (training-format) if provided
           2. Groq 70B (general-purpose fallback — skipped when trained_model_only=True)
 
-        trained_model_only=True is used for counterfactual generation so that
-        the What-If Lab always reflects the trained model's policy, never Groq.
+        local_prompt: compact prompt matching GRPO training distribution; if None, falls back to prompt.
+        trained_model_only=True blocks Groq fallback for counterfactual generation.
         """
         import torch
         content = None
@@ -233,7 +267,9 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         # 1. Local GRPO adapter weights (dev machine / local GPU)
         if self.local_model and not force_api:
             self._last_model_name = self.local_model_path
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.local_model.device)
+            # Use training-format prompt for local model to match distribution
+            model_input = local_prompt if local_prompt else prompt
+            inputs = self.tokenizer(model_input, return_tensors="pt").to(self.local_model.device)
             with torch.no_grad():
                 outputs = self.local_model.generate(
                     **inputs,
@@ -242,9 +278,12 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                     do_sample=True,
                     pad_token_id=self.tokenizer.pad_token_id,
                 )
-            content = self.tokenizer.decode(
-                outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
-            ).strip()
+            new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+            content = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+            print(f"[inference] local model generated {len(new_tokens)} tokens, decoded len={len(content)}")
+            if not content:
+                print("[inference] local model returned empty — falling through to Groq if allowed")
+                content = None  # allow Groq fallback path below
 
         # 2. Groq 70B — general fallback only (never used for counterfactuals)
         # Note: HF Serverless removed — it doesn't support LoRA adapters;
@@ -297,20 +336,14 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
             self._try_load_model()
 
         base_prompt = self.build_prompt(metrics, budget, conflict, person)
+        # Compact training-format prompt for local model, with forced type constraint
+        local_cfact_prompt = None if force_api else self._build_local_prompt(
+            metrics, budget, conflict, forced_type=forced_type)
 
-        # Ask v3 in its native episode format: one action, forced type
-        episode_prompt = (
-            base_prompt
-            + f'\n\nEpisode objective: return a compact JSON object with an actions list.\n'
-            + f'Plan exactly 1 action. The action_type MUST be "{forced_type}".\n'
-            + f'Schema: {{"actions":[{{"action_type":"{forced_type}","target_domain":"<domain>",'
-            + '"metric_changes":{"domain.submetric":0},"resource_cost":{"time":0,"money":0,"energy":0},'
-            + '"reasoning":"brief","description":"one sentence"}}]}}'
-        )
-
-        # Try trained model first (HF v3 via InferenceClient or local weights)
-        raw = self._run_inference(episode_prompt, temperature=0.4, force_api=force_api,
-                                  trained_model_only=False, max_new_tokens=192)
+        # Try trained model first using the compact training-format prompt
+        raw = self._run_inference(base_prompt, temperature=0.4, force_api=force_api,
+                                  trained_model_only=False, max_new_tokens=192,
+                                  local_prompt=local_cfact_prompt)
 
         # Try to extract first action from episode {"actions":[...]} format
         if raw:
@@ -367,21 +400,24 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
             return self._fallback_action("Error: No model configured (set GROQ_API_KEY, HF_TOKEN, or LIFESTACK_MODEL_PATH).")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
+        local_prompt = None if force_api else self._build_local_prompt(metrics, budget, conflict)
         effective_timeout = 25 if force_api else timeout
         # Agent's Choice must always come from the trained model — never Groq.
         return self._get_action_from_prompt(prompt, force_api=force_api, timeout=effective_timeout,
-                                            trained_model_only=not force_api)
+                                            trained_model_only=not force_api, local_prompt=local_prompt)
 
     # ── Core inference + parse loop ───────────────────────────────────────────
 
     def _get_action_from_prompt(self, prompt: str, fallback_type: str = "rest", force_api: bool = False,
-                                timeout: int = 55, trained_model_only: bool = False) -> "AgentAction":
+                                timeout: int = 55, trained_model_only: bool = False,
+                                local_prompt: str = None) -> "AgentAction":
         result_box = [None]
 
         def _call():
             try:
                 content = self._run_inference(prompt, temperature=0.3, force_api=force_api,
-                                              trained_model_only=trained_model_only, max_new_tokens=192)
+                                              trained_model_only=trained_model_only, max_new_tokens=192,
+                                              local_prompt=local_prompt)
                 if not content:
                     result_box[0] = self._fallback_action("No content returned.", fallback_type)
                     return
@@ -395,9 +431,11 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                     except (json.JSONDecodeError, ValueError) as parse_err:
                         if parse_attempt == 0:
                             print(f"JSON parse attempt 1 failed ({parse_err}). Retrying with strict prompt...")
+                            retry_local = (local_prompt + "\n\nRETURN ONLY VALID COMPACT JSON.") if local_prompt else None
                             retry_prompt = prompt + "\n\nRETURN ONLY VALID COMPACT JSON. NO PROSE. NO MARKDOWN. NO TRAILING COMMAS."
                             retry_content = self._run_inference(retry_prompt, temperature=0.1, force_api=force_api,
-                                                                trained_model_only=trained_model_only, max_new_tokens=192)
+                                                                trained_model_only=trained_model_only, max_new_tokens=192,
+                                                                local_prompt=retry_local)
                             if retry_content:
                                 content = retry_content
                         else:
