@@ -135,7 +135,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         return prompt
 
     def _build_local_prompt(self, metrics: LifeMetrics, budget: ResourceBudget, conflict: ConflictEvent,
-                            forced_type: str = None) -> str:
+                            forced_type: str = None, person: "SimPerson" = None) -> str:
         """Compact prompt matching the GRPO training distribution in train_trl.py."""
         flat = metrics.flatten()
         priority = [
@@ -153,10 +153,15 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         type_constraint = ""
         if forced_type:
             type_constraint = f'\nYou MUST use action_type="{forced_type}".'
+        persona_line = ""
+        if person:
+            hint = person.get_personality_hint()
+            persona_line = f"Person: {hint}\n"
         return (
             "You are LifeStack. Return ONLY compact JSON.\n"
             f"Task: {conflict.title}\n"
             f"Story: {conflict.story[:160]}\n"
+            f"{persona_line}"
             f"Key metrics:\n{metrics_str}\n"
             f"Budget: time={budget.time_hours:.1f}, money={budget.money_dollars:.1f}, energy={budget.energy_units:.1f}\n"
             f"Required keys: action_type, target_domain, metric_changes, resource_cost, reasoning.{type_constraint}\n"
@@ -372,7 +377,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         base_prompt = self.build_prompt(metrics, budget, conflict, person)
         # Compact training-format prompt for local model, with forced type constraint
         local_cfact_prompt = None if force_api else self._build_local_prompt(
-            metrics, budget, conflict, forced_type=forced_type)
+            metrics, budget, conflict, forced_type=forced_type, person=person)
 
         # Try trained model first using the compact training-format prompt
         raw = self._run_inference(base_prompt, temperature=0.4, force_api=force_api,
@@ -434,7 +439,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
             return self._fallback_action("Error: No model configured (set GROQ_API_KEY, HF_TOKEN, or LIFESTACK_MODEL_PATH).")
 
         prompt = self.build_prompt(metrics, budget, conflict, person, few_shot_context)
-        local_prompt = None if force_api else self._build_local_prompt(metrics, budget, conflict)
+        local_prompt = None if force_api else self._build_local_prompt(metrics, budget, conflict, person=person)
         effective_timeout = 25 if force_api else timeout
         # Agent's Choice must always come from the trained model — never Groq.
         return self._get_action_from_prompt(prompt, force_api=force_api, timeout=effective_timeout,
