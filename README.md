@@ -38,7 +38,24 @@ tags:
 
 ---
 
-LifeStack is a multi-domain life-management reinforcement learning environment built on OpenEnv 0.2.3. It models a human life as a system of 23 interdependent metrics across 6 life domains, where every action you take cascades through a 32-edge directed dependency graph with consequences you often cannot predict. We trained `Qwen2.5-1.5B-Instruct` on this environment using GRPO (Group Relative Policy Optimization) via a 5-stage single-step curriculum followed by episodic fine-tuning, producing a model that allocates time, money, and energy across competing life priorities without collapsing any domain below crisis threshold.
+It's Friday 6PM. Your flight got cancelled. Your card got declined trying to rebook. Slack notification: your boss moved Monday's deadline to Sunday. You have $200 in cash, five hours of usable energy, and four people expecting you in different places. You ask an AI for help. It books the flight — but the only affordable option has a 12-hour layover. It drafts a message to your boss — but the tone triggers a "clarification" meeting that eats more time. Every solution applied in isolation opens a new wound somewhere else.
+
+LifeStack is built around exactly this problem. It is a multi-domain life-management reinforcement learning environment on OpenEnv 0.2.3, modelling a human life as a system of 23 interdependent metrics across 6 life domains, where every action cascades through a 32-edge directed dependency graph with consequences you often cannot predict. We trained `Qwen2.5-1.5B-Instruct` on this environment using GRPO (Group Relative Policy Optimization) — a 5-stage single-step curriculum followed by episodic multi-step fine-tuning — producing a model that allocates time, money, and energy across competing life priorities without collapsing any domain below crisis threshold.
+
+---
+
+## What Judges Can Explore in the Live Demo
+
+The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on a T4 GPU. Six interactive tabs:
+
+| Tab | What it demonstrates |
+|-----|---------------------|
+| **Personality Lab** | Pick a Big Five (OCEAN) profile — high conscientiousness + high neuroticism responds differently to the same crisis than low agreeableness + high extraversion. The model adapts its action strategy to personality. |
+| **What-If Lab** | For any crisis, v4 proposes an action then generates 3 counterfactual alternatives (`rest`, `negotiate`, `delegate`). All from the trained model — no Groq fallback. Demonstrates policy diversity. |
+| **Untrained vs GRPO-Trained** | Side-by-side: vanilla Groq 70B vs the v4 GRPO adapter on the same prompt. The trained model picks more targeted, resource-aware actions. |
+| **Model Evolution (v1→v4)** | All 4 model versions loaded simultaneously on the same scenario. Policy shift is visible across training iterations — v2 starts delegating where v1 rests; v4 reasons about resource constraints that v1 ignores. |
+| **Longitudinal Memory** | ChromaDB retrieves past successful trajectories for the same personality type. After enough interactions, the agent references its own history: *"Last time you cancelled plans without warning, it took 4 days to recover."* |
+| **Live Simulation** | Real-time cascade animation across the 40-edge dependency graph, with the agent proposing interventions at each step. |
 
 ---
 

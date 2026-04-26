@@ -88,6 +88,44 @@ The shift is meaningful because `delegate` and `communicate` interact differentl
 
 ---
 
+## Training progression — what actually improved
+
+Before any fine-tuning, we evaluated the raw `Qwen2.5-1.5B-Instruct` base model on 50 deterministic episodes. Mean reward: **−0.07**. The three worst domains — mental_wellbeing (−0.25), physical_health (−0.17), career (−0.14) — were ones where the base model actively recommended wrong actions that made things worse.
+
+| Run | What changed | Eval reward | vs baseline |
+|-----|-------------|------------|-------------|
+| Base (no LoRA) | — | −0.07 | — |
+| Run 1 | — (JSON parser broken, clipped_ratio=1.0) | −0.47 | **−571%** |
+| Run 2 | Shorter completions | −0.41 | −486% |
+| **Run 3** | **Greedy regex extraction** | **−0.010** | **+85.7%** |
+| Run 4 → v1 | 5-stage curriculum | −0.100 | −42.9% |
+| v3 episodic | Horizon=3, EOS-aware | +0.140 ep. return | new capability |
+| **v4 episodic** | Dead weight removed, ep. return ×2 | **0.856 peak** | new capability |
+
+Run 1 and 2 failed because of the JSON trailing-prose bug described above. Run 3 fixed it with one line. Run 4 (v1) was more consistent but didn't outperform Run 3 on mean reward — the curriculum plateaued at difficulty 1 because the advance threshold (reward ≥ 0.6) was never reached. v3 and v4 are not directly comparable to the baseline because they measure episode return across 3-step sequences; the correct framing is that they add a capability (multi-step planning) that the baseline does not have at all.
+
+`frac_zero_std = 0%` throughout v4 training means every GRPO group had real reward variance at every step — real gradient, real learning.
+
+---
+
+## What you can see in the live demo
+
+The [HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs v4 on a T4 GPU with six interactive tabs:
+
+**Personality Lab** — run the same crisis through different Big Five (OCEAN) personality profiles. The same objective crisis gets different recommended actions depending on whether the person is high-conscientiousness/high-neuroticism (push through and communicate) vs low-agreeableness/low-conscientiousness (rest and offload).
+
+**What-If Lab** — v4 proposes an action, then generates three counterfactual alternatives (`rest`, `negotiate`, `delegate`). All alternatives come from the trained model — no Groq fallback. This shows the policy's range, not just its mode.
+
+**Untrained vs GRPO-Trained** — side-by-side: vanilla Groq 70B vs v4 adapter on the same prompt. The trained model consistently picks more targeted actions with meaningful resource cost specifications; the untrained model tends toward generic advice.
+
+**Model Evolution (v1→v4)** — all four model versions loaded simultaneously, responding to the same scenario. Policy shift is visible: v2 starts delegating where v1 rests; v4 reasons about resource depletion across cascade steps that v1 ignores entirely.
+
+**Longitudinal Memory** — ChromaDB retrieval of past successful trajectories for the same personality type. After enough interactions the agent starts citing its own history: *"Last time you cancelled plans without warning, it took 4 days to recover. Communicate first."*
+
+**Live Simulation** — real-time cascade animation across the dependency graph with the agent proposing interventions at each step.
+
+---
+
 ## What's next
 
 Multi-turn GRPO with per-step process rewards. Currently the training signals are mostly episode-level (did the task succeed?) or single-step (did the current action look reasonable?). Process supervision — giving the model credit for each intermediate step that moved toward a milestone — would let us train on 15-turn episodes without the gradient signal being dominated by terminal outcomes.
