@@ -54,7 +54,7 @@ The [live HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs **v4** on
 | **What-If Lab** | For any crisis, v4 proposes an action then generates 3 counterfactual alternatives (`rest`, `negotiate`, `delegate`). All from the trained model — no Groq fallback. Demonstrates policy diversity. |
 | **Untrained vs GRPO-Trained** | Side-by-side: vanilla Groq 70B vs the v4 GRPO adapter on the same prompt. The trained model picks more targeted, resource-aware actions. |
 | **Model Evolution (v1→v4)** | All 4 model versions loaded simultaneously on the same scenario. Policy shift is visible across training iterations — v2 starts delegating where v1 rests; v4 reasons about resource constraints that v1 ignores. |
-| **Longitudinal Memory** | ChromaDB retrieves past successful trajectories for the same personality type. After enough interactions, the agent references its own history: *"Last time you cancelled plans without warning, it took 4 days to recover."* |
+| **Longitudinal Memory** | Personality-aware RAG: each decision is stored with its personality type in ChromaDB. On every request the agent retrieves same-personality precedents first, then fills remaining slots from the global pool. The few-shot context block shows which profile each precedent came from, so Alex's past high-stress decisions surface for Alex before Sam's low-stress ones do. |
 | **Live Simulation** | Real-time cascade animation across the 32-edge dependency graph, with the agent proposing interventions at each step. |
 
 ---
@@ -165,7 +165,7 @@ All metrics are clamped to `[0, 100]`. Cascade propagation has a floor of `10.0`
 
 **`agent/agent.py`** — `LifeStackAgent` handles prompt construction, model inference, and action parsing. On initialization it starts a background thread to load the GRPO adapter from `DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v4"` (via `PeftConfig` + `PeftModel`). If the local model fails, it falls back to Groq API (`llama-3.3-70b-versatile`). `build_prompt()` injects memory context from `LifeStackMemory.build_few_shot_prompt()` when available. The in-memory `self.memory` list stores per-episode decision history for context.
 
-**`agent/memory.py`** — `LifeStackMemory` wraps three ChromaDB collections: `decisions`, `trajectories`, and `feedback`. It uses `SentenceTransformer('all-MiniLM-L6-v2')` for embeddings, falling back to a hash-based 384-dim vector when the model is unavailable. `retrieve_similar()` queries the `decisions` collection by embedding the conflict title plus the three most-stressed metric values, then filters results to reward ≥ 0.05. `build_few_shot_prompt()` formats retrieved memories as a few-shot context block injected into the agent's prompt. On first init, if the collection is empty, it auto-hydrates from `data/preseeded_memory*.json`.
+**`agent/memory.py`** — `LifeStackMemory` wraps three ChromaDB collections: `decisions`, `trajectories`, and `feedback`. It uses `SentenceTransformer('all-MiniLM-L6-v2')` for embeddings, falling back to a hash-based 384-dim vector when the model is unavailable. `retrieve_similar()` does a two-pass personality-aware query: it first filters by `personality_type` metadata (same-profile precedents) using ChromaDB's `where` clause, then fills any remaining slots from the global pool — so the agent always gets `n` results but prefers its own personality's history. `build_few_shot_prompt()` formats retrieved memories as a few-shot context block with per-entry `[personality_type]` labels injected into the agent's prompt. Every `store_decision()` call saves a `personality_type` field alongside the decision so the filter is populated from the first interaction. On first init, if the collection is empty, it auto-hydrates from `data/preseeded_memory*.json`.
 
 **`scripts/train_trl.py`** — The main GRPO training script. `train_curriculum()` runs 5 stages of single-step training using plain `GRPOTrainer` (stage 1 uses 3 reward functions for JSON warm-up, stages 2-5 use 10). `train_episodic_curriculum()` runs 2+ stages of multi-step trajectory training using `LifeStackGRPOTrainer` — a subclass that overrides `_prepare_inputs()` to zero-out `completion_mask` tokens after the first complete JSON object. Both support `--resume` via `curriculum_state.json`. The `load_model()` function tries Unsloth's 4-bit path first, then falls back to plain HF+PEFT (`Qwen/Qwen2.5-1.5B-Instruct` in bf16 on A100+, fp16 otherwise).
 
@@ -279,6 +279,21 @@ Every mechanism described here exists in the actual code:
 `ROLLBACK_USED` fires with `-0.1` penalty in `compute_task_reward()` — once per episode. Rollback is available as a recovery mechanism but costs. The `used_rollback` flag on `LifeStackState` prevents using it twice.
 
 `action_type` is validated against `VALID_ACTION_TYPES` (a `frozenset` in `core/reward.py`). `metric_changes` in `step()` are filtered through `allowed_keys = set(self._internal_state.current_metrics.flatten().keys())` — the model cannot invent new metric paths.
+
+---
+
+## Longitudinal memory and personalization
+
+Every episode writes a decision to ChromaDB via `store_decision()`, tagged with `personality_type` (the persona label from the Personality Lab dropdown). On the next request for the same personality, `retrieve_similar()` runs a two-pass query:
+
+1. **Same-personality pass** — `where={"personality_type": {"$eq": person_label}}` retrieves semantically similar decisions from that profile's own history.
+2. **Global fill-up pass** — if fewer than 3 results are returned (e.g. first run, Space restart), the remainder come from the shared pool of all past decisions and the pre-seeded wisdom pool.
+
+The result is that Alex's past high-stress `communicate` decisions surface as few-shot context for Alex's next crisis, not Sam's low-stress `delegate` decisions. Each entry in the injected prompt block is labeled `[personality_type]` so the model can weight matched-profile precedents appropriately.
+
+On startup the `decisions` collection auto-hydrates from `data/preseeded_memory*.json`, giving the agent a baseline of curated high-reward decisions before any user has interacted. User-generated decisions accumulate on top of this throughout the Space's uptime.
+
+The `memory_compare` and `memory_ablation` endpoints expose this directly: run the same conflict with memory disabled vs. enabled to see the few-shot context change the chosen action and reward score.
 
 ---
 
