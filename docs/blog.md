@@ -114,19 +114,27 @@ Runs 1 and 2 failed because of the JSON trailing-prose problem described above. 
 
 ## What you can do in the live demo
 
-The [HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs v4 on a T4 GPU with six interactive tabs:
+The [HF Space](https://huggingface.co/spaces/jdsb06/meta-r2) runs v4 on a T4 GPU with ten interactive tabs:
 
-**Personality Lab** — run the same crisis through different Big Five (OCEAN) personality profiles. High-conscientiousness/high-neuroticism gets "push through and communicate." Low-agreeableness/low-conscientiousness gets "rest and offload." Same objective crisis, different recommended actions depending on who's facing it.
+**Situational Portal** — the main entry point. Pick a persona and a conflict, hit Start. You get a Domain Risk Heatmap across 6 life areas, a live metric bar chart updating across all 23 values after each step, the agent's chosen action with its reasoning and per-step reward score, and a 7-step γ=0.9 discounted rollout panel showing where the cascade leads if nothing else changes. The Context Augmentation toggle lets you flip RAG on and off mid-session to see the reasoning shift when memory context is added.
 
-**What-If Lab** — v4 proposes an action, then generates three counterfactual alternatives (`rest`, `negotiate`, `delegate`). All from the trained model, no Groq fallback. This shows the policy's range, not just its mode.
+**Untrained vs GRPO-Trained** — same conflict, same persona, two inference paths in parallel: vanilla Groq 70B on the left, the v4 adapter on the right. Both run through the same environment and get scored by the same 10 reward functions. The reward delta badge at the bottom shows the numeric gap. The untrained model picks generic low-specificity actions; the trained model names a target domain, specifies resource units, and reasons about cascade risk.
 
-**Untrained vs GRPO-Trained** — side-by-side: vanilla Groq 70B versus v4 adapter on the same prompt. The trained model picks more targeted actions with meaningful resource cost specifications. The untrained model tends toward generic advice.
+**Model Evolution (v1→v4)** — all four adapter checkpoints loaded simultaneously, responding to the same scenario. v1 defaults to rest or generic delegation; v4 explicitly names resource costs and cascade effects. The policy shift across versions is visible without digging into logs.
 
-**Model Evolution (v1→v4)** — all four model versions loaded simultaneously, responding to the same scenario. v2 starts delegating where v1 rests. v4 reasons about resource depletion across cascade steps that v1 ignores entirely.
+**Memory Effect** — controlled ablation of the RAG layer. Same conflict, cold run on the left (no memory), warm run on the right (ChromaDB retrieval enabled). The warm run shows retrieved memories inline — past decisions, their original reward, which personality they came from. This is the live version of the `avg_no_memory: 1.13 → avg_with_memory: 2.45` number in `data/before_after_comparison.json`.
 
-**Longitudinal Memory** — ChromaDB retrieval of past successful trajectories for the same personality type. After enough interactions the agent starts citing its own history: *"Last time you cancelled plans without warning, it took 4 days to recover. Communicate first."*
+**Personality Lab** — two personas face the same crisis side by side. High-conscientiousness/high-neuroticism gets "push through and communicate." Low-agreeableness/low-conscientiousness gets "rest and offload." Both runs use personality-filtered RAG so each persona retrieves their own profile's history, not a shared pool.
 
-**Live Simulation** — real-time cascade animation across the dependency graph with the agent proposing interventions at each step.
+**What-If Lab** — v4 proposes an action, then generates three counterfactual alternatives (`rest`, `negotiate`, `delegate`) by forcing each action type through the same environment from the same pre-action state. All four come from the trained model. Each card shows projected metric changes, reward score, and a trade-off summary.
+
+**Task Explorer** — read-only browser for all scenarios in `data/conflicts.json`: viable routes, milestone weights, resource budgets, scheduled ExoEvents with trigger steps, difficulty rating. The fastest way to see what the RL environment actually looks like from the inside.
+
+**Analytics** — training progression bar chart (Base through v4 vs. baseline), per-domain reward chart showing where the raw model failed worst, and a rolling live session reward line chart from your current episodes.
+
+**System Map** — interactive vis-network graph of all 32 dependency graph edges, colour-coded by sign (green = positive influence, red = negative drag), edge thickness by weight magnitude. Click any node to highlight its first-order neighbours.
+
+**Verification** — human-in-the-loop feedback form. Submit a real-world outcome for any episode by trace ID; the `OutcomeFeedback` object gets written to ChromaDB `feedback_collection` and pulled by `reward_human_feedback_fn` in future training runs, closing the loop with real outcome data.
 
 ---
 
