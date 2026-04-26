@@ -237,6 +237,33 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         "compromise":  "negotiate",
     }
 
+    _VALID_DOMAINS = {
+        "career", "finances", "relationships",
+        "physical_health", "mental_wellbeing", "time"
+    }
+    _DOMAIN_MAP = {
+        "financials": "finances", "finance": "finances", "money": "finances",
+        "health": "physical_health", "physical": "physical_health", "fitness": "physical_health",
+        "mental": "mental_wellbeing", "wellbeing": "mental_wellbeing", "mental_health": "mental_wellbeing",
+        "relationship": "relationships", "social": "relationships",
+        "work": "career", "job": "career",
+        "schedule": "time", "time_management": "time",
+    }
+
+    def _normalize_domain(self, raw_domain: str) -> str:
+        d = (raw_domain or "mental_wellbeing").lower().strip()
+        if d in self._VALID_DOMAINS:
+            return d
+        if d in self._DOMAIN_MAP:
+            mapped = self._DOMAIN_MAP[d]
+            print(f"[domain] '{raw_domain}' → '{mapped}' (normalised)")
+            return mapped
+        for valid in self._VALID_DOMAINS:
+            if d.startswith(valid[:4]) or valid.startswith(d[:4]):
+                print(f"[domain] '{raw_domain}' → '{valid}' (prefix match)")
+                return valid
+        return "mental_wellbeing"
+
     def _normalize_action_type(self, raw_type: str) -> str:
         t = (raw_type or "execute").lower().strip()
         if t in self._VALID_ACTION_TYPES:
@@ -256,7 +283,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
     # ── Backend inference dispatcher ──────────────────────────────────────────
 
     def _run_inference(self, prompt: str, temperature: float = 0.3, force_api: bool = False,
-                       trained_model_only: bool = False, max_new_tokens: int = 192,
+                       trained_model_only: bool = False, max_new_tokens: int = 256,
                        local_prompt: str = None) -> str | None:
         """
         Call the best available backend and return raw text.
@@ -349,7 +376,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
 
         # Try trained model first using the compact training-format prompt
         raw = self._run_inference(base_prompt, temperature=0.4, force_api=force_api,
-                                  trained_model_only=False, max_new_tokens=192,
+                                  trained_model_only=False, max_new_tokens=256,
                                   local_prompt=local_cfact_prompt)
 
         # Try to extract first action from episode {"actions":[...]} format
@@ -377,7 +404,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                         return AgentAction(
                             primary=PrimaryAction(
                                 action_type=self._normalize_action_type(a.get("action_type", forced_type)),
-                                target_domain=a.get("target_domain", "mental_wellbeing"),
+                                target_domain=self._normalize_domain(a.get("target_domain", "mental_wellbeing")),
                                 metric_changes=metric_changes,
                                 resource_cost=a.get("resource_cost", {}),
                                 description=a.get("description", a.get("reasoning", ""))
@@ -423,7 +450,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
         def _call():
             try:
                 content = self._run_inference(prompt, temperature=0.3, force_api=force_api,
-                                              trained_model_only=trained_model_only, max_new_tokens=192,
+                                              trained_model_only=trained_model_only, max_new_tokens=256,
                                               local_prompt=local_prompt)
                 if not content:
                     result_box[0] = self._fallback_action("No content returned.", fallback_type)
@@ -441,7 +468,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                             retry_local = (local_prompt + "\n\nRETURN ONLY VALID COMPACT JSON.") if local_prompt else None
                             retry_prompt = prompt + "\n\nRETURN ONLY VALID COMPACT JSON. NO PROSE. NO MARKDOWN. NO TRAILING COMMAS."
                             retry_content = self._run_inference(retry_prompt, temperature=0.1, force_api=force_api,
-                                                                trained_model_only=trained_model_only, max_new_tokens=192,
+                                                                trained_model_only=trained_model_only, max_new_tokens=256,
                                                                 local_prompt=retry_local)
                             if retry_content:
                                 content = retry_content
@@ -466,7 +493,7 @@ STRATEGY: Prioritize high-agency actions (delegate/negotiate/prepare). Use 'prep
                 result_box[0] = AgentAction(
                     primary=PrimaryAction(
                         action_type=self._normalize_action_type(data.get("action_type", "execute")),
-                        target_domain=data.get("target_domain", "mental_wellbeing"),
+                        target_domain=self._normalize_domain(data.get("target_domain", "mental_wellbeing")),
                         metric_changes=metric_changes,
                         resource_cost=data.get("resource_cost", {}),
                         description=data.get("description", "Taking a moment.")
