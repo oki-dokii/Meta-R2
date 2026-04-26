@@ -11,7 +11,7 @@ from agent.conflict_generator import ConflictEvent, generate_conflict
 from core.action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
 from intake.simperson import SimPerson
 
-DEFAULT_HF_MODEL_REPO = os.getenv("LIFESTACK_HF_MODEL", "jdsb06/lifestack-grpo-v4")   # latest trained GRPO adapter
+DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v4"   # Force latest v4 trained GRPO adapter
 
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
@@ -62,13 +62,13 @@ class LifeStackAgent:
             peft_config = PeftConfig.from_pretrained(self.local_model_path)
             base_model_name = peft_config.base_model_name_or_path
 
-            self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path)
+            self.tokenizer = AutoTokenizer.from_pretrained("jdsb06/lifestack-grpo-v4")
             base_model = AutoModelForCausalLM.from_pretrained(
                 base_model_name,
-                dtype=dtype,          # was torch_dtype — fixed deprecation
+                torch_dtype=dtype,
                 device_map=device_map,
             )
-            self.local_model = PeftModel.from_pretrained(base_model, self.local_model_path)
+            self.local_model = PeftModel.from_pretrained(base_model, "jdsb06/lifestack-grpo-v4")
             self.local_model.eval()
             # Clear max_length from the model's default generation config so that
             # our explicit max_new_tokens= doesn't trigger a "both are set" warning.

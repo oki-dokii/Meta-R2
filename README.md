@@ -231,7 +231,7 @@ v3 was trained on 3-action episode sequences. The model observes the result of a
 
 > The base model has zero multi-step planning capability. v3 demonstrates +0.140 discounted episode return across 3-step sequences — a new capability that did not exist before GRPO training.
 
-**v3 is saved as `jdsb06/lifestack-grpo-v3`.** It is the active production model in the HF Space.
+**v4 is saved as `jdsb06/lifestack-grpo-v4`.** It is the active production model in the HF Space.
 
 ---
 
@@ -300,7 +300,7 @@ v3 was trained on 3-action episode sequences. The model observes the result of a
 | Model | Checkpoint | Best for |
 |---|---|---|
 | [jdsb06/lifestack-grpo](https://huggingface.co/jdsb06/lifestack-grpo) | v1 Run 4 | Single-step consistency (45/50 non-failing) |
-| [jdsb06/lifestack-grpo-v3](https://huggingface.co/jdsb06/lifestack-grpo-v3) | v3 episodic | Multi-step planning, active production model |
+| [jdsb06/lifestack-grpo-v4](https://huggingface.co/jdsb06/lifestack-grpo-v4) | v4 episodic | Multi-step planning, active production model |
 
 ---
 
@@ -316,8 +316,8 @@ base = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.float16,
     device_map="auto"
 )
-tokenizer = AutoTokenizer.from_pretrained("jdsb06/lifestack-grpo-v3")
-model = PeftModel.from_pretrained(base, "jdsb06/lifestack-grpo-v3")
+tokenizer = AutoTokenizer.from_pretrained("jdsb06/lifestack-grpo-v4")
+model = PeftModel.from_pretrained(base, "jdsb06/lifestack-grpo-v4")
 model.eval()
 ```
 
@@ -355,7 +355,7 @@ LIFESTACK_NO_UNSLOTH=1 python scripts/train_trl.py \
   --episode-horizon 3 \
   --output-dir ./lifestack_model_v3 \
   --push-to-hub \
-  --hub-repo-id jdsb06/lifestack-grpo-v3
+  --hub-repo-id jdsb06/lifestack-grpo-v4
 ```
 
 ```bash
