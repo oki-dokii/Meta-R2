@@ -235,8 +235,8 @@ PERSONS = {
         SimPerson(openness=0.5, conscientiousness=0.7, extraversion=0.5,  agreeableness=0.95, neuroticism=0.3,  name="Maya (Family)"),
     "Leo (Student) — curious, organised":
         SimPerson(openness=0.85, conscientiousness=0.8, extraversion=0.4, agreeableness=0.4,  neuroticism=0.55, name="Leo (Student)"),
-    "Arjun (Startup Lead) — high- conscientiousness, high-neuroticism":
-        SimPerson(name="Arjun", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
+    "Jordan (Startup Lead) — high-conscientiousness, high-neuroticism":
+        SimPerson(name="Jordan", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
 }
 
 CONFLICT_CHOICES = {t.title: t for t in TEMPLATES}
@@ -828,10 +828,10 @@ def digital_sync():
         "persona_note": demo_full.get("persona", "Jordan (PM at Series-B startup)"),
     })
 
-@app.route('/api/arjun/activate', methods=['POST'])
-def activate_arjun():
+@app.route('/api/memory/activate-demo', methods=['POST'])
+def activate_demo_memory():
     LONG_DEMO.pre_seed_arjun()
-    return jsonify({"status": "success", "message": "Arjun's memory (Week 1 & 2) is now ACTIVE in ChromaDB."})
+    return jsonify({"status": "success", "message": "Demo memory precedents are now active in ChromaDB."})
 
 @app.route('/api/task/demo', methods=['GET'])
 def get_demo_task():
@@ -991,13 +991,20 @@ def get_stats():
     from collections import Counter
     stats = MEMORY.get_stats()
     all_records = []
+    feedback_records = []
     try:
         raw = MEMORY.collection.get(include=["metadatas"])
         all_records = raw.get("metadatas", [])
     except Exception:
         pass
 
-    stats["feedback_count"] = len([m for m in all_records if m.get("type") == "feedback"])
+    try:
+        raw_feedback = MEMORY.feedback_collection.get(include=["metadatas"])
+        feedback_records = raw_feedback.get("metadatas", [])
+    except Exception:
+        pass
+
+    stats["feedback_count"] = len(feedback_records)
 
     # Sort by timestamp so the reward chart is chronological
     timed = [m for m in all_records if "reward" in m and "timestamp" in m]
@@ -1082,7 +1089,9 @@ def get_model_stats():
 def reset_history():
     """Wipe all memories and feedback from ChromaDB."""
     try:
-        MEMORY.collection.delete(where={}) # Delete everything
+        MEMORY.collection.delete(where={})
+        MEMORY.traj_collection.delete(where={})
+        MEMORY.feedback_collection.delete(where={})
         return jsonify({"status": "success", "message": "History and memories cleared."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500

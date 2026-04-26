@@ -300,7 +300,7 @@ class LifeStackMemory:
     def get_stats(self) -> dict:
         """Returns memory stats: total count, average reward, and route details."""
         if self.collection.count() == 0:
-            return {"total_memories": 0, "average_reward": 0.0, "by_route": {}}
+            return {"total_memories": 0, "average_reward": 0.0, "by_action_type": {}}
 
         all_records = self.collection.get(include=["metadatas"])
         metadatas = all_records["metadatas"]
@@ -308,16 +308,16 @@ class LifeStackMemory:
         total = len(metadatas)
         avg_reward = sum(m.get("reward", 0.0) for m in metadatas) / total
 
-        by_route = defaultdict(int)
+        by_action_type = defaultdict(int)
         for m in metadatas:
-            route = m.get("route_taken") or m.get("route_outcome") or "unknown"
-            first_action = route.split(' ')[0] if route else "unknown"
-            by_route[first_action] += 1
+            action_type = m.get("action_type")
+            if action_type:
+                by_action_type[action_type] += 1
 
         return {
             "total_memories": total,
             "average_reward": round(avg_reward, 3),
-            "by_action_type": dict(by_route)
+            "by_action_type": dict(by_action_type)
         }
 
 

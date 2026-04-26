@@ -1,5 +1,5 @@
 """
-longitudinal_demo.py — Arjun's journey from baseline to expert agent support.
+longitudinal_demo.py — demo longitudinal journey from baseline to expert agent support.
 """
 
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -10,9 +10,9 @@ from intake.simperson import SimPerson
 class LongitudinalDemo:
     def __init__(self):
         self.memory = LifeStackMemory(silent=True)
-        # Pre-loaded persona: 'Arjun' (high conscientiousness, high workload executive)
+        # Pre-loaded persona: startup-lead demo profile
         self.person = SimPerson(
-            name="Arjun", 
+            name="Jordan",
             openness=0.4, 
             conscientiousness=0.9, 
             extraversion=0.7, 
@@ -21,7 +21,7 @@ class LongitudinalDemo:
         )
         
     def pre_seed_arjun(self):
-        """Pre-seeds Arjun's high-reward precedents into ChromaDB."""
+        """Pre-seeds demo high-reward precedents into ChromaDB."""
         # Note: Session 1 (0.41) isn't stored as it's below the 0.5 reward threshold 
         # defined in memory.py, which is correct (we only learn from SUCCESS).
         
@@ -31,7 +31,7 @@ class LongitudinalDemo:
             route_taken="communicate(relationships)",
             total_reward=0.68,
             metrics_diff_str="romantic:+10.0, stress_level:-5.0",
-            reasoning="Arjun's partner needs upfront communication about work delays, not just apologies later."
+            reasoning="This profile responds better to upfront communication about work delays than reactive apologies."
         )
         
         # Memory from a general work win
@@ -40,15 +40,15 @@ class LongitudinalDemo:
             route_taken="negotiate(career) -> delegate(career)",
             total_reward=0.75,
             metrics_diff_str="workload:-20.0, stress_level:-15.0",
-            reasoning="For startup executives like Arjun, aggressive negotiation of deliverables works better than just 'resting' which leaves work pending."
+            reasoning="For startup executives, aggressive negotiation of deliverables works better than resting alone, which leaves work pending."
         )
 
     def show_longitudinal_comparison(self) -> str:
-        """Returns the HTML for the Arjun's Journey tab."""
+        """Returns the HTML for the longitudinal journey tab."""
         return """
 <div style='font-family:sans-serif;color:#eee;max-width:600px;margin:0 auto'>
   <div style='text-align:center;margin-bottom:24px'>
-    <h2 style='color:#a78bfa;margin-bottom:8px;font-size:28px;font-weight:900'>ARJUN'S LIFESTACK JOURNEY</h2>
+    <h2 style='color:#a78bfa;margin-bottom:8px;font-size:28px;font-weight:900'>STARTUP LEAD LIFESTACK JOURNEY</h2>
     <div style='color:#888;font-size:14px'>3 weeks of self-improving AI support</div>
   </div>
   
@@ -71,7 +71,7 @@ class LongitudinalDemo:
     <div style='font-size:13px;margin-bottom:6px'><b>Crisis:</b> Partner upset about cancelled dinner</div>
     <div style='font-size:13px;margin-bottom:6px;color:#93c5fd'><b>Agent suggested:</b> Communicate (warm tone)</div>
     <div style='font-size:12px;color:#aaa'><b>Result:</b> Reward 0.68 — relationship preserved</div>
-    <div style='font-size:12px;font-style:italic;color:#777;margin-top:4px'>Agent learned: Arjun's partner needs proactive communication, not reactive apologies.</div>
+    <div style='font-size:12px;font-style:italic;color:#777;margin-top:4px'>Agent learned: this profile needs proactive communication, not reactive apologies.</div>
   </div>
 
   <div style='margin-bottom:24px;padding:16px;background:#1e1e2f;border:2px solid #4ade80;border-radius:12px;box-shadow:0 0 15px rgba(74,222,128,0.1)'>
@@ -99,7 +99,7 @@ class LongitudinalDemo:
 def main():
     demo = LongitudinalDemo()
     demo.pre_seed_arjun()
-    print("✅ Arjun's precedents pre-seeded into ChromaDB.")
+    print("✅ Demo precedents pre-seeded into ChromaDB.")
 
 if __name__ == "__main__":
     main()

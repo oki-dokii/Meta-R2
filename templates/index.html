@@ -1372,12 +1372,12 @@
 
 
 
-        async function activateArjun() {
-            const btn = document.getElementById('arjun-btn');
+        async function activateDemoMemory() {
+            const btn = document.getElementById('memory-activate-btn');
             btn.innerText = "🔗 Seeding ChromaDB...";
-            const res = await fetch('/api/arjun/activate', { method: 'POST' });
+            const res = await fetch('/api/memory/activate-demo', { method: 'POST' });
             const data = await res.json();
-            document.getElementById('arjun-status').innerText = data.message;
+            document.getElementById('memory-activate-status').innerText = data.message;
             btn.innerText = "✅ History Loaded";
         }
 

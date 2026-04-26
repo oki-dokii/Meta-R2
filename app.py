@@ -338,7 +338,7 @@ INTAKE = LifeIntake()
 GMAIL  = GmailIntake()
 LONG_DEMO = LongitudinalDemo()
 
-# Pre-seed Arjun's 3-week context into ChromaDB on startup
+# Pre-seed demo longitudinal context into ChromaDB on startup
 LONG_DEMO.pre_seed_arjun()
 
 # Friday 6PM is always the default demo conflict
@@ -355,8 +355,8 @@ PERSONS = {
         SimPerson(openness=0.5, conscientiousness=0.7, extraversion=0.5,  agreeableness=0.95, neuroticism=0.3,  name="Maya (Family)"),
     "Leo (Student) — curious, organised":
         SimPerson(openness=0.85, conscientiousness=0.8, extraversion=0.4, agreeableness=0.4,  neuroticism=0.55, name="Leo (Student)"),
-    "Arjun (Startup Lead) — high- conscientiousness, high-neuroticism":
-        SimPerson(name="Arjun", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
+    "Jordan (Startup Lead) — high-conscientiousness, high-neuroticism":
+        SimPerson(name="Jordan", openness=0.4, conscientiousness=0.9, extraversion=0.7, agreeableness=0.25, neuroticism=0.8),
 }
 
 CONFLICT_CHOICES      = {f"[Diff {t.difficulty}] {t.title}": t for t in TEMPLATES}
@@ -1470,22 +1470,22 @@ with gr.Blocks(
                 outputs=[mem_ep1_out, mem_ep2_out, mem_diff_out],
             )
 
-        # ── Tab 5: Arjun's Journey ──────────────────────────────────────────
-        with gr.Tab("🗓️ Arjun's Journey"):
+        # ── Tab 5: Longitudinal Journey ─────────────────────────────────────
+        with gr.Tab("🗓️ Longitudinal Journey"):
             gr.HTML(LONG_DEMO.show_longitudinal_comparison())
             
             with gr.Column():
                 gr.Markdown("### 🎓 Experimental Context Loading")
                 gr.Markdown(
-                    "By activating Arjun's history, the agent gains 'experience' with his startup "
+                    "By activating the demo history, the agent gains 'experience' with a startup "
                     "executive profile and specific relationship dynamics. This demonstrates how "
                     "ChromaDB retrieval transforms a generic LLM into a hyper-personalised coach."
                 )
-                load_arjun_btn = gr.Button("🔗 Activate Arjun's Life History (v3)", variant="primary", size="lg")
+                load_arjun_btn = gr.Button("🔗 Activate Demo Life History (v3)", variant="primary", size="lg")
                 
                 def load_arjun_msg():
                     LONG_DEMO.pre_seed_arjun()
-                    return "✅ Arjun's memory (Week 1 & 2) is now ACTIVE in ChromaDB. Go to 'Live Demo', select Arjun, and click 'Run Agent'."
+                    return "✅ Demo memory (Week 1 & 2) is now active in ChromaDB. Go to 'Live Demo', select the startup-lead persona, and click 'Run Agent'."
                 
                 load_status = gr.Markdown()
                 load_arjun_btn.click(fn=load_arjun_msg, outputs=load_status)
@@ -1495,7 +1495,7 @@ with gr.Blocks(
                 **Experience it yourself:**
                 1. Click the button above to seed the memories.
                 2. Switch to the **🎯 Live Demo** tab.
-                3. Select **Arjun (Startup Lead)** from the persona list.
+                3. Select **Jordan (Startup Lead)** from the persona list.
                 4. Select the **🚨 Friday 6PM** conflict.
                 5. Click **Run Agent**.
                 6. **Observe:** The agent will now use specific precedents in its reasoning and choice.
