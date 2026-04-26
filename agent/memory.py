@@ -34,7 +34,7 @@ class LifeStackMemory:
 
     def _hydrate_from_preseeded(self):
         import json
-        sources = ["./data/preseeded_memory_p1.json", "./data/preseeded_memory_p2.json"]
+        sources = ["./data/preseeded_memory.json", "./data/preseeded_memory_p1.json", "./data/preseeded_memory_p2.json"]
         
         if not self.silent:
             print(f"🧬 Empty memory detected. Hydrating from partitioned volumes...")
