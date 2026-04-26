@@ -47,7 +47,7 @@ This is a **Life Problem** — cascading, interconnected, resource-constrained. 
 
 ## What is This Model?
 
-This is **v4** of our LoRA adapter for `Qwen/Qwen2.5-1.5B-Instruct`, fine-tuned using **episodic GRPO** (Group Relative Policy Optimization) via TRL 0.15.1 + Unsloth 2026.4.8 on the **LifeStack** environment — an OpenEnv-compatible RL environment that models life as a **40-edge directed dependency graph** across 8 domains.
+This is **v4** of our LoRA adapter for `Qwen/Qwen2.5-1.5B-Instruct`, fine-tuned using **episodic GRPO** (Group Relative Policy Optimization) via TRL 0.15.1 + Unsloth 2026.4.8 on the **LifeStack** environment — an OpenEnv-compatible RL environment with **23 interdependent metrics across 6 life-metric domains**, connected by a **32-edge directed dependency graph**. Training tasks are sampled across 8 task domains (the 6 life domains + `transport_crisis` + `code_merge_crisis`).
 
 Given a structured life crisis, the model outputs a **single JSON action plan**:
 
@@ -79,7 +79,7 @@ Given a structured life crisis, the model outputs a **single JSON action plan**:
 ### 4-Panel Training Summary
 ![Training Summary](plots/training_summary.png)
 
-**Raw training log:** [`train_run_v4.log`](train_run_v4.log) (109 kB — full Unsloth/TRL output)
+**Raw training log:** [`train_run_v4.log`](https://huggingface.co/jdsb06/lifestack-grpo-v4/blob/main/train_run_v4.log) (109 kB — full Unsloth/TRL output)
 
 ---
 
@@ -169,7 +169,7 @@ v4 uses **episodic training** — the model sees a 3-step sequence, observes the
 Trained inside **LifeStack**, an [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environment:
 
 - **8 task domains**: career, finances, relationships, physical_health, mental_wellbeing, time, transport_crisis, code_merge_crisis
-- **40-edge directed dependency graph**: stress propagates across domains with 0.6× dampening per hop (Starcke & Brand, 2012)
+- **32-edge directed dependency graph**: stress propagates across connected metrics with 0.6× dampening per hop (Starcke & Brand, 2012)
 - **23 sub-metrics** with baselines and cascade dampening
 - **5 personality profiles** (Big Five / OCEAN) — same action scores differently for an anxious introvert vs a confident executive
 - **Exogenous events**: probabilistic mid-episode disruptions

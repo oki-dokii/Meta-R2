@@ -35,7 +35,7 @@ The adapter is not a general-purpose assistant. It is specialized for the LifeSt
 | Efficiency | Unsloth 2026.4.8 (4-bit QLoRA) or plain HF+PEFT (bf16) |
 | LoRA rank | r=16, lora_alpha=16 |
 | LoRA targets | q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj |
-| Environment | `LifeStackEnv` — 23 metrics, 8 domains, 32-edge dependency graph |
+| Environment | `LifeStackEnv` — 23 metrics across 6 life-metric domains + 2 crisis task domains, 32-edge dependency graph |
 | Training hardware | A100 80GB |
 
 **v1** was trained with `train_curriculum()` — 5 stages of single-step GRPO, 100 prompts per stage, with 10 reward functions starting from stage 2. Training log: [`train_run_v1.log`](../train_run_v1.log).

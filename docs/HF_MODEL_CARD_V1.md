@@ -40,7 +40,7 @@ pipeline_tag: text-generation
 
 ## What is This?
 
-This is a **LoRA adapter** for `Qwen/Qwen2.5-1.5B-Instruct`, fine-tuned using **GRPO** via TRL + Unsloth on the **LifeStack** environment — an OpenEnv-compatible RL environment that models life as a 40-edge dependency graph across 8 domains.
+This is a **LoRA adapter** for `Qwen/Qwen2.5-1.5B-Instruct`, fine-tuned using **GRPO** via TRL + Unsloth on the **LifeStack** environment — an OpenEnv-compatible RL environment with 23 interdependent metrics across 6 life-metric domains, connected by a 32-edge dependency graph. Training tasks are sampled across 8 task domains (the 6 life domains + `transport_crisis` + `code_merge_crisis`).
 
 **v1 is the single-step checkpoint.** It was trained with a 5-stage difficulty curriculum and is the most *consistent* checkpoint — 45/50 episodes produced non-failing outputs. The later v4 model adds multi-step episodic planning capability.
 

@@ -3,6 +3,7 @@ upload_hf_model_cards.py — One-click script to:
   1. Upload polished model card (README) to jdsb06/lifestack-grpo-v4  (with training plots)
   2. Upload polished model card (README) to jdsb06/lifestack-grpo     (v1)
   3. Upload train_run_v1.log to jdsb06/lifestack-grpo                  (v1 training log)
+  4. Upload docs/blog.md to both model repos as blog.md
 
 Run from the repo root:
     python scripts/upload_hf_model_cards.py
@@ -93,6 +94,24 @@ def upload_v1_model_card(api: HfApi) -> None:
         print(f"  ⚠️  {log_path} not found — skipping log upload")
 
 
+def upload_blog_md_to_both_repos(api: HfApi) -> None:
+    blog_path = REPO_ROOT / "docs" / "blog.md"
+    if not blog_path.exists():
+        print(f"\n[upload] {blog_path} not found — skipping blog upload")
+        return
+
+    for repo_id in ("jdsb06/lifestack-grpo-v4", "jdsb06/lifestack-grpo"):
+        print(f"\n[upload] Uploading blog.md to {repo_id}...")
+        api.upload_file(
+            path_or_fileobj=str(blog_path),
+            path_in_repo="blog.md",
+            repo_id=repo_id,
+            repo_type="model",
+            commit_message="Update blog.md from docs/blog.md",
+        )
+        print(f"  ✅ blog.md uploaded to {repo_id}")
+
+
 def main() -> None:
     print("=" * 60)
     print("  LifeStack HF Model Card Uploader")
@@ -102,6 +121,7 @@ def main() -> None:
 
     upload_v4_model_card(api)
     upload_v1_model_card(api)
+    upload_blog_md_to_both_repos(api)
 
     print("\n" + "=" * 60)
     print("  Done! Check your model cards:")
