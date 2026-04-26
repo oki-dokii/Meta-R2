@@ -192,6 +192,10 @@ Uses `LifeStackGRPOTrainer` + 4 episodic reward functions. Each prompt asks the 
 | `GROQ_API_KEY` | unset | Enables Groq API fallback in the agent |
 | `HF_TOKEN` | unset | Required for loading private model checkpoints |
 
+### A note on training environment
+
+We ran into consistent import and binary wheel issues on both Kaggle and Colab while iterating on the same dependency stack. The training that produced the v4 logs and plots was done on HuggingFace (Jupyter + terminal on the Space), which stayed stable. The Colab notebook in this repo is for anyone who wants to re-run the same CLI elsewhere — expect hosted runtimes to be hit-or-miss with this stack.
+
 ---
 
 ## Anti-reward-hacking
