@@ -28,6 +28,6 @@ jobs:
           git checkout --orphan hf-space-deploy
           git add -A
           # Strip oversized and binary artifacts from the deploy snapshot.
-          git rm --cached --ignore-unmatch data/preseeded_memory.json docs/training_curves.png docs/reward_curve.png data/*.png data/*.bin data/*.whl || true
+          git rm --cached --ignore-unmatch data/preseeded_memory.json docs/training_curves.png docs/reward_curve.png data/*.png data/*.bin data/*.whl plots/*.png || true
           git commit -m "Deploy Space snapshot"
           git push --force space hf-space-deploy:main
