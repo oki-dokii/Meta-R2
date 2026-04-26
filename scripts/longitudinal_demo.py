@@ -29,7 +29,7 @@ class LongitudinalDemo:
         self.memory.store_trajectory(
             conflict_title="Partner upset about dinner",
             route_taken="communicate(relationships)",
-            total_reward=2.68,
+            total_reward=0.68,
             metrics_diff_str="romantic:+10.0, stress_level:-5.0",
             reasoning="Arjun's partner needs upfront communication about work delays, not just apologies later."
         )
@@ -38,7 +38,7 @@ class LongitudinalDemo:
         self.memory.store_trajectory(
             conflict_title="Project Overload",
             route_taken="negotiate(career) -> delegate(career)",
-            total_reward=2.75,
+            total_reward=0.75,
             metrics_diff_str="workload:-20.0, stress_level:-15.0",
             reasoning="For startup executives like Arjun, aggressive negotiation of deliverables works better than just 'resting' which leaves work pending."
         )
