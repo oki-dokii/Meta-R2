@@ -11,14 +11,14 @@ from agent.conflict_generator import ConflictEvent, generate_conflict
 from core.action_space import AgentAction, PrimaryAction, CommunicationAction, apply_action
 from intake.simperson import SimPerson
 
-DEFAULT_HF_MODEL_REPO = "jdsb06/lifestack-grpo-v3"   # latest trained GRPO adapter
+DEFAULT_HF_MODEL_REPO = os.getenv("LIFESTACK_HF_MODEL", "jdsb06/lifestack-grpo-v4")   # latest trained GRPO adapter
 
 class LifeStackAgent:
     def __init__(self, local_model_path: str = None, api_only: bool = False):
         self.api_key = os.getenv('GROQ_API_KEY')
         self.hf_token = os.getenv('HF_TOKEN')
 
-        # v3 base is Qwen2.5-1.5B (~3GB VRAM) — fits on T4 alongside Flask+ChromaDB.
+        # v4 base is Qwen2.5-1.5B (~3GB VRAM) — fits on T4 alongside Flask+ChromaDB.
         # api_only is now only forced when explicitly requested, not by on_hf_spaces.
         self.api_only = api_only
         self.local_model_path = local_model_path or os.getenv('LIFESTACK_MODEL_PATH')

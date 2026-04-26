@@ -36,6 +36,7 @@ MODEL_REGISTRY = {
     "v1": os.environ.get("LIFESTACK_MODEL_V1", "jdsb06/lifestack-grpo-v1"),
     "v2": os.environ.get("LIFESTACK_MODEL_V2", "jdsb06/lifestack-grpo-v2"),
     "v3": os.environ.get("LIFESTACK_MODEL_V3", "jdsb06/lifestack-grpo-v3"),
+    "v4": os.environ.get("LIFESTACK_MODEL_V4", "jdsb06/lifestack-grpo-v4"),
 }
 
 # Runtime cache — models loaded from HF Hub on first use (never reloaded)
@@ -170,11 +171,12 @@ def _grpo_infer_html(scenario: str, version: str) -> str:
 
 
 def compare_grpo_versions(scenario: str):
-    """Return HTML cards for v1, v2, v3 responses to the given scenario."""
+    """Return HTML cards for v1, v2, v3, v4 responses to the given scenario."""
     return (
         _grpo_infer_html(scenario, "v1"),
         _grpo_infer_html(scenario, "v2"),
         _grpo_infer_html(scenario, "v3"),
+        _grpo_infer_html(scenario, "v4"),
     )
 
 
@@ -182,12 +184,12 @@ _TRAINING_STORY_HTML = f"""
 <div style='background:#1a1a2e;border:1px solid #333;border-radius:10px;
             padding:20px;font-family:sans-serif;margin-bottom:16px'>
   <div style='font-size:20px;font-weight:900;color:#a78bfa;margin-bottom:4px'>
-    🚀 Training Journey: v1 → v2 → v3
+    🚀 Training Journey: v1 → v2 → v3 → v4
   </div>
   <div style='font-size:13px;color:#888;margin-bottom:16px'>
     All models: Qwen2.5-1.5B-Instruct · Unsloth 4-bit LoRA r=16 · GRPO (TRL 1.2) · A100 80GB
   </div>
-  <div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px'>
+  <div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px'>
 
     <div style='background:#0d1117;border:1px solid #60a5fa;border-radius:8px;padding:14px'>
       <div style='font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:4px'>
@@ -258,8 +260,6 @@ _TRAINING_STORY_HTML = f"""
     <div style='background:#0d1117;border:1px solid #a78bfa;border-radius:8px;padding:14px'>
       <div style='font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:4px'>
         v3 — EOS-Aware GRPO
-        <span style='background:#3b1d8a;border-radius:4px;padding:2px 6px;
-                     font-size:10px;margin-left:4px;color:#c4b5fd'>New</span>
       </div>
       <div style='font-size:11px;color:#888;margin-bottom:10px'>
         Gradient masking at JSON boundary · compact reward · temp 0.9
@@ -286,6 +286,41 @@ _TRAINING_STORY_HTML = f"""
         <a href='https://huggingface.co/{MODEL_REGISTRY["v3"]}'
            target='_blank' style='color:#a78bfa'>
           🤗 {MODEL_REGISTRY["v3"]}
+        </a>
+      </div>
+    </div>
+
+    <div style='background:#0d1117;border:1px solid #f59e0b;border-radius:8px;padding:14px'>
+      <div style='font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:4px'>
+        v4 — Episodic Curriculum GRPO
+        <span style='background:#451a03;border-radius:4px;padding:2px 6px;
+                     font-size:10px;margin-left:4px;color:#fcd34d'>New</span>
+      </div>
+      <div style='font-size:11px;color:#888;margin-bottom:10px'>
+        3 episodic stages · difficulty curriculum · horizon=3 · EOS emerging
+      </div>
+      <div style='display:flex;flex-direction:column;gap:5px;font-size:12px'>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Best reward</span>
+          <span style='color:#4ade80;font-weight:700'>0.856</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Format reward</span>
+          <span style='color:#f59e0b'>0.660 (peak)</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>EOS terminations</span>
+          <span style='color:#4ade80'>✅ First appeared</span>
+        </div>
+        <div style='display:flex;justify-content:space-between'>
+          <span style='color:#888'>Episode return</span>
+          <span style='color:#f59e0b'>~0.14 avg</span>
+        </div>
+      </div>
+      <div style='margin-top:10px;font-size:10px'>
+        <a href='https://huggingface.co/{MODEL_REGISTRY["v4"]}'
+           target='_blank' style='color:#f59e0b'>
+          🤗 {MODEL_REGISTRY["v4"]}
         </a>
       </div>
     </div>
@@ -1561,18 +1596,24 @@ with gr.Blocks(
                         "padding:8px 0 4px'>v3 — EOS-Aware GRPO</div>"
                     )
                     v3_out = gr.HTML()
+                with gr.Column():
+                    gr.HTML(
+                        "<div style='font-size:13px;font-weight:700;color:#f59e0b;"
+                        "padding:8px 0 4px'>v4 — Episodic Curriculum GRPO ✨</div>"
+                    )
+                    v4_out = gr.HTML()
 
             gr.HTML(
                 "<div style='font-size:11px;color:#555;padding:8px;text-align:center'>"
                 "✅ Clean EOS = model stopped immediately after JSON (good). "
-                "⚠ trailing chars = model kept generating beyond JSON (v1/v2 issue being fixed in v3)."
+                "⚠ trailing chars = model kept generating beyond JSON (v1/v2 issue, improving in v3/v4)."
                 "</div>"
             )
 
             evo_btn.click(
                 fn=compare_grpo_versions,
                 inputs=[evo_scenario],
-                outputs=[v1_out, v2_out, v3_out],
+                outputs=[v1_out, v2_out, v3_out, v4_out],
             )
 
         # ── Tab 6: Follow-up ─────────────────────────────────────────────────
