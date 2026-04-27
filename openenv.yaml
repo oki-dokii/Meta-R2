@@ -3,7 +3,7 @@
 
 name: lifestack-v1
 version: 1.1.0
-description: "Multi-domain life conflict resolution RL environment. Models life as a 40-edge dependency graph across 8 domains. Trained with GRPO via TRL + Unsloth."
+description: "Multi-domain life conflict resolution RL environment. Models life as a 32-edge dependency graph across 6 metric domains and 8 task domains. Trained with GRPO via TRL + Unsloth."
 entry_point: "core.lifestack_env:LifeStackEnv"
 action_cls: "core.lifestack_env:LifeStackAction"
 observation_cls: "core.lifestack_env:LifeStackObservation"
@@ -19,6 +19,7 @@ metadata:
   resources: ["time", "money", "energy"]
   trained_models:
     - "jdsb06/lifestack-grpo"
+    - "jdsb06/lifestack-grpo-v2"
     - "jdsb06/lifestack-grpo-v3"
     - "jdsb06/lifestack-grpo-v4"
   training_framework: "TRL 0.15.1 + Unsloth 2026.4.8"

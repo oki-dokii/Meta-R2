@@ -88,7 +88,7 @@ A controlled ablation of the RAG layer. Pick a conflict and persona, then click 
 
 The warm run shows the retrieved memories inline: which past decisions were surfaced, their original reward, which personality type they came from (after the personality-aware memory update), and how similar they were to the current situation. You can watch the agent's reasoning change register when it has prior experience to reference.
 
-The reward delta between cold and warm is the live version of the `avg_no_memory: 1.13 → avg_with_memory: 2.45` comparison in `data/before_after_comparison.json`.
+The reward delta between cold and warm is the live version of the `avg_no_memory: 1.13 → avg_with_memory: 2.45` (+116%) comparison in `data/before_after_comparison.json`. Note: this number measures the RAG augmentation effect — the same v4 model, with and without ChromaDB context. It is not a trained-vs-untrained comparison; the GRPO training improvement (baseline −0.07 → v4 peak +0.856) is a separate result shown in the training plots.
 
 ---
 
@@ -465,9 +465,22 @@ Meta-r2/
 
 ## Training evidence
 
-![4-panel training summary](plots/training_summary.png)
+**Two separate improvements — don't conflate them:**
 
-![Cross-version model progression](plots/model_progression_v1_to_v4.png)
+| What improved | How much | What caused it |
+|---|---|---|
+| Single-step eval reward | −0.07 (base) → **+0.856** (v4 peak) | GRPO fine-tuning across 4 runs |
+| Episode reward with memory | 1.13 → **2.45** (+116%) | RAG augmentation (ChromaDB few-shot) on the same trained model |
+
+The GRPO improvement is the primary training result. The 116% memory gain is an ablation showing what the ChromaDB RAG layer adds on top of the trained model — it is not a trained-vs-untrained comparison.
+
+![4-panel training summary — reward curve (top-left), loss curve (top-right), per-reward-function components (bottom-left), and run-over-run eval progression vs the −0.07 untrained baseline (bottom-right)](plots/training_summary.png)
+
+*4-panel training summary: reward curve, loss curve, per-component breakdown, and run-over-run eval progression against the −0.07 untrained baseline.*
+
+![v1 → v4 model progression — each column is one HF adapter checkpoint on the same scenario; action type and reward shift left-to-right as training matures](plots/model_progression_v1_to_v4.png)
+
+*Cross-version model progression: all four LoRA checkpoints (v1→v4) on the same scenario. Policy shift is visible — v1 defaults to rest/delegate, v4 names resource costs and cascade targets.*
 
 ---
 

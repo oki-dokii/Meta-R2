@@ -4,7 +4,7 @@ from pydantic import Field
 
 from core.life_state import LifeMetrics, ResourceBudget, DependencyGraph
 from core.metric_schema import normalize_metric_path
-from core.reward import compute_reward, compute_task_reward
+from core.reward import compute_reward, compute_task_reward, reward_format_compliance, reward_plausibility_check, reward_reasoning_coherence
 from core.task import Task, ExoEvent, Route, Milestone, FlightCrisisTask
 from core.verifier import LifeStackVerifier
 
@@ -119,11 +119,61 @@ class LifeStackState(State):
     current_conflict: Optional[Any] = None
     cumulative_rel_delta: float = Field(default=0.0)
 class LifeStackRubric(Rubric):
-    """Standard reward rubric for LifeStack."""
+    """Composable rubric for LifeStack.
+
+    Three independent sub-scores, each evaluable without environment state:
+
+    1. format_score   — Is the action valid JSON with all required keys and a
+                        recognised action_type + target_domain?  [-1.0, +1.0]
+    2. plausibility   — Does the claimed metric_changes / resource_cost ratio
+                        pass the anti-gaming threshold?           [-0.30, 0.0]
+    3. reasoning      — Does the reasoning field contain logical connectors
+                        aligned with the chosen action_type?      [-0.20, +0.20]
+
+    Combined as:  0.50 × format + 0.30 × env_reward + 0.10 × plausibility + 0.10 × reasoning
+    The environment step reward (cascade outcome) carries the most weight;
+    the rubric components are stateless and gameable, so they are intentionally
+    weighted lower.
+    """
+
+    # Weights for the composable components
+    W_ENV        = 0.50
+    W_FORMAT     = 0.30
+    W_PLAUSIBLE  = 0.10
+    W_REASONING  = 0.10
+
     def forward(self, action: LifeStackAction, observation: LifeStackObservation) -> float:
-        # In LifeStack, reward is usually computed inside step() for state-transition access.
-        # This rubric provides a hook for external reward evaluation if needed.
-        return observation.reward if observation.reward is not None else 0.0
+        env_reward = observation.reward if observation.reward is not None else 0.0
+
+        # Reconstruct the JSON completion string the model would have produced
+        import json as _json
+        try:
+            completion = _json.dumps({
+                "action_type": action.primary.action_type if action.primary else "",
+                "target_domain": action.primary.target_domain if action.primary else "",
+                "metric_changes": action.primary.metric_changes if action.primary else {},
+                "resource_cost": action.primary.resource_cost if action.primary else {},
+                "reasoning": action.reasoning or "",
+            })
+        except Exception:
+            completion = ""
+
+        format_score = reward_format_compliance(completion)
+
+        metric_changes = action.primary.metric_changes if action.primary else {}
+        resource_cost  = action.primary.resource_cost  if action.primary else {}
+        plausibility   = reward_plausibility_check(metric_changes, resource_cost)
+
+        reasoning      = action.reasoning or ""
+        action_type    = action.primary.action_type if action.primary else ""
+        reasoning_score = reward_reasoning_coherence(reasoning, action_type)
+
+        return (
+            self.W_ENV       * env_reward      +
+            self.W_FORMAT    * format_score    +
+            self.W_PLAUSIBLE * plausibility    +
+            self.W_REASONING * reasoning_score
+        )
 
 class PartialObsFilter:
     @staticmethod
